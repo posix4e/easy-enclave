@@ -45,6 +45,86 @@ UBUNTU_CLOUD_IMAGES = {
     "24.10": "https://cloud-images.ubuntu.com/oracular/current/oracular-server-cloudimg-amd64.img",
 }
 
+# Deployment state directory
+DEPLOYMENTS_DIR = Path("/var/lib/easy-enclave/deployments")
+
+
+def clone_repo(repo: str, ref: str = None, token: str = None) -> str:
+    """Clone a GitHub repo and return path to the cloned directory.
+
+    Args:
+        repo: GitHub repo in 'owner/repo' format
+        ref: Git ref (branch, tag, or commit) to checkout
+        token: GitHub token for private repos
+
+    Returns:
+        Path to cloned repository
+    """
+    workdir = tempfile.mkdtemp(prefix="ee-deploy-")
+    repo_path = os.path.join(workdir, "repo")
+
+    # Build clone URL (with token for private repos)
+    if token:
+        clone_url = f"https://x-access-token:{token}@github.com/{repo}.git"
+    else:
+        clone_url = f"https://github.com/{repo}.git"
+
+    log(f"Cloning {repo}...")
+    result = subprocess.run(
+        ['git', 'clone', '--depth', '1', clone_url, repo_path],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to clone repo: {result.stderr}")
+
+    # Checkout specific ref if provided
+    if ref:
+        log(f"Checking out {ref}...")
+        result = subprocess.run(
+            ['git', 'checkout', ref],
+            cwd=repo_path, capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to checkout {ref}: {result.stderr}")
+
+    log(f"Cloned to {repo_path}")
+    return repo_path
+
+
+def find_docker_compose(repo_path: str, hint: str = None) -> str:
+    """Find docker-compose.yml in a cloned repo.
+
+    Args:
+        repo_path: Path to cloned repository
+        hint: Optional path hint (e.g., './docker-compose.yml')
+
+    Returns:
+        Absolute path to docker-compose.yml
+    """
+    # If hint provided, try it first
+    if hint:
+        candidates = [os.path.join(repo_path, hint.lstrip('./'))]
+    else:
+        candidates = []
+
+    # Standard locations to check
+    candidates.extend([
+        os.path.join(repo_path, "docker-compose.yml"),
+        os.path.join(repo_path, "docker-compose.yaml"),
+        os.path.join(repo_path, ".easyenclave", "docker-compose.yml"),
+        os.path.join(repo_path, "example", "docker-compose.yml"),
+    ])
+
+    for path in candidates:
+        if os.path.exists(path):
+            log(f"Found docker-compose: {path}")
+            return path
+
+    raise FileNotFoundError(
+        f"No docker-compose.yml found in {repo_path}. "
+        f"Checked: {', '.join(candidates)}"
+    )
+
 
 def check_requirements() -> None:
     """Check that TDX and libvirt are available. Fails fast if not."""
@@ -635,7 +715,9 @@ client = connect("{repo}")
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Create TD VM with workload')
-    parser.add_argument('docker_compose', help='Path to docker-compose.yml')
+    parser.add_argument('docker_compose', nargs='?', help='Path to docker-compose.yml (optional if --repo is used)')
+    parser.add_argument('--repo', help='GitHub repo to clone (owner/repo format)')
+    parser.add_argument('--ref', help='Git ref to checkout (branch/tag/commit)')
     parser.add_argument('--name', default='ee-workload', help='VM name (default: ee-workload)')
     parser.add_argument('--port', type=int, default=8080, help='HTTP port (default: 8080)')
     parser.add_argument('--enable-ssh', action='store_true', help='Enable SSH access (default: off)')
@@ -643,7 +725,23 @@ if __name__ == '__main__':
     parser.add_argument('--endpoint', help='Endpoint URL for release (default: http://{vm_ip}:{port})')
     args = parser.parse_args()
 
-    result = create_td_vm(args.docker_compose, name=args.name, port=args.port, enable_ssh=args.enable_ssh)
+    # Determine docker-compose path
+    if args.repo:
+        # Clone repo and find docker-compose
+        token = os.environ.get('GITHUB_TOKEN')
+        repo_path = clone_repo(args.repo, ref=args.ref, token=token)
+        docker_compose = find_docker_compose(repo_path, hint=args.docker_compose)
+    elif args.docker_compose:
+        docker_compose = args.docker_compose
+    else:
+        parser.error('Either docker_compose path or --repo is required')
+
+    result = create_td_vm(docker_compose, name=args.name, port=args.port, enable_ssh=args.enable_ssh)
+
+    # Add repo info to result if cloning was used
+    if args.repo:
+        result['repo'] = args.repo
+        result['ref'] = args.ref
 
     if args.create_release:
         endpoint = args.endpoint or f"http://{result['ip']}:{result['port']}"

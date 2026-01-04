@@ -1,9 +1,12 @@
 name: 'Easy Enclave Attest'
 description: 'Deploy workload in TDX VM and create attested GitHub release'
 inputs:
+  agent-url:
+    description: 'URL of the deployment agent (if not provided, runs locally on self-hosted TDX runner)'
+    required: false
   docker-compose:
     description: 'Path to docker-compose.yml'
-    required: true
+    required: false
     default: './docker-compose.yml'
   endpoint:
     description: 'Public endpoint URL for the service (use "auto" for http://{vm_ip}:8080)'
@@ -32,10 +35,66 @@ outputs:
   quote:
     description: 'Base64-encoded TDX quote'
     value: ${{ steps.vm.outputs.quote }}
+  release_url:
+    description: 'URL of the created GitHub release'
+    value: ${{ steps.vm.outputs.release_url }}
 runs:
   using: 'composite'
   steps:
+    # Agent mode: call remote agent API
+    - name: Deploy via Agent
+      id: agent
+      if: ${{ inputs.agent-url != '' }}
+      shell: bash
+      run: |
+        echo "Deploying via agent at ${{ inputs.agent-url }}"
+
+        # Start deployment
+        RESPONSE=$(curl -sf -X POST "${{ inputs.agent-url }}/deploy" \
+          -H "Authorization: Bearer ${{ inputs.github-token }}" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "repo": "${{ github.repository }}",
+            "ref": "${{ github.sha }}",
+            "docker_compose": "${{ inputs.docker-compose }}",
+            "port": ${{ inputs.endpoint-port }},
+            "vm_name": "${{ inputs.vm-name }}"
+          }')
+
+        DEPLOY_ID=$(echo "$RESPONSE" | jq -r .deployment_id)
+        echo "Deployment started: $DEPLOY_ID"
+
+        # Poll for completion
+        MAX_WAIT=600
+        WAITED=0
+        while [ $WAITED -lt $MAX_WAIT ]; do
+          STATUS=$(curl -sf "${{ inputs.agent-url }}/status/$DEPLOY_ID" | jq -r .status)
+          echo "Status: $STATUS (waited ${WAITED}s)"
+
+          if [ "$STATUS" = "complete" ]; then
+            RESULT=$(curl -sf "${{ inputs.agent-url }}/status/$DEPLOY_ID")
+            echo "vm_ip=$(echo "$RESULT" | jq -r .vm_ip)" >> $GITHUB_OUTPUT
+            echo "quote=$(echo "$RESULT" | jq -r .quote)" >> $GITHUB_OUTPUT
+            echo "release_url=$(echo "$RESULT" | jq -r .release_url)" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if [ "$STATUS" = "failed" ]; then
+            ERROR=$(curl -sf "${{ inputs.agent-url }}/status/$DEPLOY_ID" | jq -r .error)
+            echo "Deployment failed: $ERROR"
+            exit 1
+          fi
+
+          sleep 10
+          WAITED=$((WAITED + 10))
+        done
+
+        echo "Deployment timed out after ${MAX_WAIT}s"
+        exit 1
+
+    # Local mode: run on self-hosted TDX runner
     - name: Setup TDX environment
+      if: ${{ inputs.agent-url == '' }}
       shell: bash
       run: |
         # Force destroy old VM if exists
@@ -51,6 +110,7 @@ runs:
 
     - name: Create TD VM and Release
       id: vm
+      if: ${{ inputs.agent-url == '' }}
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
@@ -64,3 +124,14 @@ runs:
           > /tmp/vm_result.json
         echo "quote=$(jq -r .quote /tmp/vm_result.json)" >> $GITHUB_OUTPUT
         echo "vm_ip=$(jq -r .ip /tmp/vm_result.json)" >> $GITHUB_OUTPUT
+        echo "release_url=$(jq -r .release_url /tmp/vm_result.json)" >> $GITHUB_OUTPUT
+
+    # Copy agent outputs to vm outputs for unified interface
+    - name: Set outputs from agent
+      id: set-outputs
+      if: ${{ inputs.agent-url != '' }}
+      shell: bash
+      run: |
+        echo "vm_ip=${{ steps.agent.outputs.vm_ip }}" >> $GITHUB_OUTPUT
+        echo "quote=${{ steps.agent.outputs.quote }}" >> $GITHUB_OUTPUT
+        echo "release_url=${{ steps.agent.outputs.release_url }}" >> $GITHUB_OUTPUT
