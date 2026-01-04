@@ -399,6 +399,7 @@ def generate_tdx_domain_xml(
   <features>
     <acpi/>
     <apic/>
+    <ioapic driver='split'/>
   </features>
 
   <cpu mode='host-passthrough'>
