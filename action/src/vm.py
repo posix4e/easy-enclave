@@ -72,36 +72,6 @@ def check_requirements() -> None:
     log("libvirt TDX: supported")
 
 
-def get_tdx_info() -> dict:
-    """Get TDX information from the host."""
-    info = {
-        "tdx_available": False,
-        "tdx_version": None,
-        "kernel": None,
-        "libvirt_tdx": False,
-    }
-
-    # Check kernel
-    result = subprocess.run(['uname', '-r'], capture_output=True, text=True)
-    if result.returncode == 0:
-        info["kernel"] = result.stdout.strip()
-
-    # Check /sys for TDX
-    tdx_path = "/sys/module/kvm_intel/parameters/tdx"
-    if os.path.exists(tdx_path):
-        with open(tdx_path) as f:
-            val = f.read().strip()
-            info["tdx_available"] = val in ('Y', '1')
-            info["tdx_version"] = val
-
-    # Check libvirt TDX support
-    result = subprocess.run(['virsh', 'domcapabilities', '--machine', 'q35'], capture_output=True, text=True)
-    if result.returncode == 0 and 'tdx' in result.stdout.lower():
-        info["libvirt_tdx"] = True
-
-    return info
-
-
 def find_existing_images() -> list:
     """Find existing TD/cloud images on the system."""
     images = []
