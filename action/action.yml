@@ -21,6 +21,10 @@ inputs:
     description: 'Name for the TD VM'
     required: false
     default: 'ee-workload'
+  enable-ssh:
+    description: 'Enable SSH access to VM (default: false)'
+    required: false
+    default: 'false'
 outputs:
   vm_ip:
     description: 'IP address of the created TD VM'
@@ -49,7 +53,7 @@ runs:
       id: vm
       shell: bash
       run: |
-        python3 ${{ github.action_path }}/src/vm.py ${{ inputs.docker-compose }} --name ${{ inputs.vm-name }} > /tmp/vm_result.json
+        python3 ${{ github.action_path }}/src/vm.py ${{ inputs.docker-compose }} --name ${{ inputs.vm-name }} --port ${{ inputs.endpoint-port }} ${{ inputs.enable-ssh == 'true' && '--enable-ssh' || '' }} > /tmp/vm_result.json
         echo "quote=$(jq -r .quote /tmp/vm_result.json)" >> $GITHUB_OUTPUT
         echo "vm_ip=$(jq -r .ip /tmp/vm_result.json)" >> $GITHUB_OUTPUT
 

@@ -39,6 +39,39 @@ UBUNTU_CLOUD_IMAGES = {
 }
 
 
+def check_requirements() -> None:
+    """Check that TDX and libvirt are available. Fails fast if not."""
+    # Check kernel
+    result = subprocess.run(['uname', '-r'], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError("Cannot get kernel version")
+    kernel = result.stdout.strip()
+    log(f"Kernel: {kernel}")
+
+    # Check TDX support
+    tdx_enabled = False
+    tdx_path = "/sys/module/kvm_intel/parameters/tdx"
+    if os.path.exists(tdx_path):
+        with open(tdx_path) as f:
+            if f.read().strip() in ('Y', '1'):
+                tdx_enabled = True
+    if not tdx_enabled:
+        raise RuntimeError(f"TDX not enabled (check {tdx_path})")
+    log("TDX: enabled")
+
+    # Check libvirt
+    result = subprocess.run(['virsh', 'version'], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError("libvirt not available (virsh not found)")
+    log("libvirt: available")
+
+    # Check libvirt TDX support
+    result = subprocess.run(['virsh', 'domcapabilities', '--machine', 'q35'], capture_output=True, text=True)
+    if 'tdx' not in result.stdout.lower():
+        raise RuntimeError("libvirt does not support TDX (check QEMU/libvirt versions)")
+    log("libvirt TDX: supported")
+
+
 def get_tdx_info() -> dict:
     """Get TDX information from the host."""
     info = {
@@ -49,50 +82,22 @@ def get_tdx_info() -> dict:
     }
 
     # Check kernel
-    try:
-        result = subprocess.run(['uname', '-r'], capture_output=True, text=True)
+    result = subprocess.run(['uname', '-r'], capture_output=True, text=True)
+    if result.returncode == 0:
         info["kernel"] = result.stdout.strip()
-    except Exception:
-        pass
-
-    # Check for TDX in dmesg
-    try:
-        result = subprocess.run(['dmesg'], capture_output=True, text=True)
-        if 'tdx' in result.stdout.lower():
-            info["tdx_available"] = True
-            # Try to find version
-            for line in result.stdout.split('\n'):
-                if 'tdx' in line.lower() and 'version' in line.lower():
-                    info["tdx_version"] = line.strip()
-                    break
-    except Exception:
-        pass
 
     # Check /sys for TDX
-    tdx_paths = [
-        "/sys/firmware/tdx",
-        "/sys/module/kvm_intel/parameters/tdx",
-    ]
-    for path in tdx_paths:
-        if os.path.exists(path):
-            info["tdx_available"] = True
-            try:
-                with open(path) as f:
-                    info["tdx_version"] = f.read().strip()
-            except Exception:
-                pass
-            break
+    tdx_path = "/sys/module/kvm_intel/parameters/tdx"
+    if os.path.exists(tdx_path):
+        with open(tdx_path) as f:
+            val = f.read().strip()
+            info["tdx_available"] = val in ('Y', '1')
+            info["tdx_version"] = val
 
     # Check libvirt TDX support
-    try:
-        result = subprocess.run(
-            ['virsh', 'domcapabilities', '--machine', 'q35'],
-            capture_output=True, text=True
-        )
-        if 'tdx' in result.stdout.lower():
-            info["libvirt_tdx"] = True
-    except Exception:
-        pass
+    result = subprocess.run(['virsh', 'domcapabilities', '--machine', 'q35'], capture_output=True, text=True)
+    if result.returncode == 0 and 'tdx' in result.stdout.lower():
+        info["libvirt_tdx"] = True
 
     return info
 
@@ -210,7 +215,7 @@ def find_td_image() -> str:
     return find_or_download_td_image()
 
 
-def create_workload_image(base_image: str, docker_compose_content: str) -> str:
+def create_workload_image(base_image: str, docker_compose_content: str, port: int = 8080, enable_ssh: bool = False) -> str:
     """
     Create a workload-specific image with docker-compose baked in.
 
@@ -226,10 +231,10 @@ def create_workload_image(base_image: str, docker_compose_content: str) -> str:
         workload_image
     ], check=True, capture_output=True)
 
-    # Create cloud-init files
-    user_data = f"""#cloud-config
-hostname: ee-workload
-
+    # SSH config (off by default)
+    ssh_config = ""
+    if enable_ssh:
+        ssh_config = """
 # Enable password auth for SSH (for debugging)
 ssh_pwauth: true
 chpasswd:
@@ -238,7 +243,12 @@ chpasswd:
     - name: ubuntu
       password: ubuntu
       type: text
+"""
 
+    # Create cloud-init files
+    user_data = f"""#cloud-config
+hostname: ee-workload
+{ssh_config}
 write_files:
   - path: /opt/workload/docker-compose.yml
     content: |
@@ -272,10 +282,10 @@ write_files:
       </html>
       HTMLEOF
 
-      # Start simple HTTP server on port 8080
-      echo "Starting HTTP server on port 8080..."
+      # Start simple HTTP server on port {port}
+      echo "Starting HTTP server on port {port}..."
       cd /opt/workload
-      nohup python3 -m http.server 8080 > /opt/workload/http.log 2>&1 &
+      nohup python3 -m http.server {port} > /opt/workload/http.log 2>&1 &
       HTTP_PID=$!
       echo "HTTP server started with PID $HTTP_PID"
       sleep 2
@@ -283,7 +293,7 @@ write_files:
       # Verify it's running
       if kill -0 $HTTP_PID 2>/dev/null; then
           echo "HTTP server is running"
-          netstat -tlnp 2>/dev/null | grep 8080 || ss -tlnp | grep 8080 || echo "Port check failed but process running"
+          netstat -tlnp 2>/dev/null | grep {port} || ss -tlnp | grep {port} || echo "Port check failed but process running"
       else
           echo "ERROR: HTTP server died immediately"
           cat /opt/workload/http.log
@@ -714,113 +724,42 @@ def wait_for_vm_ip(name: str, timeout: int = 300) -> str:
     raise TimeoutError(f"VM {name} did not get IP within {timeout}s")
 
 
-def wait_for_ready(ip: str, timeout: int = 300) -> None:
-    """Wait for workload to be ready by checking port 8080."""
+def wait_for_ready(ip: str, port: int = 8080, timeout: int = 300) -> None:
+    """Wait for workload to be ready by checking port."""
     import socket
     start = time.time()
     last_print = 0
 
-    # First, wait for cloud-init to complete (give it 120s max)
-    log("Waiting for cloud-init to complete...")
-    cloud_init_timeout = min(120, timeout // 2)
-    cloud_init_done = False
-    while time.time() - start < cloud_init_timeout:
-        try:
-            result = subprocess.run([
-                'sshpass', '-p', 'ubuntu',
-                'ssh', '-o', 'StrictHostKeyChecking=no',
-                '-o', 'UserKnownHostsFile=/dev/null',
-                '-o', 'ConnectTimeout=5',
-                f'ubuntu@{ip}', 'cloud-init status --wait 2>/dev/null || cat /run/cloud-init/result.json 2>/dev/null || echo checking'
-            ], capture_output=True, text=True, timeout=60)
-            if 'done' in result.stdout.lower() or 'status: done' in result.stdout.lower():
-                log(f"Cloud-init completed")
-                cloud_init_done = True
-                break
-            # Check if start.sh created the ready file
-            result2 = subprocess.run([
-                'sshpass', '-p', 'ubuntu',
-                'ssh', '-o', 'StrictHostKeyChecking=no',
-                '-o', 'UserKnownHostsFile=/dev/null',
-                '-o', 'ConnectTimeout=5',
-                f'ubuntu@{ip}', 'test -f /opt/workload/ready && echo ready || echo waiting'
-            ], capture_output=True, text=True, timeout=30)
-            if 'ready' in result2.stdout:
-                log("Workload ready file exists")
-                cloud_init_done = True
-                break
-        except Exception as e:
-            pass
-        time.sleep(10)
-
-    if not cloud_init_done:
-        log(f"Cloud-init status unknown after {cloud_init_timeout}s, continuing anyway...")
-
-    # Now wait for port 8080
     while time.time() - start < timeout:
         elapsed = int(time.time() - start)
         if elapsed - last_print >= 30:
             last_print = elapsed
-            log(f"Waiting for workload on port 8080... ({elapsed}s elapsed)")
+            log(f"Waiting for port {port}... ({elapsed}s elapsed)")
 
         try:
-            # Try to connect to port 8080
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(5)
-            result = sock.connect_ex((ip, 8080))
+            result = sock.connect_ex((ip, port))
             sock.close()
             if result == 0:
-                log(f"Port 8080 is open on {ip}")
-                # Give it a moment to fully start
+                log(f"Port {port} is open on {ip}")
                 time.sleep(2)
                 return
         except Exception:
             pass
         time.sleep(5)
 
-    raise TimeoutError(f"Workload not ready within {timeout}s")
+    raise TimeoutError(f"Port {port} not ready within {timeout}s")
 
 
-def get_quote_from_vm(ip: str) -> str:
-    """Retrieve quote from VM. Returns base64-encoded quote."""
-    # First, get the debug log
-    log_result = subprocess.run([
-        'sshpass', '-p', 'ubuntu',
-        'ssh', '-o', 'StrictHostKeyChecking=no',
-        '-o', 'UserKnownHostsFile=/dev/null',
-        '-o', 'ConnectTimeout=10',
-        f'ubuntu@{ip}', 'cat /opt/workload/quote.log 2>/dev/null || echo "No log file"'
-    ], capture_output=True, text=True, timeout=30)
-    if log_result.stdout.strip():
-        log(f"=== Quote generation debug log ===")
-        log(log_result.stdout)
-        log(f"=== End debug log ===")
+def get_quote_from_vm(ip: str, port: int = 8080) -> str:
+    """Retrieve quote from VM via HTTP. Returns base64-encoded quote."""
+    url = f"http://{ip}:{port}/quote.json"
+    log(f"Fetching quote from {url}")
 
-    # Use sshpass for password auth
-    result = subprocess.run([
-        'sshpass', '-p', 'ubuntu',
-        'ssh', '-o', 'StrictHostKeyChecking=no',
-        '-o', 'UserKnownHostsFile=/dev/null',
-        '-o', 'ConnectTimeout=10',
-        f'ubuntu@{ip}', 'cat /opt/workload/quote.json'
-    ], capture_output=True, text=True, timeout=30)
+    response = urllib.request.urlopen(url, timeout=30)
+    data = json.loads(response.read().decode())
 
-    if result.returncode != 0:
-        # Try without sshpass in case it's not installed
-        result = subprocess.run([
-            'ssh', '-o', 'StrictHostKeyChecking=no',
-            '-o', 'UserKnownHostsFile=/dev/null',
-            '-o', 'ConnectTimeout=10',
-            f'ubuntu@{ip}', 'cat /opt/workload/quote.json'
-        ], capture_output=True, text=True, timeout=30)
-
-    if result.returncode != 0:
-        raise RuntimeError(f"Failed to read quote from VM: {result.stderr}")
-
-    if not result.stdout.strip():
-        raise RuntimeError("Empty quote response from VM")
-
-    data = json.loads(result.stdout)
     if not data.get("success"):
         raise RuntimeError(f"Quote generation failed in VM: {data.get('error', 'unknown')}")
 
@@ -830,12 +769,15 @@ def get_quote_from_vm(ip: str) -> str:
     return data["quote"]
 
 
-def create_td_vm(docker_compose_path: str, name: str = "ee-workload") -> dict:
+def create_td_vm(docker_compose_path: str, name: str = "ee-workload", port: int = 8080, enable_ssh: bool = False) -> dict:
     """
     Create a TD VM with the given workload.
 
     Returns dict with IP and quote. Raises on failure.
     """
+    log("Checking requirements...")
+    check_requirements()
+
     log(f"Finding TD base image...")
     base_image = find_td_image()
     log(f"Using base image: {base_image}")
@@ -846,7 +788,7 @@ def create_td_vm(docker_compose_path: str, name: str = "ee-workload") -> dict:
 
     log("Creating workload image...")
     workload_image, cidata_iso, workdir = create_workload_image(
-        base_image, docker_compose_content
+        base_image, docker_compose_content, port=port, enable_ssh=enable_ssh
     )
 
     log("Starting TD VM...")
@@ -854,14 +796,15 @@ def create_td_vm(docker_compose_path: str, name: str = "ee-workload") -> dict:
     log(f"VM IP: {ip}")
 
     log("Waiting for workload...")
-    wait_for_ready(ip, timeout=300)
+    wait_for_ready(ip, port=port, timeout=300)
 
     log("Retrieving quote...")
-    quote = get_quote_from_vm(ip)
+    quote = get_quote_from_vm(ip, port=port)
 
     return {
         "name": name,
         "ip": ip,
+        "port": port,
         "quote": quote,
         "workdir": workdir,
     }
@@ -878,8 +821,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Create TD VM with workload')
     parser.add_argument('docker_compose', help='Path to docker-compose.yml')
     parser.add_argument('--name', default='ee-workload', help='VM name (default: ee-workload)')
+    parser.add_argument('--port', type=int, default=8080, help='HTTP port (default: 8080)')
+    parser.add_argument('--enable-ssh', action='store_true', help='Enable SSH access (default: off)')
     args = parser.parse_args()
 
-    result = create_td_vm(args.docker_compose, name=args.name)
+    result = create_td_vm(args.docker_compose, name=args.name, port=args.port, enable_ssh=args.enable_ssh)
     # Only JSON goes to stdout, logs went to stderr
     print(json.dumps(result, indent=2))
