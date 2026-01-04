@@ -28,5 +28,5 @@ jobs:
 
       - name: Verify with SDK
         run: |
-          pip install -e sdk
+          python3 -m pip install -e sdk
           python3 example/verify.py ${{ github.repository }}
