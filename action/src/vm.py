@@ -12,10 +12,9 @@ import subprocess
 import sys
 import tempfile
 import time
-import hashlib
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Tuple
 
 # Force unbuffered output for real-time logging
 sys.stdout.reconfigure(line_buffering=True)
@@ -752,6 +751,65 @@ def destroy_td_vm(name: str = "ee-workload") -> None:
     subprocess.run(['sudo', 'virsh', 'undefine', name], capture_output=True)
 
 
+def create_release(quote: str, endpoint: str, repo: str = None, token: str = None) -> str:
+    """Create a GitHub release with attestation data."""
+    repo = repo or os.environ.get('GITHUB_REPOSITORY')
+    token = token or os.environ.get('GITHUB_TOKEN')
+
+    if not repo or not token:
+        raise ValueError("GITHUB_REPOSITORY and GITHUB_TOKEN must be set")
+
+    now = datetime.now(timezone.utc)
+    timestamp = now.strftime('%Y%m%d-%H%M%S')
+    tag = f"deploy-{timestamp}"
+
+    attestation = {
+        "version": "1.0",
+        "quote": quote,
+        "endpoint": endpoint,
+        "timestamp": now.isoformat().replace('+00:00', 'Z'),
+        "repo": repo
+    }
+
+    body = f"""## TDX Attested Deployment
+
+**Endpoint**: {endpoint}
+
+**Timestamp**: {attestation['timestamp']}
+
+### Attestation Data
+
+```json
+{json.dumps(attestation, indent=2)}
+```
+
+### Verification
+
+```python
+from easyenclave import connect
+client = connect("{repo}")
+```
+"""
+
+    subprocess.run(
+        ['gh', 'release', 'create', tag, '--repo', repo, '--title', f'Deployment {timestamp}', '--notes', body],
+        check=True, env={**os.environ, 'GITHUB_TOKEN': token}
+    )
+    log(f"Created release: {tag}")
+
+    attestation_file = '/tmp/attestation.json'
+    with open(attestation_file, 'w') as f:
+        json.dump(attestation, f, indent=2)
+
+    subprocess.run(
+        ['gh', 'release', 'upload', tag, attestation_file, '--repo', repo],
+        check=True, env={**os.environ, 'GITHUB_TOKEN': token}
+    )
+    log("Uploaded attestation.json")
+
+    return f"https://github.com/{repo}/releases/tag/{tag}"
+
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Create TD VM with workload')
@@ -759,8 +817,16 @@ if __name__ == '__main__':
     parser.add_argument('--name', default='ee-workload', help='VM name (default: ee-workload)')
     parser.add_argument('--port', type=int, default=8080, help='HTTP port (default: 8080)')
     parser.add_argument('--enable-ssh', action='store_true', help='Enable SSH access (default: off)')
+    parser.add_argument('--create-release', action='store_true', help='Create GitHub release with attestation')
+    parser.add_argument('--endpoint', help='Endpoint URL for release (default: http://{vm_ip}:{port})')
     args = parser.parse_args()
 
     result = create_td_vm(args.docker_compose, name=args.name, port=args.port, enable_ssh=args.enable_ssh)
+
+    if args.create_release:
+        endpoint = args.endpoint or f"http://{result['ip']}:{result['port']}"
+        release_url = create_release(result['quote'], endpoint)
+        result['release_url'] = release_url
+
     # Only JSON goes to stdout, logs went to stderr
     print(json.dumps(result, indent=2))

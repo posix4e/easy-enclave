@@ -49,18 +49,18 @@ runs:
         # Fix vsock permissions for QEMU to connect to QGS
         sudo chmod 666 /dev/vhost-vsock /dev/vsock 2>/dev/null || true
 
-    - name: Create TD VM with Workload
+    - name: Create TD VM and Release
       id: vm
-      shell: bash
-      run: |
-        python3 ${{ github.action_path }}/src/vm.py ${{ inputs.docker-compose }} --name ${{ inputs.vm-name }} --port ${{ inputs.endpoint-port }} ${{ inputs.enable-ssh == 'true' && '--enable-ssh' || '' }} > /tmp/vm_result.json
-        echo "quote=$(jq -r .quote /tmp/vm_result.json)" >> $GITHUB_OUTPUT
-        echo "vm_ip=$(jq -r .ip /tmp/vm_result.json)" >> $GITHUB_OUTPUT
-
-    - name: Create Attested Release
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
-        ENDPOINT: ${{ inputs.endpoint == 'auto' && format('http://{0}:{1}', steps.vm.outputs.vm_ip, inputs.endpoint-port) || inputs.endpoint }}
-        QUOTE: ${{ steps.vm.outputs.quote }}
-      run: python3 ${{ github.action_path }}/src/release.py
+      run: |
+        python3 ${{ github.action_path }}/src/vm.py ${{ inputs.docker-compose }} \
+          --name ${{ inputs.vm-name }} \
+          --port ${{ inputs.endpoint-port }} \
+          ${{ inputs.enable-ssh == 'true' && '--enable-ssh' || '' }} \
+          --create-release \
+          ${{ inputs.endpoint != 'auto' && format('--endpoint {0}', inputs.endpoint) || '' }} \
+          > /tmp/vm_result.json
+        echo "quote=$(jq -r .quote /tmp/vm_result.json)" >> $GITHUB_OUTPUT
+        echo "vm_ip=$(jq -r .ip /tmp/vm_result.json)" >> $GITHUB_OUTPUT
