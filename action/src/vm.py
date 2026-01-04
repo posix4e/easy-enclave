@@ -399,7 +399,6 @@ def generate_tdx_domain_xml(
   <features>
     <acpi/>
     <apic/>
-    <ioapic driver='split'/>
   </features>
 
   <cpu mode='host-passthrough'>
@@ -439,6 +438,11 @@ def generate_tdx_domain_xml(
       <target type='serial' port='0'/>
     </console>
   </devices>
+
+  <qemu:commandline>
+    <qemu:arg value='-machine'/>
+    <qemu:arg value='kernel_irqchip=split'/>
+  </qemu:commandline>
 </domain>
 """
 
