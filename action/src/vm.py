@@ -280,73 +280,39 @@ write_files:
       import base64
       import json
       import os
-      import subprocess
-      import sys
-
-      def debug(msg):
-          print(f"DEBUG: {{msg}}", file=sys.stderr)
+      import tempfile
 
       def get_tdx_quote():
-          # Debug: show available TDX interfaces
-          debug(f"Checking /dev/tdx_guest: {{os.path.exists('/dev/tdx_guest')}}")
-          if os.path.exists('/dev/tdx_guest'):
-              debug(f"  perms: {{oct(os.stat('/dev/tdx_guest').st_mode)}}")
-          debug(f"Checking /sys/kernel/config/tsm/report: {{os.path.exists('/sys/kernel/config/tsm/report')}}")
-          if os.path.exists('/sys/kernel/config/tsm/report'):
-              try:
-                  contents = os.listdir('/sys/kernel/config/tsm/report')
-                  debug(f"  contents: {{contents}}")
-              except Exception as e:
-                  debug(f"  listdir failed: {{e}}")
+          tsm_path = "/sys/kernel/config/tsm/report"
+          if not os.path.exists(tsm_path):
+              raise RuntimeError(f"configfs-tsm not available at {{tsm_path}}")
 
-          # Try configfs-tsm first (kernel 6.7+)
-          try:
-              tsm_path = "/sys/kernel/config/tsm/report"
-              if os.path.exists(tsm_path):
-                  import tempfile
-                  import time
-                  report_dir = tempfile.mkdtemp(dir=tsm_path)
-                  debug(f"Created report dir: {{report_dir}}")
-                  inblob = os.path.join(report_dir, "inblob")
-                  outblob = os.path.join(report_dir, "outblob")
-                  with open(inblob, 'wb') as f:
-                      f.write(b'\\x00' * 64)
-                  debug(f"Wrote inblob, reading outblob...")
-                  time.sleep(1)  # Give QGS time to respond
-                  with open(outblob, 'rb') as f:
-                      data = f.read()
-                  debug(f"Read {{len(data)}} bytes from outblob")
-                  if len(data) > 0:
-                      return data
-                  debug("outblob was empty")
-          except Exception as e:
-              debug(f"configfs-tsm failed: {{e}}")
+          report_dir = tempfile.mkdtemp(dir=tsm_path)
+          inblob = os.path.join(report_dir, "inblob")
+          outblob = os.path.join(report_dir, "outblob")
 
-          # Try /dev/tdx_guest
-          try:
-              import fcntl
-              TDX_CMD_GET_REPORT = 0xc0104401
-              buf = bytearray(b'\\x00' * 64 + b'\\x00' * 1024)
-              with open('/dev/tdx_guest', 'rb+', buffering=0) as f:
-                  fcntl.ioctl(f, TDX_CMD_GET_REPORT, buf)
-              debug(f"Got {{len(buf)}} bytes from /dev/tdx_guest")
-              return bytes(buf[64:])
-          except Exception as e:
-              debug(f"/dev/tdx_guest failed: {{e}}")
+          with open(inblob, 'wb') as f:
+              f.write(b'\\x00' * 64)
 
-          return None
+          with open(outblob, 'rb') as f:
+              data = f.read()
 
-      quote = get_tdx_quote()
-      if quote and len(quote) > 100:
+          if len(data) == 0:
+              raise RuntimeError("Empty quote from configfs-tsm")
+
+          return data
+
+      try:
+          quote = get_tdx_quote()
+          if len(quote) < 100:
+              raise RuntimeError(f"Quote too small ({{len(quote)}} bytes)")
           print(json.dumps({{
               "success": True,
               "quote": base64.b64encode(quote).decode(),
               "size": len(quote)
           }}))
-      elif quote:
-          print(json.dumps({{"success": False, "error": f"Quote too small ({{len(quote)}} bytes)", "size": len(quote)}}))
-      else:
-          print(json.dumps({{"success": False, "error": "No quote mechanism available"}}))
+      except Exception as e:
+          print(json.dumps({{"success": False, "error": str(e)}}))
 
 runcmd:
   - /opt/workload/start.sh
