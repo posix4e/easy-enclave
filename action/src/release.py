@@ -9,7 +9,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 def create_release(
@@ -39,7 +39,8 @@ def create_release(
         raise ValueError("GITHUB_REPOSITORY and GITHUB_TOKEN must be set")
 
     # Generate release tag based on timestamp
-    timestamp = datetime.utcnow().strftime('%Y%m%d-%H%M%S')
+    now = datetime.now(timezone.utc)
+    timestamp = now.strftime('%Y%m%d-%H%M%S')
     tag = f"deploy-{timestamp}"
 
     # Build attestation JSON
@@ -48,7 +49,7 @@ def create_release(
         "quote": quote,
         "endpoint": endpoint,
         "measurements": json.loads(measurements) if isinstance(measurements, str) else measurements,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": now.isoformat().replace('+00:00', 'Z'),
         "repo": repo
     }
 
