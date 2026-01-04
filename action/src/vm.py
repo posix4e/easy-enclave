@@ -508,13 +508,15 @@ def generate_tdx_domain_xml(
     vcpus: int,
 ) -> str:
     """Generate libvirt XML for TDX VM based on Canonical's template."""
-    # Find OVMF firmware - use same path as Canonical
+    # Find OVMF firmware - prefer TDX-specific OVMF
     ovmf_paths = [
+        "/usr/share/ovmf/OVMF.tdx.fd",  # TDX-specific OVMF (preferred)
         "/usr/share/qemu/OVMF.fd",
+        "/usr/share/ovmf/OVMF.fd",
         "/usr/share/OVMF/OVMF_CODE_4M.fd",
-        "/usr/share/OVMF/OVMF_CODE.fd",
     ]
     ovmf = next((p for p in ovmf_paths if os.path.exists(p)), ovmf_paths[0])
+    print(f"Using OVMF firmware: {ovmf}")
 
     # Note: Using type='rom' instead of 'pflash' - this is key for TDX!
     return f"""<domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'>
