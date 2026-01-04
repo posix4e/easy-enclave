@@ -1,185 +1,145 @@
 #!/usr/bin/env python3
 """
-Generate TDX quote.
+Generate TDX quote using modern kernel interface (configfs-tsm).
 
-For CRAWL: tries direct methods (if running in TD)
-For WALK+: creates TD VM and gets quote from it
+Requires:
+- Linux kernel 6.7+ with CONFIG_TSM_REPORTS enabled
+- QGS (Quote Generation Service) backend for Intel-signed quotes
+- TDX hardware with proper DCAP provisioning
+
+This module ONLY uses the configfs-tsm interface to ensure all quotes
+are properly signed by Intel's Quoting Enclave via DCAP infrastructure.
 """
 
 import base64
 import json
 import os
-import struct
-import subprocess
-import sys
 from pathlib import Path
 
+# Minimum quote size for a valid Intel-signed TDX quote
+# Header (48) + TD Report (584) + Signature data (~variable, but at least 100)
+MIN_SIGNED_QUOTE_SIZE = 1020
 
-def get_tdx_report(report_data: bytes = b'\x00' * 64) -> bytes:
+# TDX TEE type identifier in quote header
+TDX_TEE_TYPE = 0x81
+
+
+def validate_intel_signature(quote: bytes) -> None:
     """
-    Get TDX report using /dev/tdx_guest.
+    Validate that a quote has Intel signature structure.
+
+    A properly signed TDX quote must have:
+    - Minimum size (header + report + signature)
+    - Correct TEE type (0x81 for TDX)
+    - Valid quote version
 
     Args:
-        report_data: 64 bytes of user data
+        quote: Raw quote bytes
 
-    Returns:
-        Raw TD report bytes
+    Raises:
+        ValueError: If quote lacks Intel signature structure
     """
-    import fcntl
+    if len(quote) < MIN_SIGNED_QUOTE_SIZE:
+        raise ValueError(
+            f"Quote too small ({len(quote)} bytes) to contain Intel signature. "
+            f"Minimum size is {MIN_SIGNED_QUOTE_SIZE} bytes. "
+            "This likely means QGS backend is not configured for configfs-tsm."
+        )
 
-    # TDX_CMD_GET_REPORT ioctl
-    TDX_CMD_GET_REPORT = 0xc0104401
+    # Parse quote header
+    version = int.from_bytes(quote[0:2], 'little')
+    att_key_type = int.from_bytes(quote[2:4], 'little')
+    tee_type = int.from_bytes(quote[4:8], 'little')
 
-    # Request structure: report_data (64) + tdreport (1024)
-    buf = bytearray(report_data.ljust(64, b'\x00')[:64] + b'\x00' * 1024)
+    if tee_type != TDX_TEE_TYPE:
+        raise ValueError(
+            f"Invalid TEE type {tee_type:#x}, expected {TDX_TEE_TYPE:#x} (TDX). "
+            "This is not a valid TDX quote."
+        )
 
-    with open('/dev/tdx_guest', 'rb+', buffering=0) as f:
-        fcntl.ioctl(f, TDX_CMD_GET_REPORT, buf)
+    if version < 4:
+        raise ValueError(
+            f"Quote version {version} is too old. TDX quotes require version 4+."
+        )
 
-    return bytes(buf[64:])  # Return TD report
-
-
-def get_quote_via_configfs(report_data: bytes = b'\x00' * 64) -> bytes:
-    """
-    Get TDX quote using configfs-tsm interface (kernel 6.7+).
-
-    Args:
-        report_data: 64 bytes of user data
-
-    Returns:
-        Raw TDX quote bytes
-    """
-    tsm_path = Path("/sys/kernel/config/tsm/report")
-
-    # Create a new report request
-    report_dirs = list(tsm_path.glob("report*"))
-    if report_dirs:
-        report_dir = report_dirs[0]
-    else:
-        # May need to create via mkdir
-        report_dir = tsm_path / "report0"
-        report_dir.mkdir(exist_ok=True)
-
-    # Write report data (in hex)
-    inblob_path = report_dir / "inblob"
-    inblob_path.write_bytes(report_data.ljust(64, b'\x00')[:64])
-
-    # Read the quote
-    outblob_path = report_dir / "outblob"
-    quote = outblob_path.read_bytes()
-
-    return quote
-
-
-def get_quote_via_qgs(report_data: bytes = b'\x00' * 64) -> bytes:
-    """
-    Get TDX quote via QGS (Quote Generation Service).
-
-    Args:
-        report_data: 64 bytes of user data
-
-    Returns:
-        Raw TDX quote bytes
-    """
-    import socket
-
-    # QGS socket path
-    QGS_SOCKET = "/var/run/aesmd/aesm.socket"
-
-    # First get TD report
-    td_report = get_tdx_report(report_data)
-
-    # Connect to QGS and request quote
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.connect(QGS_SOCKET)
-
-    # Build QGS request (simplified - actual protocol may vary)
-    # This is a placeholder - actual QGS protocol is more complex
-    request = struct.pack("<I", len(td_report)) + td_report
-    sock.sendall(request)
-
-    # Read response
-    response = b''
-    while True:
-        chunk = sock.recv(4096)
-        if not chunk:
-            break
-        response += chunk
-
-    sock.close()
-    return response
-
-
-def get_quote_via_dcap_tool(report_data: bytes = b'\x00' * 64) -> bytes:
-    """
-    Get TDX quote using Intel's quote generation tools.
-
-    Args:
-        report_data: 64 bytes of user data
-
-    Returns:
-        Raw TDX quote bytes
-    """
-    # Try various Intel tools
-    tools = [
-        ['tdx_quote_generate', '--report-data', report_data.hex()],
-        ['quote_generate', '-r', report_data.hex()],
-    ]
-
-    for cmd in tools:
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                check=True
-            )
-            return result.stdout
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            continue
-
-    raise RuntimeError("No DCAP quote generation tool found")
+    # Check for signature data after the header + report
+    # Quote header is 48 bytes, TD report body is ~584 bytes
+    # Signature section should follow
+    header_and_report_size = 48 + 584
+    if len(quote) <= header_and_report_size:
+        raise ValueError(
+            "Quote missing signature section. "
+            "Ensure QGS is properly configured with DCAP."
+        )
 
 
 def get_tdx_quote(report_data: bytes = b'\x00' * 64) -> bytes:
     """
-    Generate a TDX quote using available methods.
+    Generate an Intel-signed TDX quote using configfs-tsm.
 
-    Tries methods in order of preference.
+    This function ONLY uses the modern configfs-tsm interface (kernel 6.7+)
+    which requires a QGS backend to produce Intel-signed quotes.
+
+    The configfs-tsm interface:
+    1. Writes report_data to /sys/kernel/config/tsm/report/<id>/inblob
+    2. Reads the signed quote from /sys/kernel/config/tsm/report/<id>/outblob
+    3. The kernel routes this through the configured attestation backend (QGS)
 
     Args:
         report_data: 64 bytes of user data to include in the quote
 
     Returns:
-        Raw TDX quote bytes
+        Raw TDX quote bytes with Intel signature
+
+    Raises:
+        RuntimeError: If configfs-tsm is not available
+        ValueError: If the returned quote lacks Intel signature
     """
-    errors = []
+    tsm_path = Path("/sys/kernel/config/tsm/report")
 
-    # Method 1: configfs-tsm (modern)
+    if not tsm_path.exists():
+        raise RuntimeError(
+            "configfs-tsm not available at /sys/kernel/config/tsm/report. "
+            "Requirements:\n"
+            "  - Linux kernel 6.7+ with CONFIG_TSM_REPORTS=y\n"
+            "  - TSM configfs mounted: mount -t configfs none /sys/kernel/config\n"
+            "  - QGS (Quote Generation Service) running for Intel signatures"
+        )
+
+    # Create a unique report request directory
+    import time
+    report_id = f"report_{os.getpid()}_{int(time.time() * 1000)}"
+    report_dir = tsm_path / report_id
+
     try:
-        return get_quote_via_configfs(report_data)
-    except Exception as e:
-        errors.append(f"configfs-tsm: {e}")
+        report_dir.mkdir(exist_ok=False)
+    except FileExistsError:
+        # Use existing directory if creation fails
+        report_dirs = list(tsm_path.glob("report*"))
+        if not report_dirs:
+            raise RuntimeError("Cannot create or find TSM report directory")
+        report_dir = report_dirs[0]
 
-    # Method 2: Direct /dev/tdx_guest + QGS
     try:
-        return get_quote_via_qgs(report_data)
-    except Exception as e:
-        errors.append(f"QGS: {e}")
+        # Write report data
+        inblob_path = report_dir / "inblob"
+        inblob_path.write_bytes(report_data.ljust(64, b'\x00')[:64])
 
-    # Method 3: DCAP tools
-    try:
-        return get_quote_via_dcap_tool(report_data)
-    except Exception as e:
-        errors.append(f"DCAP tools: {e}")
+        # Read the quote (this triggers QGS to generate Intel-signed quote)
+        outblob_path = report_dir / "outblob"
+        quote = outblob_path.read_bytes()
 
-    # Method 4: Just get TD report (for testing)
-    try:
-        print("Warning: Could not get full quote, returning TD report only")
-        return get_tdx_report(report_data)
-    except Exception as e:
-        errors.append(f"TD report: {e}")
+        # Validate the quote has proper Intel signature structure
+        validate_intel_signature(quote)
 
-    raise RuntimeError(f"Could not generate TDX quote. Errors: {'; '.join(errors)}")
+        return quote
+
+    finally:
+        # Clean up the report directory
+        try:
+            report_dir.rmdir()
+        except OSError:
+            pass  # Directory may not be empty or already removed
 
 
 def parse_measurements(quote_or_report: bytes) -> dict:
