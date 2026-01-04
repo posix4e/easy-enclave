@@ -350,16 +350,16 @@ def start_td_vm(
         f.write(vm_xml)
 
     # Destroy existing VM
-    subprocess.run(['virsh', 'destroy', name], capture_output=True)
-    subprocess.run(['virsh', 'undefine', name], capture_output=True)
+    subprocess.run(['sudo', 'virsh', 'destroy', name], capture_output=True)
+    subprocess.run(['sudo', 'virsh', 'undefine', name], capture_output=True)
 
     # Define and start
-    result = subprocess.run(['virsh', 'define', xml_path], capture_output=True, text=True)
+    result = subprocess.run(['sudo', 'virsh', 'define', xml_path], capture_output=True, text=True)
     if result.returncode != 0:
         print(f"virsh define failed: {result.stderr}")
         raise RuntimeError(f"Failed to define VM: {result.stderr}")
 
-    result = subprocess.run(['virsh', 'start', name], capture_output=True, text=True)
+    result = subprocess.run(['sudo', 'virsh', 'start', name], capture_output=True, text=True)
     if result.returncode != 0:
         print(f"virsh start failed: {result.stderr}")
         raise RuntimeError(f"Failed to start VM: {result.stderr}")
@@ -449,7 +449,7 @@ def wait_for_vm_ip(name: str, timeout: int = 120) -> str:
     while time.time() - start < timeout:
         try:
             result = subprocess.run(
-                ['virsh', 'domifaddr', name, '--source', 'agent'],
+                ['sudo', 'virsh', 'domifaddr', name, '--source', 'agent'],
                 capture_output=True, text=True, timeout=10
             )
             for line in result.stdout.split('\n'):
@@ -464,7 +464,7 @@ def wait_for_vm_ip(name: str, timeout: int = 120) -> str:
         # Also try lease file
         try:
             result = subprocess.run(
-                ['virsh', 'domifaddr', name],
+                ['sudo', 'virsh', 'domifaddr', name],
                 capture_output=True, text=True, timeout=10
             )
             for line in result.stdout.split('\n'):
@@ -566,8 +566,8 @@ def create_td_vm(docker_compose_path: str, name: str = "ee-workload") -> dict:
 
 def destroy_td_vm(name: str = "ee-workload") -> None:
     """Destroy a TD VM."""
-    subprocess.run(['virsh', 'destroy', name], capture_output=True)
-    subprocess.run(['virsh', 'undefine', name], capture_output=True)
+    subprocess.run(['sudo', 'virsh', 'destroy', name], capture_output=True)
+    subprocess.run(['sudo', 'virsh', 'undefine', name], capture_output=True)
 
 
 if __name__ == '__main__':
