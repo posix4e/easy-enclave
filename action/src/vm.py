@@ -615,7 +615,7 @@ client = connect("{repo}")
 
     subprocess.run(
         ['gh', 'release', 'create', tag, '--repo', repo, '--title', f'Deployment {timestamp}', '--notes', body],
-        check=True, env={**os.environ, 'GITHUB_TOKEN': token}
+        check=True, capture_output=True, env={**os.environ, 'GITHUB_TOKEN': token}
     )
     log(f"Created release: {tag}")
 
@@ -625,7 +625,7 @@ client = connect("{repo}")
 
     subprocess.run(
         ['gh', 'release', 'upload', tag, attestation_file, '--repo', repo],
-        check=True, env={**os.environ, 'GITHUB_TOKEN': token}
+        check=True, capture_output=True, env={**os.environ, 'GITHUB_TOKEN': token}
     )
     log("Uploaded attestation.json")
 
