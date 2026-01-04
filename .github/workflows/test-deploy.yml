@@ -13,6 +13,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup libvirt network
+        run: |
+          echo "=== Checking libvirt networks ==="
+          virsh net-list --all
+
+          # Start default network if not running
+          if ! virsh net-info default 2>/dev/null | grep -q "Active:.*yes"; then
+            echo "Starting default network..."
+            virsh net-define /usr/share/libvirt/networks/default.xml 2>/dev/null || true
+            virsh net-start default 2>/dev/null || true
+            virsh net-autostart default 2>/dev/null || true
+          fi
+
+          echo "=== Network status ==="
+          virsh net-list --all
+
       - name: Check TDX environment
         run: |
           echo "=== System Info ==="
@@ -43,7 +59,6 @@ jobs:
           echo ""
           echo "=== TDX Kernel Module ==="
           cat /sys/module/kvm_intel/parameters/tdx 2>/dev/null || echo "TDX param not found"
-          dmesg | grep -i tdx | head -5 || echo "No TDX in dmesg"
 
       - name: Create TD VM with workload
         id: vm
