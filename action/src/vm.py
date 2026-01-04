@@ -367,9 +367,8 @@ def generate_tdx_domain_xml(
     vcpus: int,
 ) -> str:
     """Generate libvirt XML for TDX VM based on Canonical's template."""
-    # Find OVMF firmware - prefer TDX-specific OVMF
     ovmf_paths = [
-        "/usr/share/ovmf/OVMF.tdx.fd",  # TDX-specific OVMF (preferred)
+        "/usr/share/ovmf/OVMF.tdx.fd",
         "/usr/share/qemu/OVMF.fd",
         "/usr/share/ovmf/OVMF.fd",
         "/usr/share/OVMF/OVMF_CODE_4M.fd",
@@ -377,99 +376,14 @@ def generate_tdx_domain_xml(
     ovmf = next((p for p in ovmf_paths if os.path.exists(p)), ovmf_paths[0])
     log(f"Using OVMF firmware: {ovmf}")
 
-    # Note: Using type='rom' instead of 'pflash' - this is key for TDX!
-    return f"""<domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'>
-  <name>{name}</name>
-  <memory unit='MiB'>{memory_mb}</memory>
-  <memoryBacking>
-    <source type="anonymous"/>
-    <access mode="private"/>
-  </memoryBacking>
-  <vcpu placement='static'>{vcpus}</vcpu>
-
-  <os>
-    <type arch='x86_64' machine='q35'>hvm</type>
-    <loader type='rom' readonly='yes'>{ovmf}</loader>
-    <boot dev='hd'/>
-  </os>
-
-  <features>
-    <acpi/>
-    <apic/>
-    <ioapic driver='qemu'/>
-  </features>
-
-  <clock offset='utc'>
-    <timer name='hpet' present='no'/>
-  </clock>
-
-  <on_poweroff>destroy</on_poweroff>
-  <on_reboot>restart</on_reboot>
-  <on_crash>destroy</on_crash>
-
-  <pm>
-    <suspend-to-mem enable='no'/>
-    <suspend-to-disk enable='no'/>
-  </pm>
-
-  <cpu mode='host-passthrough'>
-    <topology sockets='1' cores='{vcpus}' threads='1'/>
-  </cpu>
-
-  <devices>
-    <emulator>/usr/bin/qemu-system-x86_64</emulator>
-
-    <disk type='file' device='disk'>
-      <driver name='qemu' type='qcow2'/>
-      <source file='{disk_path}'/>
-      <target dev='vda' bus='virtio'/>
-    </disk>
-
-    <disk type='file' device='cdrom'>
-      <driver name='qemu' type='raw'/>
-      <source file='{cidata_iso}'/>
-      <target dev='sda' bus='sata'/>
-      <readonly/>
-    </disk>
-
-    <interface type='network'>
-      <source network='default'/>
-      <model type='virtio'/>
-      <address type='pci' domain='0x0000' bus='0x06' slot='0x00' function='0x0'/>
-    </interface>
-
-    <serial type='file'>
-      <source path='/var/log/libvirt/qemu/{name}-serial.log'/>
-      <target type='isa-serial' port='0'>
-        <model name='isa-serial'/>
-      </target>
-    </serial>
-    <console type='file'>
-      <source path='/var/log/libvirt/qemu/{name}-serial.log'/>
-      <target type='serial' port='0'/>
-    </console>
-
-    <channel type='unix'>
-      <source mode='bind'/>
-      <target type='virtio' name='org.qemu.guest_agent.0'/>
-    </channel>
-
-    <vsock model='virtio'>
-      <cid auto='yes'/>
-      <address type='pci' domain='0x0000' bus='0x05' slot='0x00' function='0x0'/>
-    </vsock>
-  </devices>
-
-  <allowReboot value='no'/>
-
-  <launchSecurity type='tdx'>
-    <policy>0x10000000</policy>
-    <quoteGenerationService>
-      <SocketAddress type='vsock' cid='2' port='4050'/>
-    </quoteGenerationService>
-  </launchSecurity>
-</domain>
-"""
+    return load_template("domain.xml").format(
+        name=name,
+        memory_mb=memory_mb,
+        vcpus=vcpus,
+        ovmf=ovmf,
+        disk_path=disk_path,
+        cidata_iso=cidata_iso,
+    )
 
 
 def get_vm_mac(name: str) -> str:
