@@ -161,32 +161,25 @@ def parse_measurements(quote_or_report: bytes) -> dict:
     Returns:
         Dictionary with measurement values
     """
-    measurements = {}
+    # Skip quote header (48 bytes) if this looks like a full quote
+    if len(quote_or_report) > 1024:
+        offset = 48  # Quote header size
+    else:
+        offset = 0
 
-    # Try to extract RTMRs from known offsets
-    # These offsets are for TD Report within a quote
-    # Quote header is typically 48 bytes, then TD Report follows
+    # RTMR offsets within TD Report
+    rtmr_base = offset + 0x2A0
+    rtmr_size = 48
 
-    try:
-        # Skip quote header (48 bytes) if this looks like a full quote
-        if len(quote_or_report) > 1024:
-            offset = 48  # Quote header size
-        else:
-            offset = 0
+    if len(quote_or_report) < rtmr_base + (4 * rtmr_size):
+        raise ValueError(f"Quote too small to contain RTMRs: {len(quote_or_report)} bytes")
 
-        # RTMR offsets within TD Report
-        rtmr_base = offset + 0x2A0
-        rtmr_size = 48
-
-        if len(quote_or_report) >= rtmr_base + (4 * rtmr_size):
-            measurements["rtmr0"] = quote_or_report[rtmr_base:rtmr_base+rtmr_size].hex()
-            measurements["rtmr1"] = quote_or_report[rtmr_base+rtmr_size:rtmr_base+2*rtmr_size].hex()
-            measurements["rtmr2"] = quote_or_report[rtmr_base+2*rtmr_size:rtmr_base+3*rtmr_size].hex()
-            measurements["rtmr3"] = quote_or_report[rtmr_base+3*rtmr_size:rtmr_base+4*rtmr_size].hex()
-    except Exception as e:
-        print(f"Warning: Could not parse measurements: {e}")
-
-    return measurements
+    return {
+        "rtmr0": quote_or_report[rtmr_base:rtmr_base+rtmr_size].hex(),
+        "rtmr1": quote_or_report[rtmr_base+rtmr_size:rtmr_base+2*rtmr_size].hex(),
+        "rtmr2": quote_or_report[rtmr_base+2*rtmr_size:rtmr_base+3*rtmr_size].hex(),
+        "rtmr3": quote_or_report[rtmr_base+3*rtmr_size:rtmr_base+4*rtmr_size].hex(),
+    }
 
 
 def main():
