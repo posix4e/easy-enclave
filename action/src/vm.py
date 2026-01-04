@@ -19,6 +19,12 @@ from typing import Optional, Tuple
 
 # Force unbuffered output for real-time logging
 sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
+
+
+def log(msg):
+    """Print to stderr for logging (keeps stdout clean for JSON output)."""
+    print(msg, file=sys.stderr)
 
 
 # Default paths (Canonical TDX layout)
@@ -139,25 +145,25 @@ def download_ubuntu_image(version: str = "24.04", dest_dir: str = IMAGE_DIR) -> 
     dest_path = os.path.join(dest_dir, filename)
 
     if os.path.exists(dest_path):
-        print(f"Image already exists: {dest_path}")
+        log(f"Image already exists: {dest_path}")
         return dest_path
 
-    print(f"Downloading Ubuntu {version} cloud image...")
-    print(f"URL: {url}")
-    print(f"Destination: {dest_path}")
+    log(f"Downloading Ubuntu {version} cloud image...")
+    log(f"URL: {url}")
+    log(f"Destination: {dest_path}")
 
     # Download with progress
     def reporthook(count, block_size, total_size):
         percent = int(count * block_size * 100 / total_size)
-        print(f"\rProgress: {percent}%", end='', flush=True)
+        print(f"\rProgress: {percent}%", end='', flush=True, file=sys.stderr)
 
     urllib.request.urlretrieve(url, dest_path, reporthook)
-    print("\nDownload complete!")
+    log("\nDownload complete!")
 
     # Convert to qcow2 if needed
     if dest_path.endswith('.img'):
         qcow2_path = dest_path.replace('.img', '.qcow2')
-        print(f"Converting to qcow2: {qcow2_path}")
+        log(f"Converting to qcow2: {qcow2_path}")
         subprocess.run([
             'qemu-img', 'convert', '-f', 'qcow2', '-O', 'qcow2',
             dest_path, qcow2_path
@@ -179,23 +185,23 @@ def find_or_download_td_image(prefer_version: str = "24.04") -> str:
     # Prefer images with 'tdx' or 'td-guest' in name
     for img in existing:
         if 'tdx' in img['name'].lower() or 'td-guest' in img['name'].lower():
-            print(f"Found TD image: {img['path']} ({img['size_gb']} GB)")
+            log(f"Found TD image: {img['path']} ({img['size_gb']} GB)")
             return img['path']
 
     # Then look for any cloud image
     for img in existing:
         if 'cloud' in img['name'].lower() or 'ubuntu' in img['name'].lower():
-            print(f"Found cloud image: {img['path']} ({img['size_gb']} GB)")
+            log(f"Found cloud image: {img['path']} ({img['size_gb']} GB)")
             return img['path']
 
     # If any qcow2/img exists, use the largest one
     if existing:
         largest = max(existing, key=lambda x: x['size_gb'])
-        print(f"Using existing image: {largest['path']} ({largest['size_gb']} GB)")
+        log(f"Using existing image: {largest['path']} ({largest['size_gb']} GB)")
         return largest['path']
 
     # No images found - download
-    print("No existing images found. Downloading Ubuntu cloud image...")
+    log("No existing images found. Downloading Ubuntu cloud image...")
     return download_ubuntu_image(prefer_version)
 
 
@@ -428,7 +434,7 @@ def start_td_vm(
         f.write(vm_xml)
 
     # Clean up existing VM thoroughly
-    print(f"Cleaning up existing VM {name}...")
+    log(f"Cleaning up existing VM {name}...")
     subprocess.run(['sudo', 'virsh', 'destroy', name], capture_output=True)
     subprocess.run(['sudo', 'virsh', 'undefine', name, '--nvram'], capture_output=True)
 
@@ -438,62 +444,62 @@ def start_td_vm(
     # Verify cleanup
     check = subprocess.run(['sudo', 'virsh', 'domstate', name], capture_output=True, text=True)
     if check.returncode == 0:
-        print(f"Warning: VM {name} still exists, forcing undefine...")
+        log(f"Warning: VM {name} still exists, forcing undefine...")
         subprocess.run(['sudo', 'virsh', 'undefine', name, '--nvram', '--remove-all-storage'], capture_output=True)
         time.sleep(1)
 
     # Define and start
     result = subprocess.run(['sudo', 'virsh', 'define', xml_path], capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"virsh define failed: {result.stderr}")
+        log(f"virsh define failed: {result.stderr}")
         raise RuntimeError(f"Failed to define VM: {result.stderr}")
 
     result = subprocess.run(['sudo', 'virsh', 'start', name], capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"virsh start failed: {result.stderr}")
+        log(f"virsh start failed: {result.stderr}")
         raise RuntimeError(f"Failed to start VM: {result.stderr}")
 
-    print(f"VM {name} started successfully")
+    log(f"VM {name} started successfully")
 
     # Give VM a moment to boot
     time.sleep(10)
 
     # Check VM state
     result = subprocess.run(['sudo', 'virsh', 'domstate', name], capture_output=True, text=True)
-    print(f"VM state: {result.stdout.strip()}")
+    log(f"VM state: {result.stdout.strip()}")
 
     # Dump actual XML to see what libvirt created
     result = subprocess.run(['sudo', 'virsh', 'dumpxml', name], capture_output=True, text=True)
-    print(f"=== Actual VM XML (interface section) ===")
+    log(f"=== Actual VM XML (interface section) ===")
     for line in result.stdout.split('\n'):
         if 'interface' in line.lower() or 'source network' in line.lower() or 'model type' in line.lower() or 'mac address' in line.lower():
-            print(line)
+            log(line)
 
     # Check network bridge
     result = subprocess.run(['ip', 'link', 'show', 'virbr0'], capture_output=True, text=True)
-    print(f"virbr0 status: {result.stdout.strip() if result.returncode == 0 else 'not found'}")
+    log(f"virbr0 status: {result.stdout.strip() if result.returncode == 0 else 'not found'}")
 
     # Check DHCP leases
     result = subprocess.run(['sudo', 'virsh', 'net-dhcp-leases', 'default'], capture_output=True, text=True)
-    print(f"DHCP leases:\n{result.stdout}")
+    log(f"DHCP leases:\n{result.stdout}")
 
     # Check ARP table for any new entries (use ip neigh instead of arp)
     result = subprocess.run(['ip', 'neigh'], capture_output=True, text=True)
-    print(f"ARP/Neighbor table:\n{result.stdout}")
+    log(f"ARP/Neighbor table:\n{result.stdout}")
 
     # Try to get console log to see boot status
-    print("=== Checking VM console/serial log ===")
+    log("=== Checking VM console/serial log ===")
     try:
         # Check qemu log if available
         result = subprocess.run(['sudo', 'cat', f'/var/log/libvirt/qemu/{name}.log'],
                                capture_output=True, text=True)
         if result.returncode == 0 and result.stdout.strip():
             lines = result.stdout.strip().split('\n')
-            print(f"Last 10 lines of QEMU log:")
+            log(f"Last 10 lines of QEMU log:")
             for line in lines[-10:]:
-                print(f"  {line}")
+                log(f"  {line}")
     except Exception as e:
-        print(f"Could not read QEMU log: {e}")
+        log(f"Could not read QEMU log: {e}")
 
     # Wait for IP
     ip = wait_for_vm_ip(name)
@@ -516,7 +522,7 @@ def generate_tdx_domain_xml(
         "/usr/share/OVMF/OVMF_CODE_4M.fd",
     ]
     ovmf = next((p for p in ovmf_paths if os.path.exists(p)), ovmf_paths[0])
-    print(f"Using OVMF firmware: {ovmf}")
+    log(f"Using OVMF firmware: {ovmf}")
 
     # Note: Using type='rom' instead of 'pflash' - this is key for TDX!
     return f"""<domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'>
@@ -636,24 +642,24 @@ def wait_for_vm_ip(name: str, timeout: int = 300) -> str:
     # Get the VM's MAC address first
     vm_mac = get_vm_mac(name)
     if vm_mac:
-        print(f"VM MAC address: {vm_mac}")
+        log(f"VM MAC address: {vm_mac}")
     else:
-        print("Warning: Could not get VM MAC address")
+        log("Warning: Could not get VM MAC address")
 
     while time.time() - start < timeout:
         elapsed = int(time.time() - start)
         if elapsed - last_print >= 30:
             last_print = elapsed
-            print(f"Waiting for VM IP... ({elapsed}s elapsed)")
+            log(f"Waiting for VM IP... ({elapsed}s elapsed)")
             # Show DHCP leases periodically
             result = subprocess.run(['sudo', 'virsh', 'net-dhcp-leases', 'default'],
                                    capture_output=True, text=True)
             if result.stdout.strip():
                 lease_lines = [l for l in result.stdout.split('\n') if '192.168.' in l]
                 if lease_lines:
-                    print(f"  DHCP leases: {len(lease_lines)} found")
+                    log(f"  DHCP leases: {len(lease_lines)} found")
                     for l in lease_lines[:3]:
-                        print(f"    {l.strip()}")
+                        log(f"    {l.strip()}")
 
         # Try virsh domifaddr with agent
         try:
@@ -698,7 +704,7 @@ def wait_for_vm_ip(name: str, timeout: int = 300) -> str:
                     for part in parts:
                         if '/' in part and '.' in part and part.startswith('192.'):
                             ip = part.split('/')[0]
-                            print(f"Found IP {ip} for VM {name} (MAC: {vm_mac})")
+                            log(f"Found IP {ip} for VM {name} (MAC: {vm_mac})")
                             return ip
         except Exception:
             pass
@@ -715,7 +721,7 @@ def wait_for_ready(ip: str, timeout: int = 300) -> None:
     last_print = 0
 
     # First, wait for cloud-init to complete (give it 120s max)
-    print("Waiting for cloud-init to complete...")
+    log("Waiting for cloud-init to complete...")
     cloud_init_timeout = min(120, timeout // 2)
     cloud_init_done = False
     while time.time() - start < cloud_init_timeout:
@@ -728,7 +734,7 @@ def wait_for_ready(ip: str, timeout: int = 300) -> None:
                 f'ubuntu@{ip}', 'cloud-init status --wait 2>/dev/null || cat /run/cloud-init/result.json 2>/dev/null || echo checking'
             ], capture_output=True, text=True, timeout=60)
             if 'done' in result.stdout.lower() or 'status: done' in result.stdout.lower():
-                print(f"Cloud-init completed")
+                log(f"Cloud-init completed")
                 cloud_init_done = True
                 break
             # Check if start.sh created the ready file
@@ -740,7 +746,7 @@ def wait_for_ready(ip: str, timeout: int = 300) -> None:
                 f'ubuntu@{ip}', 'test -f /opt/workload/ready && echo ready || echo waiting'
             ], capture_output=True, text=True, timeout=30)
             if 'ready' in result2.stdout:
-                print("Workload ready file exists")
+                log("Workload ready file exists")
                 cloud_init_done = True
                 break
         except Exception as e:
@@ -748,14 +754,14 @@ def wait_for_ready(ip: str, timeout: int = 300) -> None:
         time.sleep(10)
 
     if not cloud_init_done:
-        print(f"Cloud-init status unknown after {cloud_init_timeout}s, continuing anyway...")
+        log(f"Cloud-init status unknown after {cloud_init_timeout}s, continuing anyway...")
 
     # Now wait for port 8080
     while time.time() - start < timeout:
         elapsed = int(time.time() - start)
         if elapsed - last_print >= 30:
             last_print = elapsed
-            print(f"Waiting for workload on port 8080... ({elapsed}s elapsed)")
+            log(f"Waiting for workload on port 8080... ({elapsed}s elapsed)")
 
         try:
             # Try to connect to port 8080
@@ -764,7 +770,7 @@ def wait_for_ready(ip: str, timeout: int = 300) -> None:
             result = sock.connect_ex((ip, 8080))
             sock.close()
             if result == 0:
-                print(f"Port 8080 is open on {ip}")
+                log(f"Port 8080 is open on {ip}")
                 # Give it a moment to fully start
                 time.sleep(2)
                 return
@@ -786,9 +792,9 @@ def get_quote_from_vm(ip: str) -> str:
         f'ubuntu@{ip}', 'cat /opt/workload/quote.log 2>/dev/null || echo "No log file"'
     ], capture_output=True, text=True, timeout=30)
     if log_result.stdout.strip():
-        print(f"=== Quote generation debug log ===")
-        print(log_result.stdout)
-        print(f"=== End debug log ===")
+        log(f"=== Quote generation debug log ===")
+        log(log_result.stdout)
+        log(f"=== End debug log ===")
 
     # Use sshpass for password auth
     result = subprocess.run([
@@ -830,27 +836,27 @@ def create_td_vm(docker_compose_path: str, name: str = "ee-workload") -> dict:
 
     Returns dict with IP and quote. Raises on failure.
     """
-    print(f"Finding TD base image...")
+    log(f"Finding TD base image...")
     base_image = find_td_image()
-    print(f"Using base image: {base_image}")
+    log(f"Using base image: {base_image}")
 
-    print(f"Reading docker-compose from {docker_compose_path}...")
+    log(f"Reading docker-compose from {docker_compose_path}...")
     with open(docker_compose_path) as f:
         docker_compose_content = f.read()
 
-    print("Creating workload image...")
+    log("Creating workload image...")
     workload_image, cidata_iso, workdir = create_workload_image(
         base_image, docker_compose_content
     )
 
-    print("Starting TD VM...")
+    log("Starting TD VM...")
     ip = start_td_vm(workload_image, cidata_iso, name)
-    print(f"VM IP: {ip}")
+    log(f"VM IP: {ip}")
 
-    print("Waiting for workload...")
+    log("Waiting for workload...")
     wait_for_ready(ip, timeout=300)
 
-    print("Retrieving quote...")
+    log("Retrieving quote...")
     quote = get_quote_from_vm(ip)
 
     return {
@@ -870,8 +876,9 @@ def destroy_td_vm(name: str = "ee-workload") -> None:
 if __name__ == '__main__':
     import sys
     if len(sys.argv) < 2:
-        print("Usage: vm.py <docker-compose.yml>")
+        print("Usage: vm.py <docker-compose.yml>", file=sys.stderr)
         sys.exit(1)
 
     result = create_td_vm(sys.argv[1])
+    # Only JSON goes to stdout, logs went to stderr
     print(json.dumps(result, indent=2))
