@@ -61,19 +61,20 @@ client = connect("acme/my-service")
 
 ## Roadmap
 
-### CRAWL (Current)
-Minimal end-to-end demo. Workloads run directly on TDX host.
+### CRAWL (In Progress)
+Minimal end-to-end demo with basic verification.
 
-- [ ] **GitHub Action**: Quote generation, release creation, docker-compose
-- [ ] **Python SDK**: Fetch, verify, `connect()`
-- [ ] **Demo**: Simple service + verification script
+- [x] **GitHub Action**: Quote generation, release creation, docker-compose
+- [ ] **Python SDK**: Fetch, verify, `connect()` *(structure done, DCAP verification pending)*
+- [x] **Demo**: Simple service + verification script
 
-### WALK
+### WALK (Partially Complete)
 Production isolation with TD VMs.
 
-- [ ] libvirt integration - workloads in isolated TD VMs
-- [ ] Quote from workload VM (not host)
-- [ ] VM lifecycle management
+- [x] libvirt integration - workloads in isolated TD VMs
+- [x] Quote from workload VM via QGS vsock
+- [ ] VM lifecycle management (cleanup, resource limits)
+- [ ] Full DCAP quote verification with Intel PCCS
 
 ### RUN
 Repeatable host provisioning.
