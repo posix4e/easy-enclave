@@ -1,0 +1,42 @@
+name: Test Deploy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, tdx]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Test TDX environment
+        run: |
+          echo "Testing TDX environment..."
+          ls -la /dev/tdx* 2>/dev/null || echo "No /dev/tdx devices (may need different path)"
+          cat /sys/kernel/tdx/tdx_version 2>/dev/null || echo "No TDX version file"
+
+      - name: Deploy example service
+        run: |
+          cd example
+          docker compose up -d
+          sleep 3
+          docker compose ps
+
+      - name: Test service
+        run: |
+          curl -s http://localhost:8080 || echo "Service not reachable yet"
+
+      - name: Generate quote (placeholder for now)
+        run: |
+          echo "TODO: Generate TDX quote"
+          # python3 action/src/quote.py
+
+      - name: Create release with attestation
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ENDPOINT: "http://57.130.10.77:8080"
+          QUOTE: "placeholder-quote"
+          MEASUREMENTS: "{}"
+        run: |
+          python3 action/src/release.py
