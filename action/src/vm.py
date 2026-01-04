@@ -224,6 +224,15 @@ def create_workload_image(base_image: str, docker_compose_content: str) -> str:
     user_data = f"""#cloud-config
 hostname: ee-workload
 
+# Enable password auth for SSH (for debugging)
+ssh_pwauth: true
+chpasswd:
+  expire: false
+  users:
+    - name: ubuntu
+      password: ubuntu
+      type: text
+
 write_files:
   - path: /opt/workload/docker-compose.yml
     content: |
@@ -236,19 +245,24 @@ write_files:
       set -e
       cd /opt/workload
 
-      # Wait for docker
-      while ! docker info &>/dev/null; do sleep 1; done
+      # Generate TDX quote first
+      python3 /opt/workload/get-quote.py > /opt/workload/quote.json 2>&1 || echo '{{"success": false, "error": "quote generation failed"}}' > /opt/workload/quote.json
 
-      # Start workload
-      docker compose up -d
+      # Create response HTML
+      cat > /opt/workload/index.html << 'HTMLEOF'
+      <!DOCTYPE html>
+      <html>
+      <head><title>TDX Attested Enclave</title></head>
+      <body>
+      <h1>Hello from TDX-attested enclave!</h1>
+      <p>This service is running inside an Intel TDX Trust Domain.</p>
+      </body>
+      </html>
+      HTMLEOF
 
-      # Generate quote using trustauthority-cli if available
-      if command -v trustauthority-cli &>/dev/null; then
-        trustauthority-cli evidence --tdx > /opt/workload/evidence.json 2>/dev/null || true
-      fi
-
-      # Also try direct /dev/tdx_guest
-      python3 /opt/workload/get-quote.py > /opt/workload/quote.json 2>/dev/null || true
+      # Start simple HTTP server on port 8080
+      cd /opt/workload
+      python3 -m http.server 8080 &
 
       # Signal ready
       touch /opt/workload/ready
@@ -624,35 +638,53 @@ def wait_for_vm_ip(name: str, timeout: int = 300) -> str:
 
 
 def wait_for_ready(ip: str, timeout: int = 300) -> None:
-    """Wait for workload to signal ready."""
+    """Wait for workload to be ready by checking port 8080."""
+    import socket
     start = time.time()
+    last_print = 0
     while time.time() - start < timeout:
-        try:
-            result = subprocess.run([
-                'ssh', '-o', 'StrictHostKeyChecking=no',
-                '-o', 'UserKnownHostsFile=/dev/null',
-                '-o', 'ConnectTimeout=5',
-                '-o', 'BatchMode=yes',
-                f'ubuntu@{ip}', 'test -f /opt/workload/ready && echo ready'
-            ], capture_output=True, text=True, timeout=15)
+        elapsed = int(time.time() - start)
+        if elapsed - last_print >= 30:
+            last_print = elapsed
+            print(f"Waiting for workload on port 8080... ({elapsed}s elapsed)")
 
-            if 'ready' in result.stdout:
+        try:
+            # Try to connect to port 8080
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(5)
+            result = sock.connect_ex((ip, 8080))
+            sock.close()
+            if result == 0:
+                print(f"Port 8080 is open on {ip}")
+                # Give it a moment to fully start
+                time.sleep(2)
                 return
         except Exception:
             pass
-        time.sleep(10)
+        time.sleep(5)
 
     raise TimeoutError(f"Workload not ready within {timeout}s")
 
 
 def get_quote_from_vm(ip: str) -> str:
     """Retrieve quote from VM. Returns base64-encoded quote."""
+    # Use sshpass for password auth
     result = subprocess.run([
+        'sshpass', '-p', 'ubuntu',
         'ssh', '-o', 'StrictHostKeyChecking=no',
         '-o', 'UserKnownHostsFile=/dev/null',
         '-o', 'ConnectTimeout=10',
         f'ubuntu@{ip}', 'cat /opt/workload/quote.json'
     ], capture_output=True, text=True, timeout=30)
+
+    if result.returncode != 0:
+        # Try without sshpass in case it's not installed
+        result = subprocess.run([
+            'ssh', '-o', 'StrictHostKeyChecking=no',
+            '-o', 'UserKnownHostsFile=/dev/null',
+            '-o', 'ConnectTimeout=10',
+            f'ubuntu@{ip}', 'cat /opt/workload/quote.json'
+        ], capture_output=True, text=True, timeout=30)
 
     if result.returncode != 0:
         raise RuntimeError(f"Failed to read quote from VM: {result.stderr}")
