@@ -482,10 +482,15 @@ def generate_tdx_domain_xml(
 """
 
 
-def wait_for_vm_ip(name: str, timeout: int = 120) -> str:
+def wait_for_vm_ip(name: str, timeout: int = 300) -> str:
     """Wait for VM to get an IP address."""
     start = time.time()
     while time.time() - start < timeout:
+        elapsed = int(time.time() - start)
+        if elapsed % 30 == 0:
+            print(f"Waiting for VM IP... ({elapsed}s elapsed)")
+
+        # Try virsh domifaddr with agent
         try:
             result = subprocess.run(
                 ['sudo', 'virsh', 'domifaddr', name, '--source', 'agent'],
@@ -500,7 +505,7 @@ def wait_for_vm_ip(name: str, timeout: int = 120) -> str:
         except Exception:
             pass
 
-        # Also try lease file
+        # Try virsh domifaddr without agent
         try:
             result = subprocess.run(
                 ['sudo', 'virsh', 'domifaddr', name],
@@ -514,7 +519,28 @@ def wait_for_vm_ip(name: str, timeout: int = 120) -> str:
         except Exception:
             pass
 
-        time.sleep(5)
+        # Try virsh net-dhcp-leases
+        try:
+            result = subprocess.run(
+                ['sudo', 'virsh', 'net-dhcp-leases', 'default'],
+                capture_output=True, text=True, timeout=10
+            )
+            for line in result.stdout.split('\n'):
+                if name.lower() in line.lower() or 'ee-workload' in line.lower():
+                    parts = line.split()
+                    for part in parts:
+                        if '/' in part and '.' in part and part.startswith('192.'):
+                            return part.split('/')[0]
+                # Also check any DHCP lease since we might be the only VM
+                if '192.168.122.' in line:
+                    parts = line.split()
+                    for part in parts:
+                        if '/' in part and part.startswith('192.168.122.'):
+                            return part.split('/')[0]
+        except Exception:
+            pass
+
+        time.sleep(10)
 
     raise TimeoutError(f"VM {name} did not get IP within {timeout}s")
 
