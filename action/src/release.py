@@ -122,8 +122,8 @@ def main():
     measurements = os.environ.get('MEASUREMENTS', '{}')
 
     if not quote:
-        print("Warning: No TDX quote available, creating release without attestation")
-        quote = ""
+        print("Error: QUOTE must be set", file=sys.stderr)
+        sys.exit(1)
 
     if not endpoint:
         print("Error: ENDPOINT must be set", file=sys.stderr)

@@ -503,32 +503,39 @@ def wait_for_ready(ip: str, timeout: int = 300) -> None:
             pass
         time.sleep(10)
 
-    print(f"Warning: Workload not ready within {timeout}s, continuing anyway")
+    raise TimeoutError(f"Workload not ready within {timeout}s")
 
 
-def get_quote_from_vm(ip: str) -> dict:
-    """Retrieve quote from VM."""
-    try:
-        result = subprocess.run([
-            'ssh', '-o', 'StrictHostKeyChecking=no',
-            '-o', 'UserKnownHostsFile=/dev/null',
-            '-o', 'ConnectTimeout=10',
-            f'ubuntu@{ip}', 'cat /opt/workload/quote.json'
-        ], capture_output=True, text=True, timeout=30)
+def get_quote_from_vm(ip: str) -> str:
+    """Retrieve quote from VM. Returns base64-encoded quote."""
+    result = subprocess.run([
+        'ssh', '-o', 'StrictHostKeyChecking=no',
+        '-o', 'UserKnownHostsFile=/dev/null',
+        '-o', 'ConnectTimeout=10',
+        f'ubuntu@{ip}', 'cat /opt/workload/quote.json'
+    ], capture_output=True, text=True, timeout=30)
 
-        if result.returncode == 0 and result.stdout.strip():
-            return json.loads(result.stdout)
-    except Exception as e:
-        print(f"Error getting quote: {e}")
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to read quote from VM: {result.stderr}")
 
-    return {"success": False, "error": "Failed to retrieve quote"}
+    if not result.stdout.strip():
+        raise RuntimeError("Empty quote response from VM")
+
+    data = json.loads(result.stdout)
+    if not data.get("success"):
+        raise RuntimeError(f"Quote generation failed in VM: {data.get('error', 'unknown')}")
+
+    if not data.get("quote"):
+        raise RuntimeError("No quote in VM response")
+
+    return data["quote"]
 
 
 def create_td_vm(docker_compose_path: str, name: str = "ee-workload") -> dict:
     """
     Create a TD VM with the given workload.
 
-    Returns dict with IP, quote, and status.
+    Returns dict with IP and quote. Raises on failure.
     """
     print(f"Finding TD base image...")
     base_image = find_td_image()
@@ -551,13 +558,12 @@ def create_td_vm(docker_compose_path: str, name: str = "ee-workload") -> dict:
     wait_for_ready(ip, timeout=300)
 
     print("Retrieving quote...")
-    quote_data = get_quote_from_vm(ip)
+    quote = get_quote_from_vm(ip)
 
     return {
         "name": name,
         "ip": ip,
-        "quote": quote_data.get("quote", ""),
-        "success": quote_data.get("success", False),
+        "quote": quote,
         "workdir": workdir,
     }
 

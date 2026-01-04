@@ -236,38 +236,23 @@ def main():
     commit_sha = os.environ.get('GITHUB_SHA', 'unknown')[:32]
     report_data = commit_sha.encode().ljust(64, b'\x00')[:64]
 
-    try:
-        # Generate quote
-        quote_bytes = get_tdx_quote(report_data)
-        quote_b64 = base64.b64encode(quote_bytes).decode('utf-8')
+    # Generate quote - fail if not possible
+    quote_bytes = get_tdx_quote(report_data)
+    quote_b64 = base64.b64encode(quote_bytes).decode('utf-8')
 
-        # Extract measurements
-        measurements = parse_measurements(quote_bytes)
-        measurements_json = json.dumps(measurements)
+    # Extract measurements
+    measurements = parse_measurements(quote_bytes)
+    measurements_json = json.dumps(measurements)
 
-        # Output for GitHub Actions
-        github_output = os.environ.get('GITHUB_OUTPUT', '')
-        if github_output:
-            with open(github_output, 'a') as f:
-                f.write(f"quote={quote_b64}\n")
-                f.write(f"measurements={measurements_json}\n")
+    # Output for GitHub Actions
+    github_output = os.environ.get('GITHUB_OUTPUT', '')
+    if github_output:
+        with open(github_output, 'a') as f:
+            f.write(f"quote={quote_b64}\n")
+            f.write(f"measurements={measurements_json}\n")
 
-        print(f"Generated TDX quote ({len(quote_bytes)} bytes)")
-        print(f"Measurements: {measurements_json}")
-
-    except Exception as e:
-        print(f"Error generating quote: {e}", file=sys.stderr)
-        print("Falling back to placeholder quote for testing", file=sys.stderr)
-
-        # Output placeholder for testing
-        github_output = os.environ.get('GITHUB_OUTPUT', '')
-        if github_output:
-            with open(github_output, 'a') as f:
-                f.write("quote=placeholder-no-tdx-available\n")
-                f.write("measurements={}\n")
-
-        # Don't fail the action - let it continue with placeholder
-        # sys.exit(1)
+    print(f"Generated TDX quote ({len(quote_bytes)} bytes)")
+    print(f"Measurements: {measurements_json}")
 
 
 if __name__ == '__main__':

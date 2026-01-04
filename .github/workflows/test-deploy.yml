@@ -2,12 +2,6 @@ name: Test Deploy
 
 on:
   workflow_dispatch:
-    inputs:
-      use_vm:
-        description: 'Create TD VM for quote generation'
-        required: false
-        default: 'true'
-        type: boolean
 
 permissions:
   contents: write
@@ -51,50 +45,30 @@ jobs:
           cat /sys/module/kvm_intel/parameters/tdx 2>/dev/null || echo "TDX param not found"
           dmesg | grep -i tdx | head -5 || echo "No TDX in dmesg"
 
-      - name: Deploy example service (direct on host)
-        if: ${{ github.event.inputs.use_vm != 'true' }}
-        run: |
-          cd example
-          docker compose up -d
-          sleep 3
-          docker compose ps
-
       - name: Create TD VM with workload
-        if: ${{ github.event.inputs.use_vm == 'true' }}
         id: vm
         run: |
           echo "Creating TD VM..."
-          python3 action/src/vm.py example/docker-compose.yml > vm_result.json 2>&1 || {
-            echo "VM creation failed, falling back to direct deployment"
-            cat vm_result.json || true
-            cd example && docker compose up -d
-            echo '{"success": false, "quote": "placeholder-no-vm"}' > vm_result.json
-          }
-          cat vm_result.json
+          python3 action/src/vm.py example/docker-compose.yml | tee vm_result.json
 
-          # Extract outputs
-          QUOTE=$(python3 -c "import json; d=json.load(open('vm_result.json')); print(d.get('quote', ''))")
-          IP=$(python3 -c "import json; d=json.load(open('vm_result.json')); print(d.get('ip', 'localhost'))")
+          # Extract outputs - fail if missing
+          QUOTE=$(python3 -c "import json; d=json.load(open('vm_result.json')); print(d['quote'])")
+          IP=$(python3 -c "import json; d=json.load(open('vm_result.json')); print(d['ip'])")
           echo "quote=$QUOTE" >> $GITHUB_OUTPUT
           echo "vm_ip=$IP" >> $GITHUB_OUTPUT
-
-      - name: Generate TDX quote (fallback)
-        if: ${{ github.event.inputs.use_vm != 'true' }}
-        id: quote
-        run: |
-          python3 action/src/quote.py
+          echo "VM IP: $IP"
+          echo "Quote: $QUOTE"
 
       - name: Test service
         run: |
-          IP="${{ steps.vm.outputs.vm_ip || 'localhost' }}"
+          IP="${{ steps.vm.outputs.vm_ip }}"
           echo "Testing service at $IP:8080..."
-          curl -s --connect-timeout 5 http://$IP:8080 || echo "Service not reachable"
+          curl -s --connect-timeout 30 --retry 3 http://$IP:8080
 
       - name: Create release with attestation
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ENDPOINT: "http://${{ steps.vm.outputs.vm_ip || '57.130.10.77' }}:8080"
-          QUOTE: ${{ steps.vm.outputs.quote || steps.quote.outputs.quote || 'placeholder' }}
-          MEASUREMENTS: ${{ steps.quote.outputs.measurements || '{}' }}
+          ENDPOINT: "http://${{ steps.vm.outputs.vm_ip }}:8080"
+          QUOTE: ${{ steps.vm.outputs.quote }}
         run: |
           python3 action/src/release.py
