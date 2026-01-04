@@ -52,7 +52,7 @@ jobs:
           dmesg | grep -i tdx | head -5 || echo "No TDX in dmesg"
 
       - name: Deploy example service (direct on host)
-        if: ${{ inputs.use_vm != 'true' }}
+        if: ${{ github.event.inputs.use_vm != 'true' }}
         run: |
           cd example
           docker compose up -d
@@ -60,7 +60,7 @@ jobs:
           docker compose ps
 
       - name: Create TD VM with workload
-        if: ${{ inputs.use_vm == 'true' }}
+        if: ${{ github.event.inputs.use_vm == 'true' }}
         id: vm
         run: |
           echo "Creating TD VM..."
@@ -79,7 +79,7 @@ jobs:
           echo "vm_ip=$IP" >> $GITHUB_OUTPUT
 
       - name: Generate TDX quote (fallback)
-        if: ${{ inputs.use_vm != 'true' }}
+        if: ${{ github.event.inputs.use_vm != 'true' }}
         id: quote
         run: |
           python3 action/src/quote.py
