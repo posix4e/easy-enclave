@@ -30,16 +30,16 @@ jobs:
         run: |
           curl -s http://localhost:8080 || echo "Service not reachable yet"
 
-      - name: Generate quote (placeholder for now)
+      - name: Generate TDX quote
+        id: quote
         run: |
-          echo "TODO: Generate TDX quote"
-          # python3 action/src/quote.py
+          python3 action/src/quote.py
 
       - name: Create release with attestation
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ENDPOINT: "http://57.130.10.77:8080"
-          QUOTE: "placeholder-quote"
-          MEASUREMENTS: "{}"
+          QUOTE: ${{ steps.quote.outputs.quote }}
+          MEASUREMENTS: ${{ steps.quote.outputs.measurements }}
         run: |
           python3 action/src/release.py
