@@ -13,6 +13,47 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup libvirt network
+        run: |
+          echo "=== Checking libvirt networks ==="
+          sudo virsh net-list --all
+
+          # If default network is not active, clean up and recreate
+          if ! sudo virsh net-info default 2>/dev/null | grep -q "Active:.*yes"; then
+            echo "Cleaning up stale network state..."
+
+            # Kill ALL dnsmasq processes using 192.168.122.x
+            echo "Killing any dnsmasq on 192.168.122.1..."
+            sudo fuser -k 53/udp 2>/dev/null || true
+            sudo pkill -9 -f 'dnsmasq.*192.168.122' || true
+            sudo pkill -9 -f 'dnsmasq.*virbr0' || true
+            sudo pkill -9 -f 'dnsmasq.*default' || true
+            sleep 1
+
+            # Remove stale virbr0 if it exists
+            if ip link show virbr0 &>/dev/null; then
+              echo "Removing virbr0..."
+              sudo ip link set virbr0 down || true
+              sudo ip link delete virbr0 || true
+            fi
+
+            # Flush iptables rules that might be holding the network
+            sudo iptables -t nat -F LIBVIRT_PRT 2>/dev/null || true
+
+            # Undefine and redefine network
+            sudo virsh net-destroy default 2>/dev/null || true
+            sudo virsh net-undefine default 2>/dev/null || true
+
+            echo "Defining and starting default network..."
+            sudo virsh net-define /usr/share/libvirt/networks/default.xml
+            sudo virsh net-start default
+            sudo virsh net-autostart default
+          fi
+
+          echo "=== Network status ==="
+          sudo virsh net-list --all
+          ip addr show virbr0 || echo "virbr0 not found"
+
       - name: Check TDX environment
         run: |
           echo "=== System Info ==="
@@ -22,51 +63,79 @@ jobs:
           python3 -c "
           import sys
           sys.path.insert(0, 'action/src')
-          from workload import get_tdx_info
+          from vm import get_tdx_info, find_existing_images
           import json
+
           print('TDX Info:')
           info = get_tdx_info()
           print(json.dumps(info, indent=2))
+
+          print('\nExisting Images:')
+          images = find_existing_images()
+          for img in images:
+              print(f'  {img[\"path\"]} ({img[\"size_gb\"]} GB)')
+          if not images:
+              print('  No images found')
           "
           echo ""
-          echo "=== TDX Devices ==="
-          ls -la /dev/tdx* 2>/dev/null || echo "No /dev/tdx devices"
-          ls -la /sys/kernel/config/tsm/report 2>/dev/null || echo "No configfs-tsm"
-          ls -la /var/run/tdx-qgs/ 2>/dev/null || echo "No QGS socket dir"
+          echo "=== Libvirt Status ==="
+          virsh version 2>/dev/null || echo "virsh not available"
+          virsh list --all 2>/dev/null || echo "Cannot list VMs"
           echo ""
-          echo "=== Docker ==="
-          docker --version
-          docker-compose --version || docker compose version
+          echo "=== TDX Kernel Module ==="
+          cat /sys/module/kvm_intel/parameters/tdx 2>/dev/null || echo "TDX param not found"
+          echo ""
+          echo "=== Available OVMF files ==="
+          ls -la /usr/share/OVMF/ 2>/dev/null || echo "No OVMF dir"
+          echo ""
+          echo "=== TDX Guest Tools ==="
+          ls -la ~/tdx/guest-tools/ 2>/dev/null || echo "No guest-tools"
+          ls -la ~/tdx/guest-tools/image/ 2>/dev/null || echo "No images"
+          echo ""
+          echo "=== run_td content ==="
+          head -50 ~/tdx/guest-tools/run_td 2>/dev/null || echo "No run_td"
+          echo ""
+          echo "=== trust_domain.xml.template ==="
+          cat ~/tdx/guest-tools/trust_domain.xml.template 2>/dev/null || echo "No template"
+          echo ""
+          echo "=== direct-boot ==="
+          ls -la ~/tdx/guest-tools/direct-boot/ 2>/dev/null || echo "No direct-boot"
+          echo ""
+          echo "=== QGS Status ==="
+          systemctl status qgsd 2>/dev/null || systemctl status tdx-qgs 2>/dev/null || echo "QGS service not found"
+          echo ""
+          echo "=== QGS Socket ==="
+          ls -la /var/run/tdx-qgs/ 2>/dev/null || echo "No /var/run/tdx-qgs/"
+          ls -la /run/tdx-qgs/ 2>/dev/null || echo "No /run/tdx-qgs/"
+          echo ""
+          echo "=== vsock info ==="
+          cat /sys/module/vhost_vsock/parameters/* 2>/dev/null || echo "vhost_vsock not loaded"
+          lsmod | grep vsock || echo "No vsock modules"
 
-      - name: Run workload
-        id: workload
+      - name: Create TD VM with workload
+        id: vm
         run: |
-          echo "Starting workload..."
-          python3 action/src/workload.py example/docker-compose.yml | tee workload_result.json
+          echo "Creating TD VM..."
+          python3 action/src/vm.py example/docker-compose.yml | tee vm_result.json
 
-          # Extract outputs
-          QUOTE=$(python3 -c "import json; d=json.load(open('workload_result.json')); print(d['quote'])")
-          ENDPOINT=$(python3 -c "import json; d=json.load(open('workload_result.json')); print(d['endpoint'])")
+          # Extract outputs - fail if missing
+          QUOTE=$(python3 -c "import json; d=json.load(open('vm_result.json')); print(d['quote'])")
+          IP=$(python3 -c "import json; d=json.load(open('vm_result.json')); print(d['ip'])")
           echo "quote=$QUOTE" >> $GITHUB_OUTPUT
-          echo "endpoint=$ENDPOINT" >> $GITHUB_OUTPUT
-          echo "Endpoint: $ENDPOINT"
-          echo "Quote length: ${#QUOTE}"
+          echo "vm_ip=$IP" >> $GITHUB_OUTPUT
+          echo "VM IP: $IP"
+          echo "Quote: $QUOTE"
 
       - name: Test service
         run: |
-          ENDPOINT="${{ steps.workload.outputs.endpoint }}"
-          echo "Testing service at $ENDPOINT..."
-          curl -s --connect-timeout 10 --retry 3 "$ENDPOINT"
+          IP="${{ steps.vm.outputs.vm_ip }}"
+          echo "Testing service at $IP:8080..."
+          curl -s --connect-timeout 30 --retry 3 http://$IP:8080
 
       - name: Create release with attestation
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ENDPOINT: ${{ steps.workload.outputs.endpoint }}
-          QUOTE: ${{ steps.workload.outputs.quote }}
+          ENDPOINT: "http://${{ steps.vm.outputs.vm_ip }}:8080"
+          QUOTE: ${{ steps.vm.outputs.quote }}
         run: |
           python3 action/src/release.py
-
-      - name: Cleanup
-        if: always()
-        run: |
-          docker-compose -f example/docker-compose.yml down --remove-orphans || true
