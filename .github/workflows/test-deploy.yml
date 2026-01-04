@@ -141,11 +141,40 @@ jobs:
           echo "VM IP: $IP"
           echo "Quote: $QUOTE"
 
+      - name: Debug VM state before test
+        run: |
+          IP="${{ steps.vm.outputs.vm_ip }}"
+          echo "=== SSH into VM to check cloud-init and workload status ==="
+          sshpass -p 'ubuntu' ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ubuntu@$IP '
+            echo "=== Cloud-init status ==="
+            cloud-init status --long 2>/dev/null || echo "cloud-init status not available"
+
+            echo ""
+            echo "=== /opt/workload contents ==="
+            ls -la /opt/workload/ 2>/dev/null || echo "/opt/workload not found"
+
+            echo ""
+            echo "=== start.sh log ==="
+            cat /opt/workload/start.log 2>/dev/null || echo "No start.log"
+
+            echo ""
+            echo "=== HTTP server log ==="
+            cat /opt/workload/http.log 2>/dev/null || echo "No http.log"
+
+            echo ""
+            echo "=== Processes listening on ports ==="
+            ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || echo "No netstat/ss"
+
+            echo ""
+            echo "=== Python processes ==="
+            ps aux | grep python || echo "No python processes"
+          ' || echo "SSH failed - VM may not have SSH yet"
+
       - name: Test service
         run: |
           IP="${{ steps.vm.outputs.vm_ip }}"
           echo "Testing service at $IP:8080..."
-          curl -s --connect-timeout 30 --retry 3 http://$IP:8080
+          curl -s --connect-timeout 30 --retry 5 --retry-delay 10 http://$IP:8080
 
       - name: Create release with attestation
         env:

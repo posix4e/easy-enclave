@@ -242,14 +242,19 @@ write_files:
     permissions: '0755'
     content: |
       #!/bin/bash
-      set -e
+      exec > /opt/workload/start.log 2>&1
+      echo "=== start.sh starting at $(date) ==="
+      set -x  # Enable trace mode for debugging
       cd /opt/workload
 
-      # Generate TDX quote first (stderr goes to log, stdout to JSON)
+      # Generate TDX quote first
+      echo "Starting quote generation..."
       python3 /opt/workload/get-quote.py > /opt/workload/quote.json 2>/opt/workload/quote.log || echo '{{"success": false, "error": "quote generation failed"}}' > /opt/workload/quote.json
       chmod 644 /opt/workload/quote.json /opt/workload/quote.log 2>/dev/null || true
+      echo "Quote generation done: $(cat /opt/workload/quote.json | head -c 100)..."
 
       # Create response HTML
+      echo "Creating index.html..."
       cat > /opt/workload/index.html << 'HTMLEOF'
       <!DOCTYPE html>
       <html>
@@ -262,11 +267,25 @@ write_files:
       HTMLEOF
 
       # Start simple HTTP server on port 8080
+      echo "Starting HTTP server on port 8080..."
       cd /opt/workload
-      python3 -m http.server 8080 &
+      nohup python3 -m http.server 8080 > /opt/workload/http.log 2>&1 &
+      HTTP_PID=$!
+      echo "HTTP server started with PID $HTTP_PID"
+      sleep 2
+
+      # Verify it's running
+      if kill -0 $HTTP_PID 2>/dev/null; then
+          echo "HTTP server is running"
+          netstat -tlnp 2>/dev/null | grep 8080 || ss -tlnp | grep 8080 || echo "Port check failed but process running"
+      else
+          echo "ERROR: HTTP server died immediately"
+          cat /opt/workload/http.log
+      fi
 
       # Signal ready
       touch /opt/workload/ready
+      echo "=== start.sh completed at $(date) ==="
 
   - path: /opt/workload/get-quote.py
     permissions: '0755'
@@ -692,6 +711,44 @@ def wait_for_ready(ip: str, timeout: int = 300) -> None:
     import socket
     start = time.time()
     last_print = 0
+
+    # First, wait for cloud-init to complete (give it 120s max)
+    print("Waiting for cloud-init to complete...")
+    cloud_init_timeout = min(120, timeout // 2)
+    cloud_init_done = False
+    while time.time() - start < cloud_init_timeout:
+        try:
+            result = subprocess.run([
+                'sshpass', '-p', 'ubuntu',
+                'ssh', '-o', 'StrictHostKeyChecking=no',
+                '-o', 'UserKnownHostsFile=/dev/null',
+                '-o', 'ConnectTimeout=5',
+                f'ubuntu@{ip}', 'cloud-init status --wait 2>/dev/null || cat /run/cloud-init/result.json 2>/dev/null || echo checking'
+            ], capture_output=True, text=True, timeout=60)
+            if 'done' in result.stdout.lower() or 'status: done' in result.stdout.lower():
+                print(f"Cloud-init completed")
+                cloud_init_done = True
+                break
+            # Check if start.sh created the ready file
+            result2 = subprocess.run([
+                'sshpass', '-p', 'ubuntu',
+                'ssh', '-o', 'StrictHostKeyChecking=no',
+                '-o', 'UserKnownHostsFile=/dev/null',
+                '-o', 'ConnectTimeout=5',
+                f'ubuntu@{ip}', 'test -f /opt/workload/ready && echo ready || echo waiting'
+            ], capture_output=True, text=True, timeout=30)
+            if 'ready' in result2.stdout:
+                print("Workload ready file exists")
+                cloud_init_done = True
+                break
+        except Exception as e:
+            pass
+        time.sleep(10)
+
+    if not cloud_init_done:
+        print(f"Cloud-init status unknown after {cloud_init_timeout}s, continuing anyway...")
+
+    # Now wait for port 8080
     while time.time() - start < timeout:
         elapsed = int(time.time() - start)
         if elapsed - last_print >= 30:
