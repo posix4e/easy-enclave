@@ -1,0 +1,34 @@
+name: 'Easy Enclave Attest'
+description: 'Deploy workload and create TDX-attested GitHub release'
+inputs:
+  docker-compose:
+    description: 'Path to docker-compose.yml'
+    required: true
+    default: './docker-compose.yml'
+  endpoint:
+    description: 'Public endpoint URL for the service'
+    required: true
+  github-token:
+    description: 'GitHub token for creating releases'
+    required: true
+    default: ${{ github.token }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Generate TDX Quote
+      id: quote
+      shell: bash
+      run: python3 ${{ github.action_path }}/src/quote.py
+
+    - name: Deploy Workload
+      shell: bash
+      run: docker compose -f ${{ inputs.docker-compose }} up -d
+
+    - name: Create Attested Release
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        ENDPOINT: ${{ inputs.endpoint }}
+        QUOTE: ${{ steps.quote.outputs.quote }}
+        MEASUREMENTS: ${{ steps.quote.outputs.measurements }}
+      run: python3 ${{ github.action_path }}/src/release.py

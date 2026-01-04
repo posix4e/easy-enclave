@@ -1,0 +1,20 @@
+name: Deploy to TDX
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, tdx]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy with attestation
+        uses: posix4e/easy-enclave/action@main
+        with:
+          docker-compose: ./docker-compose.yml
+          endpoint: "http://${{ secrets.TDX_HOST_IP }}:8080"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
