@@ -9,12 +9,16 @@ See: https://github.com/canonical/tdx
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import time
 import hashlib
 import urllib.request
 from pathlib import Path
 from typing import Optional, Tuple
+
+# Force unbuffered output for real-time logging
+sys.stdout.reconfigure(line_buffering=True)
 
 
 # Default paths (Canonical TDX layout)
@@ -374,6 +378,19 @@ def start_td_vm(
     if result.returncode != 0:
         print(f"virsh start failed: {result.stderr}")
         raise RuntimeError(f"Failed to start VM: {result.stderr}")
+
+    print(f"VM {name} started successfully")
+
+    # Give VM a moment to boot
+    time.sleep(10)
+
+    # Check VM state
+    result = subprocess.run(['sudo', 'virsh', 'domstate', name], capture_output=True, text=True)
+    print(f"VM state: {result.stdout.strip()}")
+
+    # Check DHCP leases
+    result = subprocess.run(['sudo', 'virsh', 'net-dhcp-leases', 'default'], capture_output=True, text=True)
+    print(f"DHCP leases:\n{result.stdout}")
 
     # Wait for IP
     ip = wait_for_vm_ip(name)
