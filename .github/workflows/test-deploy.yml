@@ -22,14 +22,23 @@ jobs:
           if ! sudo virsh net-info default 2>/dev/null | grep -q "Active:.*yes"; then
             echo "Cleaning up stale network state..."
 
+            # Kill ALL dnsmasq processes using 192.168.122.x
+            echo "Killing any dnsmasq on 192.168.122.1..."
+            sudo fuser -k 53/udp 2>/dev/null || true
+            sudo pkill -9 -f 'dnsmasq.*192.168.122' || true
+            sudo pkill -9 -f 'dnsmasq.*virbr0' || true
+            sudo pkill -9 -f 'dnsmasq.*default' || true
+            sleep 1
+
             # Remove stale virbr0 if it exists
             if ip link show virbr0 &>/dev/null; then
+              echo "Removing virbr0..."
               sudo ip link set virbr0 down || true
               sudo ip link delete virbr0 || true
             fi
 
-            # Kill stale dnsmasq processes for virbr0
-            sudo pkill -f 'dnsmasq.*virbr0' || true
+            # Flush iptables rules that might be holding the network
+            sudo iptables -t nat -F LIBVIRT_PRT 2>/dev/null || true
 
             # Undefine and redefine network
             sudo virsh net-destroy default 2>/dev/null || true
