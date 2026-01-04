@@ -84,6 +84,16 @@ jobs:
           echo ""
           echo "=== TDX Kernel Module ==="
           cat /sys/module/kvm_intel/parameters/tdx 2>/dev/null || echo "TDX param not found"
+          echo ""
+          echo "=== Available OVMF files ==="
+          ls -la /usr/share/OVMF/ 2>/dev/null || echo "No OVMF dir"
+          echo ""
+          echo "=== TDX Guest Tools ==="
+          ls -la ~/tdx/guest-tools/ 2>/dev/null || echo "No guest-tools"
+          ls -la ~/tdx/guest-tools/image/ 2>/dev/null || echo "No images"
+          echo ""
+          echo "=== run_td.sh content ==="
+          head -100 ~/tdx/guest-tools/run_td.sh 2>/dev/null || echo "No run_td.sh"
 
       - name: Create TD VM with workload
         id: vm
