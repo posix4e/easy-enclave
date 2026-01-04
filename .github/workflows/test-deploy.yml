@@ -112,40 +112,14 @@ jobs:
           cat /sys/module/vhost_vsock/parameters/* 2>/dev/null || echo "vhost_vsock not loaded"
           lsmod | grep vsock || echo "No vsock modules"
 
-      - name: Start QGS and fix permissions
+      - name: Verify QGS service
         run: |
-          echo "=== Starting QGS service ==="
-          # Try different service names
-          sudo systemctl start qgsd 2>/dev/null || \
-          sudo systemctl start tdx-qgs 2>/dev/null || \
-          sudo systemctl start sgx-qcnl 2>/dev/null || \
-          echo "No QGS service found, trying manual start..."
+          echo "=== QGS service status ==="
+          systemctl status qgsd --no-pager || echo "QGS service not running"
 
-          # If no systemd service, try running qgs directly
-          if ! ls /var/run/tdx-qgs/qgs.socket 2>/dev/null; then
-            echo "Trying to start QGS manually..."
-            sudo mkdir -p /var/run/tdx-qgs
-            # Look for qgs binary
-            QGS_BIN=$(which qgs 2>/dev/null || find /usr -name "qgs" -type f 2>/dev/null | head -1)
-            if [ -n "$QGS_BIN" ]; then
-              echo "Found QGS at: $QGS_BIN"
-              sudo $QGS_BIN --socket /var/run/tdx-qgs/qgs.socket &
-              sleep 2
-            fi
-          fi
-
-          echo "=== QGS socket status ==="
-          ls -la /var/run/tdx-qgs/ 2>/dev/null || echo "No /var/run/tdx-qgs/"
-
-          # Fix permissions
-          sudo chmod 777 /var/run/tdx-qgs/qgs.socket 2>/dev/null || true
-          sudo chmod 755 /var/run/tdx-qgs/ 2>/dev/null || true
-
-          echo "=== Final socket status ==="
-          ls -la /var/run/tdx-qgs/ 2>/dev/null || true
-
-          # Verify QGS is listening
-          sudo ss -lnx | grep qgs || echo "QGS not listening on Unix socket"
+          echo "=== QGS listening on vsock ==="
+          sudo lsof -p $(pgrep qgs) 2>/dev/null | grep -i vsock || echo "Checking..."
+          ps aux | grep qgs | grep -v grep
 
       - name: Create TD VM with workload
         id: vm

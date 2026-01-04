@@ -585,7 +585,7 @@ def generate_tdx_domain_xml(
   <launchSecurity type='tdx'>
     <policy>0x10000000</policy>
     <quoteGenerationService>
-      <SocketAddress type='unix' path='/var/run/tdx-qgs/qgs.socket'/>
+      <SocketAddress type='vsock' cid='2' port='4050'/>
     </quoteGenerationService>
   </launchSecurity>
 </domain>
