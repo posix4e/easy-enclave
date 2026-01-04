@@ -112,6 +112,20 @@ jobs:
           cat /sys/module/vhost_vsock/parameters/* 2>/dev/null || echo "vhost_vsock not loaded"
           lsmod | grep vsock || echo "No vsock modules"
 
+      - name: Fix QGS socket permissions
+        run: |
+          # QEMU needs access to the QGS socket
+          # The socket is usually owned by root or a specific group
+          echo "Current QGS socket permissions:"
+          ls -la /var/run/tdx-qgs/qgs.socket 2>/dev/null || echo "Socket not found at /var/run/tdx-qgs/"
+
+          # Make socket accessible to libvirt-qemu user
+          sudo chmod 777 /var/run/tdx-qgs/qgs.socket 2>/dev/null || true
+          sudo chmod 755 /var/run/tdx-qgs/ 2>/dev/null || true
+
+          echo "Updated permissions:"
+          ls -la /var/run/tdx-qgs/ 2>/dev/null || true
+
       - name: Create TD VM with workload
         id: vm
         run: |
