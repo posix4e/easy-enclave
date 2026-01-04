@@ -1,34 +1,53 @@
 name: 'Easy Enclave Attest'
-description: 'Deploy workload and create TDX-attested GitHub release'
+description: 'Deploy workload in TDX VM and create attested GitHub release'
 inputs:
   docker-compose:
     description: 'Path to docker-compose.yml'
     required: true
     default: './docker-compose.yml'
   endpoint:
-    description: 'Public endpoint URL for the service'
-    required: true
+    description: 'Public endpoint URL for the service (use "auto" for http://{vm_ip}:8080)'
+    required: false
+    default: 'auto'
+  endpoint-port:
+    description: 'Port for auto-generated endpoint (used when endpoint is "auto")'
+    required: false
+    default: '8080'
   github-token:
     description: 'GitHub token for creating releases'
     required: true
     default: ${{ github.token }}
+outputs:
+  vm_ip:
+    description: 'IP address of the created TD VM'
+    value: ${{ steps.vm.outputs.vm_ip }}
+  quote:
+    description: 'Base64-encoded TDX quote'
+    value: ${{ steps.vm.outputs.quote }}
 runs:
   using: 'composite'
   steps:
-    - name: Generate TDX Quote
-      id: quote
+    - name: Setup libvirt network
       shell: bash
-      run: python3 ${{ github.action_path }}/src/quote.py
+      run: |
+        # Ensure default network is active for VM networking
+        if ! sudo virsh net-info default 2>/dev/null | grep -q "Active:.*yes"; then
+          echo "Starting libvirt default network..."
+          sudo virsh net-start default 2>/dev/null || true
+        fi
 
-    - name: Deploy Workload
+    - name: Create TD VM with Workload
+      id: vm
       shell: bash
-      run: docker compose -f ${{ inputs.docker-compose }} up -d
+      run: |
+        python3 ${{ github.action_path }}/src/vm.py ${{ inputs.docker-compose }} > /tmp/vm_result.json
+        echo "quote=$(jq -r .quote /tmp/vm_result.json)" >> $GITHUB_OUTPUT
+        echo "vm_ip=$(jq -r .ip /tmp/vm_result.json)" >> $GITHUB_OUTPUT
 
     - name: Create Attested Release
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
-        ENDPOINT: ${{ inputs.endpoint }}
-        QUOTE: ${{ steps.quote.outputs.quote }}
-        MEASUREMENTS: ${{ steps.quote.outputs.measurements }}
+        ENDPOINT: ${{ inputs.endpoint == 'auto' && format('http://{0}:{1}', steps.vm.outputs.vm_ip, inputs.endpoint-port) || inputs.endpoint }}
+        QUOTE: ${{ steps.vm.outputs.quote }}
       run: python3 ${{ github.action_path }}/src/release.py

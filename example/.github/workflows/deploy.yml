@@ -16,5 +16,5 @@ jobs:
         uses: posix4e/easy-enclave/action@main
         with:
           docker-compose: ./docker-compose.yml
-          endpoint: "http://${{ secrets.TDX_HOST_IP }}:8080"
+          # endpoint: auto  # Uses VM IP automatically, or set a fixed endpoint
           github-token: ${{ secrets.GITHUB_TOKEN }}
