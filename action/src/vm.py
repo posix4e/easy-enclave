@@ -349,9 +349,20 @@ def start_td_vm(
     with open(xml_path, 'w') as f:
         f.write(vm_xml)
 
-    # Destroy existing VM
+    # Clean up existing VM thoroughly
+    print(f"Cleaning up existing VM {name}...")
     subprocess.run(['sudo', 'virsh', 'destroy', name], capture_output=True)
-    subprocess.run(['sudo', 'virsh', 'undefine', name], capture_output=True)
+    subprocess.run(['sudo', 'virsh', 'undefine', name, '--nvram'], capture_output=True)
+
+    # Wait a moment for cleanup
+    time.sleep(1)
+
+    # Verify cleanup
+    check = subprocess.run(['sudo', 'virsh', 'domstate', name], capture_output=True, text=True)
+    if check.returncode == 0:
+        print(f"Warning: VM {name} still exists, forcing undefine...")
+        subprocess.run(['sudo', 'virsh', 'undefine', name, '--nvram', '--remove-all-storage'], capture_output=True)
+        time.sleep(1)
 
     # Define and start
     result = subprocess.run(['sudo', 'virsh', 'define', xml_path], capture_output=True, text=True)
