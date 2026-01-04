@@ -112,7 +112,7 @@ jobs:
           cat /sys/module/vhost_vsock/parameters/* 2>/dev/null || echo "vhost_vsock not loaded"
           lsmod | grep vsock || echo "No vsock modules"
 
-      - name: Verify QGS service
+      - name: Verify QGS and fix vsock permissions
         run: |
           echo "=== QGS service status ==="
           systemctl status qgsd --no-pager || echo "QGS service not running"
@@ -120,6 +120,12 @@ jobs:
           echo "=== QGS listening on vsock ==="
           sudo lsof -p $(pgrep qgs) 2>/dev/null | grep -i vsock || echo "Checking..."
           ps aux | grep qgs | grep -v grep
+
+          echo "=== Fix vsock device permissions ==="
+          # QEMU needs access to vhost-vsock to connect to QGS
+          sudo chmod 666 /dev/vhost-vsock
+          sudo chmod 666 /dev/vsock
+          ls -la /dev/vhost-vsock /dev/vsock
 
       - name: Create TD VM with workload
         id: vm
