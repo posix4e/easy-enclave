@@ -306,18 +306,30 @@ runcmd:
 
     user_data_path = os.path.join(workdir, "user-data")
     meta_data_path = os.path.join(workdir, "meta-data")
+    network_config_path = os.path.join(workdir, "network-config")
+
+    # Network config to enable DHCP
+    network_config = """version: 2
+ethernets:
+  id0:
+    match:
+      driver: virtio*
+    dhcp4: true
+"""
 
     with open(user_data_path, 'w') as f:
         f.write(user_data)
     with open(meta_data_path, 'w') as f:
         f.write("instance-id: ee-workload\nlocal-hostname: ee-workload\n")
+    with open(network_config_path, 'w') as f:
+        f.write(network_config)
 
     # Create cloud-init ISO
     cidata_iso = os.path.join(workdir, "cidata.iso")
     subprocess.run([
         'genisoimage', '-output', cidata_iso,
         '-volid', 'cidata', '-joliet', '-rock',
-        user_data_path, meta_data_path
+        user_data_path, meta_data_path, network_config_path
     ], check=True, capture_output=True)
 
     return workload_image, cidata_iso, workdir
