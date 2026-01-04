@@ -26,6 +26,14 @@ def log(msg):
     print(msg, file=sys.stderr)
 
 
+TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
+
+
+def load_template(name: str) -> str:
+    """Load a template file from the templates directory."""
+    return (TEMPLATES_DIR / name).read_text()
+
+
 # Default paths (Canonical TDX layout)
 TDX_TOOLS_DIR = "/opt/tdx"
 IMAGE_DIR = "/var/lib/easy-enclave"
@@ -200,11 +208,15 @@ def create_workload_image(base_image: str, docker_compose_content: str, port: in
         workload_image
     ], check=True, capture_output=True)
 
+    # Load templates
+    start_sh = load_template("start.sh").replace("{port}", str(port))
+    get_quote = load_template("get-quote.py")
+    network_config = load_template("network-config.yml")
+
     # SSH config (off by default)
     ssh_config = ""
     if enable_ssh:
         ssh_config = """
-# Enable password auth for SSH (for debugging)
 ssh_pwauth: true
 chpasswd:
   expire: false
@@ -214,121 +226,17 @@ chpasswd:
       type: text
 """
 
-    # Create cloud-init files
-    user_data = f"""#cloud-config
-hostname: ee-workload
-{ssh_config}
-write_files:
-  - path: /opt/workload/docker-compose.yml
-    content: |
-{indent_yaml(docker_compose_content, 6)}
-
-  - path: /opt/workload/start.sh
-    permissions: '0755'
-    content: |
-      #!/bin/bash
-      exec > /opt/workload/start.log 2>&1
-      echo "=== start.sh starting at $(date) ==="
-      set -x  # Enable trace mode for debugging
-      cd /opt/workload
-
-      # Generate TDX quote first
-      echo "Starting quote generation..."
-      python3 /opt/workload/get-quote.py > /opt/workload/quote.json 2>/opt/workload/quote.log || echo '{{"success": false, "error": "quote generation failed"}}' > /opt/workload/quote.json
-      chmod 644 /opt/workload/quote.json /opt/workload/quote.log 2>/dev/null || true
-      echo "Quote generation done: $(cat /opt/workload/quote.json | head -c 100)..."
-
-      # Create response HTML
-      echo "Creating index.html..."
-      cat > /opt/workload/index.html << 'HTMLEOF'
-      <!DOCTYPE html>
-      <html>
-      <head><title>TDX Attested Enclave</title></head>
-      <body>
-      <h1>Hello from TDX-attested enclave!</h1>
-      <p>This service is running inside an Intel TDX Trust Domain.</p>
-      </body>
-      </html>
-      HTMLEOF
-
-      # Start simple HTTP server on port {port}
-      echo "Starting HTTP server on port {port}..."
-      cd /opt/workload
-      nohup python3 -m http.server {port} > /opt/workload/http.log 2>&1 &
-      HTTP_PID=$!
-      echo "HTTP server started with PID $HTTP_PID"
-      sleep 2
-
-      # Verify it's running
-      if kill -0 $HTTP_PID 2>/dev/null; then
-          echo "HTTP server is running"
-          netstat -tlnp 2>/dev/null | grep {port} || ss -tlnp | grep {port} || echo "Port check failed but process running"
-      else
-          echo "ERROR: HTTP server died immediately"
-          cat /opt/workload/http.log
-      fi
-
-      # Signal ready
-      touch /opt/workload/ready
-      echo "=== start.sh completed at $(date) ==="
-
-  - path: /opt/workload/get-quote.py
-    permissions: '0755'
-    content: |
-      #!/usr/bin/env python3
-      import base64
-      import json
-      import os
-      import tempfile
-
-      def get_tdx_quote():
-          tsm_path = "/sys/kernel/config/tsm/report"
-          if not os.path.exists(tsm_path):
-              raise RuntimeError(f"configfs-tsm not available at {{tsm_path}}")
-
-          report_dir = tempfile.mkdtemp(dir=tsm_path)
-          inblob = os.path.join(report_dir, "inblob")
-          outblob = os.path.join(report_dir, "outblob")
-
-          with open(inblob, 'wb') as f:
-              f.write(b'\\x00' * 64)
-
-          with open(outblob, 'rb') as f:
-              data = f.read()
-
-          if len(data) == 0:
-              raise RuntimeError("Empty quote from configfs-tsm")
-
-          return data
-
-      try:
-          quote = get_tdx_quote()
-          if len(quote) < 100:
-              raise RuntimeError(f"Quote too small ({{len(quote)}} bytes)")
-          print(json.dumps({{
-              "success": True,
-              "quote": base64.b64encode(quote).decode(),
-              "size": len(quote)
-          }}))
-      except Exception as e:
-          print(json.dumps({{"success": False, "error": str(e)}}))
-
-runcmd:
-  - /opt/workload/start.sh
-"""
+    # Build user-data from template
+    user_data = load_template("user-data.yml").format(
+        ssh_config=ssh_config,
+        docker_compose=indent_yaml(docker_compose_content, 6),
+        start_sh=indent_yaml(start_sh, 6),
+        get_quote=indent_yaml(get_quote, 6),
+    )
 
     user_data_path = os.path.join(workdir, "user-data")
     meta_data_path = os.path.join(workdir, "meta-data")
     network_config_path = os.path.join(workdir, "network-config")
-
-    # Network config to enable DHCP
-    network_config = """version: 2
-ethernets:
-  id0:
-    match:
-      driver: virtio*
-    dhcp4: true
-"""
 
     with open(user_data_path, 'w') as f:
         f.write(user_data)

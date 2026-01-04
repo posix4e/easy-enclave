@@ -1,0 +1,20 @@
+#cloud-config
+hostname: ee-workload
+{ssh_config}
+write_files:
+  - path: /opt/workload/docker-compose.yml
+    content: |
+{docker_compose}
+
+  - path: /opt/workload/start.sh
+    permissions: '0755'
+    content: |
+{start_sh}
+
+  - path: /opt/workload/get-quote.py
+    permissions: '0755'
+    content: |
+{get_quote}
+
+runcmd:
+  - /opt/workload/start.sh
