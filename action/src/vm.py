@@ -684,7 +684,7 @@ def wait_for_vm_ip(name: str, timeout: int = 300) -> str:
         except Exception:
             pass
 
-        # Try virsh net-dhcp-leases - match by VM name or MAC address
+        # Try virsh net-dhcp-leases - match by MAC address ONLY to avoid stale hostname matches
         try:
             result = subprocess.run(
                 ['sudo', 'virsh', 'net-dhcp-leases', 'default'],
@@ -692,8 +692,8 @@ def wait_for_vm_ip(name: str, timeout: int = 300) -> str:
             )
             for line in result.stdout.split('\n'):
                 line_lower = line.lower()
-                # Match by hostname or MAC address
-                if name.lower() in line_lower or (vm_mac and vm_mac in line_lower):
+                # Match by MAC address ONLY - hostname can be stale from previous VMs
+                if vm_mac and vm_mac in line_lower:
                     parts = line.split()
                     for part in parts:
                         if '/' in part and '.' in part and part.startswith('192.'):
