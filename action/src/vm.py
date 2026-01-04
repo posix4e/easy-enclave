@@ -400,9 +400,24 @@ def start_td_vm(
     result = subprocess.run(['sudo', 'virsh', 'domstate', name], capture_output=True, text=True)
     print(f"VM state: {result.stdout.strip()}")
 
+    # Dump actual XML to see what libvirt created
+    result = subprocess.run(['sudo', 'virsh', 'dumpxml', name], capture_output=True, text=True)
+    print(f"=== Actual VM XML (interface section) ===")
+    for line in result.stdout.split('\n'):
+        if 'interface' in line.lower() or 'source network' in line.lower() or 'model type' in line.lower() or 'mac address' in line.lower():
+            print(line)
+
+    # Check network bridge
+    result = subprocess.run(['ip', 'link', 'show', 'virbr0'], capture_output=True, text=True)
+    print(f"virbr0 status: {result.stdout.strip() if result.returncode == 0 else 'not found'}")
+
     # Check DHCP leases
     result = subprocess.run(['sudo', 'virsh', 'net-dhcp-leases', 'default'], capture_output=True, text=True)
     print(f"DHCP leases:\n{result.stdout}")
+
+    # Check ARP table for any new entries
+    result = subprocess.run(['arp', '-n'], capture_output=True, text=True)
+    print(f"ARP table:\n{result.stdout}")
 
     # Wait for IP
     ip = wait_for_vm_ip(name)
@@ -483,11 +498,16 @@ def generate_tdx_domain_xml(
     <interface type='network'>
       <source network='default'/>
       <model type='virtio'/>
+      <address type='pci' domain='0x0000' bus='0x06' slot='0x00' function='0x0'/>
     </interface>
 
     <console type='pty'>
       <target type='virtio' port='1'/>
     </console>
+
+    <serial type='pty'>
+      <target port='0'/>
+    </serial>
 
     <channel type='unix'>
       <source mode='bind'/>
@@ -496,6 +516,7 @@ def generate_tdx_domain_xml(
 
     <vsock model='virtio'>
       <cid auto='yes'/>
+      <address type='pci' domain='0x0000' bus='0x05' slot='0x00' function='0x0'/>
     </vsock>
   </devices>
 
@@ -514,10 +535,21 @@ def generate_tdx_domain_xml(
 def wait_for_vm_ip(name: str, timeout: int = 300) -> str:
     """Wait for VM to get an IP address."""
     start = time.time()
+    last_print = 0
     while time.time() - start < timeout:
         elapsed = int(time.time() - start)
-        if elapsed % 30 == 0:
+        if elapsed - last_print >= 30:
+            last_print = elapsed
             print(f"Waiting for VM IP... ({elapsed}s elapsed)")
+            # Show DHCP leases periodically
+            result = subprocess.run(['sudo', 'virsh', 'net-dhcp-leases', 'default'],
+                                   capture_output=True, text=True)
+            if result.stdout.strip():
+                lease_lines = [l for l in result.stdout.split('\n') if '192.168.' in l]
+                if lease_lines:
+                    print(f"  DHCP leases: {len(lease_lines)} found")
+                    for l in lease_lines[:3]:
+                        print(f"    {l.strip()}")
 
         # Try virsh domifaddr with agent
         try:
