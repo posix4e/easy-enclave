@@ -387,41 +387,28 @@ def generate_tdx_domain_xml(
     memory_mb: int,
     vcpus: int,
 ) -> str:
-    """Generate libvirt XML for TDX VM."""
-    # Find OVMF firmware - prefer TDX-specific builds
-    ovmf_code_paths = [
-        "/usr/share/OVMF/OVMF_CODE_4M.ms.fd",  # TDX-compatible
-        "/usr/share/OVMF/OVMF_CODE.ms.fd",
+    """Generate libvirt XML for TDX VM based on Canonical's template."""
+    # Find OVMF firmware - use same path as Canonical
+    ovmf_paths = [
+        "/usr/share/qemu/OVMF.fd",
         "/usr/share/OVMF/OVMF_CODE_4M.fd",
         "/usr/share/OVMF/OVMF_CODE.fd",
-        "/usr/share/qemu/OVMF_CODE.fd",
     ]
-    ovmf_vars_paths = [
-        "/usr/share/OVMF/OVMF_VARS_4M.ms.fd",
-        "/usr/share/OVMF/OVMF_VARS.ms.fd",
-        "/usr/share/OVMF/OVMF_VARS_4M.fd",
-        "/usr/share/OVMF/OVMF_VARS.fd",
-    ]
-    ovmf_code = next((p for p in ovmf_code_paths if os.path.exists(p)), ovmf_code_paths[0])
-    ovmf_vars = next((p for p in ovmf_vars_paths if os.path.exists(p)), None)
+    ovmf = next((p for p in ovmf_paths if os.path.exists(p)), ovmf_paths[0])
 
-    # For TDX, we need both CODE and VARS, and VARS should be a copy (not template)
-    nvram_section = ""
-    if ovmf_vars:
-        nvram_path = f"/tmp/{name}-VARS.fd"
-        # Copy the template to create a writeable NVRAM
-        subprocess.run(['cp', ovmf_vars, nvram_path], check=True)
-        nvram_section = f"<nvram template='{ovmf_vars}'>{nvram_path}</nvram>"
-
-    return f"""<domain type='kvm'>
+    # Note: Using type='rom' instead of 'pflash' - this is key for TDX!
+    return f"""<domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'>
   <name>{name}</name>
   <memory unit='MiB'>{memory_mb}</memory>
+  <memoryBacking>
+    <source type="anonymous"/>
+    <access mode="private"/>
+  </memoryBacking>
   <vcpu placement='static'>{vcpus}</vcpu>
 
   <os>
     <type arch='x86_64' machine='q35'>hvm</type>
-    <loader readonly='yes' type='pflash'>{ovmf_code}</loader>
-    {nvram_section}
+    <loader type='rom' readonly='yes'>{ovmf}</loader>
     <boot dev='hd'/>
   </os>
 
@@ -429,17 +416,24 @@ def generate_tdx_domain_xml(
     <acpi/>
     <apic/>
     <ioapic driver='qemu'/>
-    <smm state='off'/>
   </features>
 
+  <clock offset='utc'>
+    <timer name='hpet' present='no'/>
+  </clock>
+
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>destroy</on_crash>
+
+  <pm>
+    <suspend-to-mem enable='no'/>
+    <suspend-to-disk enable='no'/>
+  </pm>
+
   <cpu mode='host-passthrough'>
+    <topology sockets='1' cores='{vcpus}' threads='1'/>
   </cpu>
-
-  <clock offset='utc'/>
-
-  <launchSecurity type='tdx'>
-    <policy>0x0</policy>
-  </launchSecurity>
 
   <devices>
     <emulator>/usr/bin/qemu-system-x86_64</emulator>
@@ -462,13 +456,28 @@ def generate_tdx_domain_xml(
       <model type='virtio'/>
     </interface>
 
-    <serial type='pty'>
-      <target port='0'/>
-    </serial>
     <console type='pty'>
-      <target type='serial' port='0'/>
+      <target type='virtio' port='1'/>
     </console>
+
+    <channel type='unix'>
+      <source mode='bind'/>
+      <target type='virtio' name='org.qemu.guest_agent.0'/>
+    </channel>
+
+    <vsock model='virtio'>
+      <cid auto='yes'/>
+    </vsock>
   </devices>
+
+  <allowReboot value='no'/>
+
+  <launchSecurity type='tdx'>
+    <policy>0x10000000</policy>
+    <quoteGenerationService>
+      <SocketAddress type='vsock' cid='2' port='4050'/>
+    </quoteGenerationService>
+  </launchSecurity>
 </domain>
 """
 
