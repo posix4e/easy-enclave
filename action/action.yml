@@ -30,6 +30,9 @@ runs:
     - name: Setup TDX environment
       shell: bash
       run: |
+        # Force destroy old VM if exists
+        sudo virsh destroy ee-workload 2>/dev/null || true
+        sudo virsh undefine ee-workload --nvram 2>/dev/null || true
         # Ensure libvirt default network is active
         if ! sudo virsh net-info default 2>/dev/null | grep -q "Active:.*yes"; then
           echo "Starting libvirt default network..."
