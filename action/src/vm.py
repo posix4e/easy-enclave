@@ -377,13 +377,30 @@ def generate_tdx_domain_xml(
     vcpus: int,
 ) -> str:
     """Generate libvirt XML for TDX VM."""
-    # Find OVMF firmware
-    ovmf_paths = [
+    # Find OVMF firmware - prefer TDX-specific builds
+    ovmf_code_paths = [
+        "/usr/share/OVMF/OVMF_CODE_4M.ms.fd",  # TDX-compatible
+        "/usr/share/OVMF/OVMF_CODE.ms.fd",
         "/usr/share/OVMF/OVMF_CODE_4M.fd",
         "/usr/share/OVMF/OVMF_CODE.fd",
         "/usr/share/qemu/OVMF_CODE.fd",
     ]
-    ovmf = next((p for p in ovmf_paths if os.path.exists(p)), ovmf_paths[0])
+    ovmf_vars_paths = [
+        "/usr/share/OVMF/OVMF_VARS_4M.ms.fd",
+        "/usr/share/OVMF/OVMF_VARS.ms.fd",
+        "/usr/share/OVMF/OVMF_VARS_4M.fd",
+        "/usr/share/OVMF/OVMF_VARS.fd",
+    ]
+    ovmf_code = next((p for p in ovmf_code_paths if os.path.exists(p)), ovmf_code_paths[0])
+    ovmf_vars = next((p for p in ovmf_vars_paths if os.path.exists(p)), None)
+
+    # For TDX, we need both CODE and VARS, and VARS should be a copy (not template)
+    nvram_section = ""
+    if ovmf_vars:
+        nvram_path = f"/tmp/{name}-VARS.fd"
+        # Copy the template to create a writeable NVRAM
+        subprocess.run(['cp', ovmf_vars, nvram_path], check=True)
+        nvram_section = f"<nvram template='{ovmf_vars}'>{nvram_path}</nvram>"
 
     return f"""<domain type='kvm'>
   <name>{name}</name>
@@ -392,7 +409,8 @@ def generate_tdx_domain_xml(
 
   <os>
     <type arch='x86_64' machine='q35'>hvm</type>
-    <loader readonly='yes' type='pflash'>{ovmf}</loader>
+    <loader readonly='yes' type='pflash'>{ovmf_code}</loader>
+    {nvram_section}
     <boot dev='hd'/>
   </os>
 
