@@ -88,6 +88,36 @@ Repeatable host provisioning.
 - **Credits system**: Earn credits by providing TDX hosts, spend credits to deploy workloads
 - Discovery service + multi-host
 
+## TDX Host Setup
+
+Required configurations for the TDX host:
+
+### QGS (Quote Generation Service)
+QGS listens on vsock (CID 2, port 4050). Verify it's running:
+```bash
+systemctl status qgsd
+sudo lsof -p $(pgrep qgs) | grep vsock
+```
+
+### AppArmor
+Add vsock network permission for libvirt:
+```bash
+echo '  network vsock stream,' | sudo tee -a /etc/apparmor.d/abstractions/libvirt-qemu
+sudo systemctl reload apparmor
+```
+
+### QEMU Sandbox (optional)
+If vsock still fails, disable QEMU seccomp sandbox:
+```bash
+sudo sed -i 's/#seccomp_sandbox = 1/seccomp_sandbox = 0/' /etc/libvirt/qemu.conf
+sudo systemctl restart libvirtd
+```
+
+### Device Permissions
+```bash
+sudo chmod 666 /dev/vhost-vsock /dev/vsock
+```
+
 ## License
 
 MIT
