@@ -18,18 +18,24 @@ jobs:
           echo "=== Checking libvirt networks ==="
           virsh net-list --all
 
-          # Ensure virbr0 exists for default network
-          if ! ip link show virbr0 &>/dev/null; then
-            echo "Creating virbr0 bridge..."
-            sudo ip link add virbr0 type bridge
-            sudo ip addr add 192.168.122.1/24 dev virbr0
-            sudo ip link set virbr0 up
-          fi
-
-          # Start default network if not running
+          # If default network is not active, clean up and recreate
           if ! virsh net-info default 2>/dev/null | grep -q "Active:.*yes"; then
-            echo "Starting default network..."
+            echo "Cleaning up stale network state..."
+
+            # Remove stale virbr0 if it exists
+            if ip link show virbr0 &>/dev/null; then
+              sudo ip link set virbr0 down || true
+              sudo ip link delete virbr0 || true
+            fi
+
+            # Kill stale dnsmasq processes for virbr0
+            sudo pkill -f 'dnsmasq.*virbr0' || true
+
+            # Undefine and redefine network
+            virsh net-destroy default 2>/dev/null || true
             virsh net-undefine default 2>/dev/null || true
+
+            echo "Defining and starting default network..."
             virsh net-define /usr/share/libvirt/networks/default.xml
             virsh net-start default
             virsh net-autostart default
@@ -37,7 +43,7 @@ jobs:
 
           echo "=== Network status ==="
           virsh net-list --all
-          ip addr show virbr0
+          ip addr show virbr0 || echo "virbr0 not found"
 
       - name: Check TDX environment
         run: |
