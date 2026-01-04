@@ -385,7 +385,7 @@ def generate_tdx_domain_xml(
     ]
     ovmf = next((p for p in ovmf_paths if os.path.exists(p)), ovmf_paths[0])
 
-    return f"""<domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'>
+    return f"""<domain type='kvm'>
   <name>{name}</name>
   <memory unit='MiB'>{memory_mb}</memory>
   <vcpu placement='static'>{vcpus}</vcpu>
@@ -399,6 +399,7 @@ def generate_tdx_domain_xml(
   <features>
     <acpi/>
     <apic/>
+    <ioapic driver='qemu'/>
   </features>
 
   <cpu mode='host-passthrough'>
@@ -438,11 +439,6 @@ def generate_tdx_domain_xml(
       <target type='serial' port='0'/>
     </console>
   </devices>
-
-  <qemu:commandline>
-    <qemu:arg value='-machine'/>
-    <qemu:arg value='kernel_irqchip=split'/>
-  </qemu:commandline>
 </domain>
 """
 
