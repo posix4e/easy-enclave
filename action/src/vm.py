@@ -415,9 +415,23 @@ def start_td_vm(
     result = subprocess.run(['sudo', 'virsh', 'net-dhcp-leases', 'default'], capture_output=True, text=True)
     print(f"DHCP leases:\n{result.stdout}")
 
-    # Check ARP table for any new entries
-    result = subprocess.run(['arp', '-n'], capture_output=True, text=True)
-    print(f"ARP table:\n{result.stdout}")
+    # Check ARP table for any new entries (use ip neigh instead of arp)
+    result = subprocess.run(['ip', 'neigh'], capture_output=True, text=True)
+    print(f"ARP/Neighbor table:\n{result.stdout}")
+
+    # Try to get console log to see boot status
+    print("=== Checking VM console/serial log ===")
+    try:
+        # Check qemu log if available
+        result = subprocess.run(['sudo', 'cat', f'/var/log/libvirt/qemu/{name}.log'],
+                               capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout.strip():
+            lines = result.stdout.strip().split('\n')
+            print(f"Last 10 lines of QEMU log:")
+            for line in lines[-10:]:
+                print(f"  {line}")
+    except Exception as e:
+        print(f"Could not read QEMU log: {e}")
 
     # Wait for IP
     ip = wait_for_vm_ip(name)
