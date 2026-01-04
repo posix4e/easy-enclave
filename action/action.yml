@@ -27,14 +27,16 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Setup libvirt network
+    - name: Setup TDX environment
       shell: bash
       run: |
-        # Ensure default network is active for VM networking
+        # Ensure libvirt default network is active
         if ! sudo virsh net-info default 2>/dev/null | grep -q "Active:.*yes"; then
           echo "Starting libvirt default network..."
           sudo virsh net-start default 2>/dev/null || true
         fi
+        # Fix vsock permissions for QEMU to connect to QGS
+        sudo chmod 666 /dev/vhost-vsock /dev/vsock 2>/dev/null || true
 
     - name: Create TD VM with Workload
       id: vm
