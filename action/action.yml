@@ -17,6 +17,10 @@ inputs:
     description: 'GitHub token for creating releases'
     required: true
     default: ${{ github.token }}
+  vm-name:
+    description: 'Name for the TD VM'
+    required: false
+    default: 'ee-workload'
 outputs:
   vm_ip:
     description: 'IP address of the created TD VM'
@@ -31,8 +35,8 @@ runs:
       shell: bash
       run: |
         # Force destroy old VM if exists
-        sudo virsh destroy ee-workload 2>/dev/null || true
-        sudo virsh undefine ee-workload --nvram 2>/dev/null || true
+        sudo virsh destroy ${{ inputs.vm-name }} 2>/dev/null || true
+        sudo virsh undefine ${{ inputs.vm-name }} --nvram 2>/dev/null || true
         # Ensure libvirt default network is active
         if ! sudo virsh net-info default 2>/dev/null | grep -q "Active:.*yes"; then
           echo "Starting libvirt default network..."
@@ -45,7 +49,7 @@ runs:
       id: vm
       shell: bash
       run: |
-        python3 ${{ github.action_path }}/src/vm.py ${{ inputs.docker-compose }} > /tmp/vm_result.json
+        python3 ${{ github.action_path }}/src/vm.py ${{ inputs.docker-compose }} --name ${{ inputs.vm-name }} > /tmp/vm_result.json
         echo "quote=$(jq -r .quote /tmp/vm_result.json)" >> $GITHUB_OUTPUT
         echo "vm_ip=$(jq -r .ip /tmp/vm_result.json)" >> $GITHUB_OUTPUT
 

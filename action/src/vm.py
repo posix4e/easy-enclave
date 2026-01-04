@@ -874,11 +874,12 @@ def destroy_td_vm(name: str = "ee-workload") -> None:
 
 
 if __name__ == '__main__':
-    import sys
-    if len(sys.argv) < 2:
-        print("Usage: vm.py <docker-compose.yml>", file=sys.stderr)
-        sys.exit(1)
+    import argparse
+    parser = argparse.ArgumentParser(description='Create TD VM with workload')
+    parser.add_argument('docker_compose', help='Path to docker-compose.yml')
+    parser.add_argument('--name', default='ee-workload', help='VM name (default: ee-workload)')
+    args = parser.parse_args()
 
-    result = create_td_vm(sys.argv[1])
+    result = create_td_vm(args.docker_compose, name=args.name)
     # Only JSON goes to stdout, logs went to stderr
     print(json.dumps(result, indent=2))
