@@ -92,8 +92,14 @@ jobs:
           ls -la ~/tdx/guest-tools/ 2>/dev/null || echo "No guest-tools"
           ls -la ~/tdx/guest-tools/image/ 2>/dev/null || echo "No images"
           echo ""
-          echo "=== run_td.sh content ==="
-          head -100 ~/tdx/guest-tools/run_td.sh 2>/dev/null || echo "No run_td.sh"
+          echo "=== run_td content ==="
+          head -50 ~/tdx/guest-tools/run_td 2>/dev/null || echo "No run_td"
+          echo ""
+          echo "=== trust_domain.xml.template ==="
+          cat ~/tdx/guest-tools/trust_domain.xml.template 2>/dev/null || echo "No template"
+          echo ""
+          echo "=== direct-boot ==="
+          ls -la ~/tdx/guest-tools/direct-boot/ 2>/dev/null || echo "No direct-boot"
 
       - name: Create TD VM with workload
         id: vm
