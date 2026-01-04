@@ -213,11 +213,11 @@ def create_workload_image(base_image: str, docker_compose_content: str) -> str:
     workdir = tempfile.mkdtemp(prefix="ee-workload-")
     workload_image = os.path.join(workdir, "workload.qcow2")
 
-    # Create overlay image
+    # Create overlay image (don't specify size - inherit from base)
     subprocess.run([
         'qemu-img', 'create', '-f', 'qcow2',
         '-b', base_image, '-F', 'qcow2',
-        workload_image, '20G'
+        workload_image
     ], check=True, capture_output=True)
 
     # Create cloud-init files
@@ -515,13 +515,16 @@ def generate_tdx_domain_xml(
       <address type='pci' domain='0x0000' bus='0x06' slot='0x00' function='0x0'/>
     </interface>
 
-    <console type='pty'>
-      <target type='virtio' port='1'/>
-    </console>
-
-    <serial type='pty'>
-      <target port='0'/>
+    <serial type='file'>
+      <source path='/var/log/libvirt/qemu/{name}-serial.log'/>
+      <target type='isa-serial' port='0'>
+        <model name='isa-serial'/>
+      </target>
     </serial>
+    <console type='file'>
+      <source path='/var/log/libvirt/qemu/{name}-serial.log'/>
+      <target type='serial' port='0'/>
+    </console>
 
     <channel type='unix'>
       <source mode='bind'/>
