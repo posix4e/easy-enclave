@@ -429,6 +429,7 @@ def generate_tdx_domain_xml(
     <acpi/>
     <apic/>
     <ioapic driver='qemu'/>
+    <smm state='off'/>
   </features>
 
   <cpu mode='host-passthrough'>
