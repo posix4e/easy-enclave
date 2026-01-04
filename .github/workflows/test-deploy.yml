@@ -24,15 +24,32 @@ jobs:
           echo "=== System Info ==="
           uname -a
           echo ""
-          echo "=== TDX Devices ==="
-          ls -la /dev/tdx* 2>/dev/null || echo "No /dev/tdx devices"
+          echo "=== TDX Detection ==="
+          python3 -c "
+          import sys
+          sys.path.insert(0, 'action/src')
+          from vm import get_tdx_info, find_existing_images
+          import json
+
+          print('TDX Info:')
+          info = get_tdx_info()
+          print(json.dumps(info, indent=2))
+
+          print('\nExisting Images:')
+          images = find_existing_images()
+          for img in images:
+              print(f'  {img[\"path\"]} ({img[\"size_gb\"]} GB)')
+          if not images:
+              print('  No images found')
+          "
           echo ""
           echo "=== Libvirt Status ==="
           virsh version 2>/dev/null || echo "virsh not available"
           virsh list --all 2>/dev/null || echo "Cannot list VMs"
           echo ""
-          echo "=== Base Image ==="
-          ls -la /var/lib/easy-enclave/base.qcow2 2>/dev/null || echo "No base image found"
+          echo "=== TDX Kernel Module ==="
+          cat /sys/module/kvm_intel/parameters/tdx 2>/dev/null || echo "TDX param not found"
+          dmesg | grep -i tdx | head -5 || echo "No TDX in dmesg"
 
       - name: Deploy example service (direct on host)
         if: ${{ inputs.use_vm != 'true' }}

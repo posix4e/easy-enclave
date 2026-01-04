@@ -11,34 +11,193 @@ import os
 import subprocess
 import tempfile
 import time
+import hashlib
+import urllib.request
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 
 # Default paths (Canonical TDX layout)
-TDX_TOOLS_DIR = "/opt/tdx"  # or wherever canonical/tdx is cloned
-DEFAULT_TD_IMAGE = "/var/lib/easy-enclave/td-guest.qcow2"
-BACKUP_TD_IMAGE = "/home/ubuntu/tdx/guest-tools/image/tdx-guest-ubuntu-24.04.qcow2"
+TDX_TOOLS_DIR = "/opt/tdx"
+IMAGE_DIR = "/var/lib/easy-enclave"
+DEFAULT_TD_IMAGE = f"{IMAGE_DIR}/td-guest.qcow2"
+
+# Ubuntu cloud image URLs (TDX-compatible)
+UBUNTU_CLOUD_IMAGES = {
+    "24.04": "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img",
+    "24.10": "https://cloud-images.ubuntu.com/oracular/current/oracular-server-cloudimg-amd64.img",
+}
+
+
+def get_tdx_info() -> dict:
+    """Get TDX information from the host."""
+    info = {
+        "tdx_available": False,
+        "tdx_version": None,
+        "kernel": None,
+        "libvirt_tdx": False,
+    }
+
+    # Check kernel
+    try:
+        result = subprocess.run(['uname', '-r'], capture_output=True, text=True)
+        info["kernel"] = result.stdout.strip()
+    except Exception:
+        pass
+
+    # Check for TDX in dmesg
+    try:
+        result = subprocess.run(['dmesg'], capture_output=True, text=True)
+        if 'tdx' in result.stdout.lower():
+            info["tdx_available"] = True
+            # Try to find version
+            for line in result.stdout.split('\n'):
+                if 'tdx' in line.lower() and 'version' in line.lower():
+                    info["tdx_version"] = line.strip()
+                    break
+    except Exception:
+        pass
+
+    # Check /sys for TDX
+    tdx_paths = [
+        "/sys/firmware/tdx",
+        "/sys/module/kvm_intel/parameters/tdx",
+    ]
+    for path in tdx_paths:
+        if os.path.exists(path):
+            info["tdx_available"] = True
+            try:
+                with open(path) as f:
+                    info["tdx_version"] = f.read().strip()
+            except Exception:
+                pass
+            break
+
+    # Check libvirt TDX support
+    try:
+        result = subprocess.run(
+            ['virsh', 'domcapabilities', '--machine', 'q35'],
+            capture_output=True, text=True
+        )
+        if 'tdx' in result.stdout.lower():
+            info["libvirt_tdx"] = True
+    except Exception:
+        pass
+
+    return info
+
+
+def find_existing_images() -> list:
+    """Find existing TD/cloud images on the system."""
+    images = []
+
+    search_paths = [
+        "/var/lib/libvirt/images",
+        "/var/lib/easy-enclave",
+        os.path.expanduser("~/tdx/guest-tools/image"),
+        "/opt/tdx/guest-tools/image",
+        "/home/ubuntu/tdx/guest-tools/image",
+    ]
+
+    patterns = ["*.qcow2", "*.img"]
+
+    for search_path in search_paths:
+        if os.path.isdir(search_path):
+            for pattern in patterns:
+                import glob
+                for img in glob.glob(os.path.join(search_path, pattern)):
+                    try:
+                        size = os.path.getsize(img)
+                        images.append({
+                            "path": img,
+                            "size_gb": round(size / (1024**3), 2),
+                            "name": os.path.basename(img),
+                        })
+                    except Exception:
+                        pass
+
+    return images
+
+
+def download_ubuntu_image(version: str = "24.04", dest_dir: str = IMAGE_DIR) -> str:
+    """
+    Download Ubuntu cloud image if not present.
+
+    Returns path to the downloaded image.
+    """
+    os.makedirs(dest_dir, exist_ok=True)
+
+    url = UBUNTU_CLOUD_IMAGES.get(version)
+    if not url:
+        raise ValueError(f"Unknown Ubuntu version: {version}. Available: {list(UBUNTU_CLOUD_IMAGES.keys())}")
+
+    filename = f"ubuntu-{version}-cloudimg-amd64.img"
+    dest_path = os.path.join(dest_dir, filename)
+
+    if os.path.exists(dest_path):
+        print(f"Image already exists: {dest_path}")
+        return dest_path
+
+    print(f"Downloading Ubuntu {version} cloud image...")
+    print(f"URL: {url}")
+    print(f"Destination: {dest_path}")
+
+    # Download with progress
+    def reporthook(count, block_size, total_size):
+        percent = int(count * block_size * 100 / total_size)
+        print(f"\rProgress: {percent}%", end='', flush=True)
+
+    urllib.request.urlretrieve(url, dest_path, reporthook)
+    print("\nDownload complete!")
+
+    # Convert to qcow2 if needed
+    if dest_path.endswith('.img'):
+        qcow2_path = dest_path.replace('.img', '.qcow2')
+        print(f"Converting to qcow2: {qcow2_path}")
+        subprocess.run([
+            'qemu-img', 'convert', '-f', 'qcow2', '-O', 'qcow2',
+            dest_path, qcow2_path
+        ], check=True)
+        return qcow2_path
+
+    return dest_path
+
+
+def find_or_download_td_image(prefer_version: str = "24.04") -> str:
+    """
+    Find existing TD image or download one.
+
+    Returns path to usable image.
+    """
+    # First, look for existing images
+    existing = find_existing_images()
+
+    # Prefer images with 'tdx' or 'td-guest' in name
+    for img in existing:
+        if 'tdx' in img['name'].lower() or 'td-guest' in img['name'].lower():
+            print(f"Found TD image: {img['path']} ({img['size_gb']} GB)")
+            return img['path']
+
+    # Then look for any cloud image
+    for img in existing:
+        if 'cloud' in img['name'].lower() or 'ubuntu' in img['name'].lower():
+            print(f"Found cloud image: {img['path']} ({img['size_gb']} GB)")
+            return img['path']
+
+    # If any qcow2/img exists, use the largest one
+    if existing:
+        largest = max(existing, key=lambda x: x['size_gb'])
+        print(f"Using existing image: {largest['path']} ({largest['size_gb']} GB)")
+        return largest['path']
+
+    # No images found - download
+    print("No existing images found. Downloading Ubuntu cloud image...")
+    return download_ubuntu_image(prefer_version)
 
 
 def find_td_image() -> str:
-    """Find the TD guest image."""
-    candidates = [
-        DEFAULT_TD_IMAGE,
-        BACKUP_TD_IMAGE,
-        "/var/lib/libvirt/images/tdx-guest.qcow2",
-        os.path.expanduser("~/tdx/guest-tools/image/tdx-guest-ubuntu-24.04.qcow2"),
-        os.path.expanduser("~/tdx/guest-tools/image/tdx-guest-ubuntu-25.04.qcow2"),
-    ]
-
-    for path in candidates:
-        if os.path.exists(path):
-            return path
-
-    raise RuntimeError(
-        f"TD guest image not found. Tried: {candidates}\n"
-        "Run: cd ~/tdx/guest-tools/image && sudo ./create-td-image.sh"
-    )
+    """Find the TD guest image (legacy function, now uses find_or_download)."""
+    return find_or_download_td_image()
 
 
 def create_workload_image(base_image: str, docker_compose_content: str) -> str:
