@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """
-Generate TDX quote from the host using available methods.
+Generate TDX quote.
 
-Tries multiple approaches in order:
-1. configfs-tsm (modern kernel interface)
-2. /dev/tdx_guest (direct device)
-3. QGS socket client
+For CRAWL: tries direct methods (if running in TD)
+For WALK+: creates TD VM and gets quote from it
 """
 
 import base64

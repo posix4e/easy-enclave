@@ -2,6 +2,12 @@ name: Test Deploy
 
 on:
   workflow_dispatch:
+    inputs:
+      use_vm:
+        description: 'Create TD VM for quote generation'
+        required: false
+        default: 'true'
+        type: boolean
 
 permissions:
   contents: write
@@ -13,33 +19,65 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Test TDX environment
+      - name: Check TDX environment
         run: |
-          echo "Testing TDX environment..."
-          ls -la /dev/tdx* 2>/dev/null || echo "No /dev/tdx devices (may need different path)"
-          cat /sys/kernel/tdx/tdx_version 2>/dev/null || echo "No TDX version file"
+          echo "=== System Info ==="
+          uname -a
+          echo ""
+          echo "=== TDX Devices ==="
+          ls -la /dev/tdx* 2>/dev/null || echo "No /dev/tdx devices"
+          echo ""
+          echo "=== Libvirt Status ==="
+          virsh version 2>/dev/null || echo "virsh not available"
+          virsh list --all 2>/dev/null || echo "Cannot list VMs"
+          echo ""
+          echo "=== Base Image ==="
+          ls -la /var/lib/easy-enclave/base.qcow2 2>/dev/null || echo "No base image found"
 
-      - name: Deploy example service
+      - name: Deploy example service (direct on host)
+        if: ${{ inputs.use_vm != 'true' }}
         run: |
           cd example
           docker compose up -d
           sleep 3
           docker compose ps
 
-      - name: Test service
+      - name: Create TD VM with workload
+        if: ${{ inputs.use_vm == 'true' }}
+        id: vm
         run: |
-          curl -s http://localhost:8080 || echo "Service not reachable yet"
+          echo "Creating TD VM..."
+          python3 action/src/vm.py example/docker-compose.yml > vm_result.json 2>&1 || {
+            echo "VM creation failed, falling back to direct deployment"
+            cat vm_result.json || true
+            cd example && docker compose up -d
+            echo '{"success": false, "quote": "placeholder-no-vm"}' > vm_result.json
+          }
+          cat vm_result.json
 
-      - name: Generate TDX quote
+          # Extract outputs
+          QUOTE=$(python3 -c "import json; d=json.load(open('vm_result.json')); print(d.get('quote', ''))")
+          IP=$(python3 -c "import json; d=json.load(open('vm_result.json')); print(d.get('ip', 'localhost'))")
+          echo "quote=$QUOTE" >> $GITHUB_OUTPUT
+          echo "vm_ip=$IP" >> $GITHUB_OUTPUT
+
+      - name: Generate TDX quote (fallback)
+        if: ${{ inputs.use_vm != 'true' }}
         id: quote
         run: |
           python3 action/src/quote.py
 
+      - name: Test service
+        run: |
+          IP="${{ steps.vm.outputs.vm_ip || 'localhost' }}"
+          echo "Testing service at $IP:8080..."
+          curl -s --connect-timeout 5 http://$IP:8080 || echo "Service not reachable"
+
       - name: Create release with attestation
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ENDPOINT: "http://57.130.10.77:8080"
-          QUOTE: ${{ steps.quote.outputs.quote }}
-          MEASUREMENTS: ${{ steps.quote.outputs.measurements }}
+          ENDPOINT: "http://${{ steps.vm.outputs.vm_ip || '57.130.10.77' }}:8080"
+          QUOTE: ${{ steps.vm.outputs.quote || steps.quote.outputs.quote || 'placeholder' }}
+          MEASUREMENTS: ${{ steps.quote.outputs.measurements || '{}' }}
         run: |
           python3 action/src/release.py
