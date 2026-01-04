@@ -563,10 +563,33 @@ def generate_tdx_domain_xml(
 """
 
 
+def get_vm_mac(name: str) -> str:
+    """Get the MAC address of a VM's network interface."""
+    result = subprocess.run(
+        ['sudo', 'virsh', 'domiflist', name],
+        capture_output=True, text=True
+    )
+    for line in result.stdout.split('\n'):
+        # Look for lines with MAC addresses (format: 52:54:00:xx:xx:xx)
+        parts = line.split()
+        for part in parts:
+            if ':' in part and len(part) == 17 and part.count(':') == 5:
+                return part.lower()
+    return ""
+
+
 def wait_for_vm_ip(name: str, timeout: int = 300) -> str:
     """Wait for VM to get an IP address."""
     start = time.time()
     last_print = 0
+
+    # Get the VM's MAC address first
+    vm_mac = get_vm_mac(name)
+    if vm_mac:
+        print(f"VM MAC address: {vm_mac}")
+    else:
+        print("Warning: Could not get VM MAC address")
+
     while time.time() - start < timeout:
         elapsed = int(time.time() - start)
         if elapsed - last_print >= 30:
@@ -611,24 +634,22 @@ def wait_for_vm_ip(name: str, timeout: int = 300) -> str:
         except Exception:
             pass
 
-        # Try virsh net-dhcp-leases
+        # Try virsh net-dhcp-leases - match by VM name or MAC address
         try:
             result = subprocess.run(
                 ['sudo', 'virsh', 'net-dhcp-leases', 'default'],
                 capture_output=True, text=True, timeout=10
             )
             for line in result.stdout.split('\n'):
-                if name.lower() in line.lower() or 'ee-workload' in line.lower():
+                line_lower = line.lower()
+                # Match by hostname or MAC address
+                if name.lower() in line_lower or (vm_mac and vm_mac in line_lower):
                     parts = line.split()
                     for part in parts:
                         if '/' in part and '.' in part and part.startswith('192.'):
-                            return part.split('/')[0]
-                # Also check any DHCP lease since we might be the only VM
-                if '192.168.122.' in line:
-                    parts = line.split()
-                    for part in parts:
-                        if '/' in part and part.startswith('192.168.122.'):
-                            return part.split('/')[0]
+                            ip = part.split('/')[0]
+                            print(f"Found IP {ip} for VM {name} (MAC: {vm_mac})")
+                            return ip
         except Exception:
             pass
 
