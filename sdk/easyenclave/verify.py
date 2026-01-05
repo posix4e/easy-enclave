@@ -243,25 +243,29 @@ def verify_certificate_chain(certs: list) -> Tuple[bool, str]:
             issuer = cert.issuer.rfc4514_string()
 
             if "Intel SGX Root CA" in issuer:
-                # Verify against Intel root
+                # Verify against Intel root (Intel uses ECDSA P-256)
                 try:
-                    intel_root.public_key().verify(
-                        cert.signature,
-                        cert.tbs_certificate_bytes,
-                        ec.ECDSA(hashes.SHA256())
-                    )
-                    return True, "Certificate chain verified to Intel Root CA"
+                    root_pubkey = intel_root.public_key()
+                    if isinstance(root_pubkey, ec.EllipticCurvePublicKey):
+                        root_pubkey.verify(
+                            cert.signature,
+                            cert.tbs_certificate_bytes,
+                            ec.ECDSA(hashes.SHA256())
+                        )
+                        return True, "Certificate chain verified to Intel Root CA"
                 except InvalidSignature:
                     pass
 
             # Try next cert in chain
             if i + 1 < len(certs):
                 try:
-                    certs[i + 1].public_key().verify(
-                        cert.signature,
-                        cert.tbs_certificate_bytes,
-                        ec.ECDSA(hashes.SHA256())
-                    )
+                    next_pubkey = certs[i + 1].public_key()
+                    if isinstance(next_pubkey, ec.EllipticCurvePublicKey):
+                        next_pubkey.verify(
+                            cert.signature,
+                            cert.tbs_certificate_bytes,
+                            ec.ECDSA(hashes.SHA256())
+                        )
                 except InvalidSignature:
                     return False, f"Certificate {i} signature verification failed"
 
@@ -483,8 +487,8 @@ def extract_fmspc_from_cert(cert: x509.Certificate) -> Optional[str]:
                 fmspc_marker = bytes.fromhex("0604")  # OCTET STRING of length 6
                 idx = ext_value.find(fmspc_marker)
                 if idx != -1:
-                    fmspc = ext_value[idx + 2:idx + 8]
-                    return fmspc.hex().upper()
+                    fmspc_bytes = ext_value[idx + 2:idx + 8]
+                    return str(fmspc_bytes.hex().upper())
     except Exception:
         pass
 
@@ -650,16 +654,17 @@ def verify_with_pccs(quote_bytes: bytes, pccs_url: Optional[str] = None) -> dict
     """
     pccs_url = pccs_url or DEFAULT_PCCS_URL
 
-    result = {
+    verification_steps: list[str] = []
+    result: dict = {
         "status": "pending",
         "tcb_status": "Unknown",
-        "verification_steps": [],
+        "verification_steps": verification_steps,
     }
 
     try:
         # Parse the quote
         quote = parse_quote(quote_bytes)
-        result["verification_steps"].append("Quote parsed successfully")
+        verification_steps.append("Quote parsed successfully")
 
         # Extract certificates to get FMSPC
         certs = extract_certificates(quote.cert_data)
@@ -668,7 +673,7 @@ def verify_with_pccs(quote_bytes: bytes, pccs_url: Optional[str] = None) -> dict
             result["error"] = "No certificates found in quote"
             return result
 
-        result["verification_steps"].append(f"Extracted {len(certs)} certificates")
+        verification_steps.append(f"Extracted {len(certs)} certificates")
 
         # Get FMSPC from PCK certificate (usually the first cert)
         fmspc = None
@@ -679,36 +684,36 @@ def verify_with_pccs(quote_bytes: bytes, pccs_url: Optional[str] = None) -> dict
 
         if not fmspc:
             # Use a default FMSPC for testing or try to continue without it
-            result["verification_steps"].append("FMSPC not found in certificate, using platform default")
+            verification_steps.append("FMSPC not found in certificate, using platform default")
             # Try common FMSPC values or skip TCB lookup
             fmspc = "00906ED50000"  # Common Intel TDX platform FMSPC
 
         result["fmspc"] = fmspc
-        result["verification_steps"].append(f"FMSPC: {fmspc}")
+        verification_steps.append(f"FMSPC: {fmspc}")
 
         # Fetch TCB Info from PCCS
         tcb_result = get_tdx_tcb_info(fmspc, pccs_url)
         if tcb_result.get("status") == "error":
-            result["verification_steps"].append(f"TCB Info fetch failed: {tcb_result.get('error')}")
+            verification_steps.append(f"TCB Info fetch failed: {tcb_result.get('error')}")
             # Continue with local verification only
             result["tcb_status"] = "Unverified"
             result["status"] = "partial"
             return result
 
-        result["verification_steps"].append("TCB Info fetched from PCCS")
+        verification_steps.append("TCB Info fetched from PCCS")
 
         # Check TCB status
         tcb_status, tcb_message = check_tcb_status(quote, tcb_result)
         result["tcb_status"] = tcb_status
-        result["verification_steps"].append(tcb_message)
+        verification_steps.append(tcb_message)
 
         # Fetch and verify QE Identity
         qe_result = get_qe_identity(pccs_url)
         if qe_result.get("status") == "success":
-            result["verification_steps"].append("QE Identity fetched from PCCS")
+            verification_steps.append("QE Identity fetched from PCCS")
             result["qe_identity_verified"] = True
         else:
-            result["verification_steps"].append(f"QE Identity fetch failed: {qe_result.get('error')}")
+            verification_steps.append(f"QE Identity fetch failed: {qe_result.get('error')}")
             result["qe_identity_verified"] = False
 
         # Final status
