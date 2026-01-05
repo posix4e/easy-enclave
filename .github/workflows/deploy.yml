@@ -1,0 +1,45 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check agent URL configured
+        run: |
+          if [ -z "${{ secrets.AGENT_URL }}" ]; then
+            echo "::error::AGENT_URL secret is not configured. Please add it in repository settings."
+            exit 1
+          fi
+
+      - name: Deploy via Agent
+        id: deploy
+        uses: ./action
+        with:
+          agent-url: ${{ secrets.AGENT_URL }}
+          docker-compose: ./example/docker-compose.yml
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify deployment
+        run: |
+          pip install -e sdk/
+          python example/verify.py ${{ github.repository }}
+
+      - name: Summary
+        run: |
+          echo "## Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **VM IP**: ${{ steps.deploy.outputs.vm_ip }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release**: ${{ steps.deploy.outputs.release_url }}" >> $GITHUB_STEP_SUMMARY

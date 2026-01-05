@@ -1,5 +1,7 @@
 # Easy Enclave
 
+[![CI](https://github.com/posix4e/easy-enclave/actions/workflows/ci.yml/badge.svg)](https://github.com/posix4e/easy-enclave/actions/workflows/ci.yml)
+
 A TDX attestation platform using GitHub as the trust anchor. Deploy workloads to TDX hosts with remote attestation stored as GitHub release attestations.
 
 ## Core Concept
@@ -10,113 +12,197 @@ A TDX attestation platform using GitHub as the trust anchor. Deploy workloads to
 
 **Model**: 1 TDX host = 1 GitHub repo = 1 attested service
 
-## How It Works
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  TDX Host                                                       │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │  GitHub Runner + Workload                                 │  │
-│  │  - Runs docker-compose                                    │  │
-│  │  - Generates TDX quote                                    │  │
-│  │  - Publishes attestation to GitHub                        │  │
-│  └───────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-         │                                      │
-         │ Attestation                          │ Service
-         ▼                                      ▼
-┌─────────────────┐                    ┌─────────────────┐
-│  GitHub Release │◄───────────────────│  Client         │
-│  - TDX Quote    │   fetch + verify   │  easyenclave    │
-│  - Endpoint URL │                    │  .connect()     │
-└─────────────────┘                    └─────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                    GitHub Actions (Standard Runners)                 │
+│                                                                      │
+│  ┌──────────────┐   ┌──────────────┐   ┌──────────────────────────┐ │
+│  │   CI Job     │   │   CI Job     │   │      CD Job              │ │
+│  │   (Lint)     │──►│   (Test)     │──►│   (Deploy via Agent)     │ │
+│  │              │   │              │   │                          │ │
+│  │ - ruff       │   │ - pytest     │   │ POST /deploy ────────────┼─┼──►┐
+│  │ - mypy       │   │ - SDK tests  │   │ Poll /status             │ │   │
+│  └──────────────┘   └──────────────┘   └──────────────────────────┘ │   │
+└─────────────────────────────────────────────────────────────────────┘   │
+                                                                          │
+                    ┌─────────────────────────────────────────────────────┘
+                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    TDX Host (Remote Agent)                           │
+│                                                                      │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │  ee-agent service (port 8000)                                 │   │
+│  │  - Clone repo                                                 │   │
+│  │  - Create TD VM with docker-compose workload                  │   │
+│  │  - Generate TDX attestation quote                             │   │
+│  │  - Create GitHub release with attestation.json                │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
+                    │
+                    │ Attestation
+                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                           Clients                                    │
+│                                                                      │
+│  from easyenclave import connect                                     │
+│  client = connect("owner/repo")  # Fetches & verifies attestation   │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Components
 
-- **GitHub Action** (`easy-enclave/attest`) - Generates TDX quotes, creates attested releases, runs workloads
-- **Python SDK** (`easyenclave`) - Client library: `connect("owner/repo")` with DCAP verification
+- **GitHub Action** (`./action`) - Triggers deployment via remote agent, creates attested releases
+- **Deployment Agent** (`agent/`) - Runs on TDX host, manages TD VMs and attestation
+- **Python SDK** (`sdk/`) - Client library: `connect("owner/repo")` with DCAP verification
 
-## Usage
+## Quick Start
 
-### Deploy (GitHub Action)
-```yaml
-jobs:
-  deploy:
-    runs-on: [self-hosted, tdx]
-    steps:
-      - uses: easy-enclave/attest@v1
-        with:
-          docker-compose: ./docker-compose.yml
-          endpoint: "https://myservice.example.com:8443"
+### 1. Set Up TDX Agent
+
+On your TDX-capable host:
+
+```bash
+# Clone the repo
+git clone https://github.com/posix4e/easy-enclave.git
+cd easy-enclave
+
+# Install the agent
+sudo ./agent/install.sh
+
+# Verify it's running
+sudo systemctl status ee-agent
 ```
 
-### Connect (Python SDK)
+### 2. Configure Repository
+
+Add the agent URL as a repository secret:
+
+1. Go to **Settings → Secrets and variables → Actions**
+2. Add secret: `AGENT_URL` = `http://your-tdx-host:8000`
+
+### 3. Deploy
+
+The deployment happens automatically when CI passes on main, or manually via workflow dispatch:
+
+```bash
+# Trigger manual deployment
+gh workflow run deploy
+```
+
+### 4. Connect (Python SDK)
+
 ```python
 from easyenclave import connect
 
-# Fetches attestation from GitHub, verifies TDX quote via Intel PCCS
-client = connect("acme/my-service")
+# Fetches attestation from GitHub, verifies TDX quote
+client = connect("your-org/your-repo")
+print(f"Verified endpoint: {client.endpoint}")
 ```
 
-## Roadmap
+## GitHub Workflows
 
-### CRAWL (In Progress)
-Minimal end-to-end demo with basic verification.
+### CI Workflow (`.github/workflows/ci.yml`)
 
-- [x] **GitHub Action**: Quote generation, release creation, docker-compose
-- [ ] **Python SDK**: Fetch, verify, `connect()` *(structure done, DCAP verification pending)*
-- [x] **Demo**: Simple service + verification script
+Runs on every push/PR:
+- **Lint**: ruff + mypy
+- **Test**: pytest SDK tests
+- **Build**: Validate docker-compose, build SDK package
 
-### WALK (Partially Complete)
-Production isolation with TD VMs.
+### Deploy Workflow (`.github/workflows/deploy.yml`)
 
-- [x] libvirt integration - workloads in isolated TD VMs
-- [x] Quote from workload VM via QGS vsock
-- [ ] VM lifecycle management (cleanup, resource limits)
-- [ ] Full DCAP quote verification with Intel PCCS
+Runs after CI passes on main (or manually):
+- Triggers remote agent deployment
+- Creates GitHub release with attestation
+- Verifies deployment with SDK
 
-### RUN
-Repeatable host provisioning.
+## Agent API
 
-- [ ] Ansible/cloud-init for TDX host setup
-- [ ] One-command provisioning
+The agent exposes a simple HTTP API:
 
-## V2 (Future)
+```bash
+# Start deployment
+curl -X POST http://agent:8000/deploy \
+  -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"repo": "owner/repo", "ref": "main", "docker_compose": "./docker-compose.yml"}'
 
-- Browser extension for visual attestation
-- Dashboard for repo/host registration
-- **Credits system**: Earn credits by providing TDX hosts, spend credits to deploy workloads
-- Discovery service + multi-host
+# Check status
+curl http://agent:8000/status/{deployment_id}
 
-## TDX Host Setup
+# Health check
+curl http://agent:8000/health
+```
 
-Required configurations for the TDX host:
+## TDX Host Requirements
 
-### QGS (Quote Generation Service)
-QGS listens on vsock (CID 2, port 4050). Verify it's running:
+### Prerequisites
+
+- Intel TDX-capable CPU and BIOS configuration
+- Ubuntu 24.04+ with TDX kernel
+- libvirt + QEMU with TDX support
+- QGS (Quote Generation Service) running
+
+### QGS Setup
+
+QGS listens on vsock (CID 2, port 4050):
+
 ```bash
 systemctl status qgsd
 sudo lsof -p $(pgrep qgs) | grep vsock
 ```
 
-### AppArmor
+### AppArmor Configuration
+
 Add vsock network permission for libvirt:
+
 ```bash
 echo '  network vsock stream,' | sudo tee -a /etc/apparmor.d/abstractions/libvirt-qemu
 sudo systemctl reload apparmor
 ```
 
-### QEMU Sandbox (optional)
-If vsock still fails, disable QEMU seccomp sandbox:
-```bash
-sudo sed -i 's/#seccomp_sandbox = 1/seccomp_sandbox = 0/' /etc/libvirt/qemu.conf
-sudo systemctl restart libvirtd
-```
-
 ### Device Permissions
+
 ```bash
 sudo chmod 666 /dev/vhost-vsock /dev/vsock
+```
+
+## Roadmap
+
+### Completed
+
+- [x] GitHub Action with agent-based deployment
+- [x] TD VM creation with docker-compose workloads
+- [x] TDX quote generation via QGS vsock
+- [x] GitHub release creation with attestation
+- [x] Python SDK with DCAP verification
+- [x] CI/CD pipeline (lint, test, deploy)
+
+### In Progress
+
+- [ ] Full PCCS integration for TCB verification
+- [ ] Multi-repo/multi-host support
+- [ ] VM lifecycle management (cleanup, resource limits)
+
+### Future
+
+- [ ] Browser extension for visual attestation
+- [ ] Dashboard for repo/host registration
+- [ ] Discovery service for finding attested services
+
+## Development
+
+```bash
+# Install dev dependencies
+pip install -e "sdk[dev]"
+
+# Run tests
+pytest sdk/tests -v
+
+# Lint
+ruff check sdk/ action/src/
+mypy sdk/easyenclave
 ```
 
 ## License
