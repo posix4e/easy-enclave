@@ -7,7 +7,6 @@ Usage:
     python verify.py posix4e/easy-enclave
 """
 
-import os
 import sys
 
 import requests
@@ -39,18 +38,11 @@ def main():
         print(f"  Measurements: {endpoint.measurements}")
         print(f"  Release: {endpoint.release}")
 
-        # Test the endpoint (skip in CI - VM is on private network)
-        if os.environ.get("CI"):
-            print("\nSkipping endpoint test (CI environment, private network)")
-        else:
-            print("\nTesting endpoint...")
-            try:
-                response = requests.get(endpoint.endpoint, timeout=5)
-                print(f"  Status: {response.status_code}")
-                print(f"  Response: {response.text[:200]}")
-            except requests.exceptions.RequestException as e:
-                print(f"  Warning: Could not reach endpoint: {e}")
-                print("  (This is expected if VM is on a private network)")
+        # Test the endpoint
+        print("\nTesting endpoint...")
+        response = requests.get(endpoint.endpoint, timeout=10)
+        print(f"  Status: {response.status_code}")
+        print(f"  Response: {response.text[:200]}")
 
     except Exception as e:
         print(f"\n✗ Verification failed: {e}")
