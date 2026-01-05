@@ -9,6 +9,7 @@ A TDX attestation platform using GitHub as the trust anchor. Deploy workloads to
 **GitHub Repo = Service Identity**: The repo IS the service. Clients connect to a repo, fetch attestations to learn:
 1. What measurements to expect (TDX quote in attestation)
 2. Where the service endpoint is (URL in attestation metadata)
+3. Whether the VM was sealed (sealed flag in attestation)
 
 **Model**: 1 TDX host = 1 GitHub repo = 1 attested service
 
@@ -135,37 +136,50 @@ Runs after CI passes on main (or manually):
 - Creates GitHub release with attestation
 - Verifies deployment with SDK
 
+## Bundle Deployment
+
+The action uploads a **public bundle** (docker-compose + optional public files/env) as a GitHub Actions artifact and
+sends only **private env** inline to the agent. This keeps secrets out of the repo and off the disk on the TDX host.
+
+### Action Inputs (Deploy)
+
+- `docker-compose`: path to the compose file
+- `public-env`: newline-separated KEY=VALUE pairs (bundled)
+- `public-files`: file paths to bundle (comma or newline separated)
+- `private-env`: newline-separated KEY=VALUE pairs (sent inline)
+- `seal-vm`: `true|false` (default: `true` unless SSH is enabled)
+- `enable-ssh`: `true|false` (default: `false`)
+- `github-developer`: GitHub username to fetch public SSH keys from
+- `unseal-password`: password for the `ubuntu` user when SSH is enabled
+
+### Sealing and SSH Access
+
+- **Sealed**: SSH is disabled and serial getty is masked; logs remain available via agent status.
+- **Unsealed**: set `enable-ssh: true`, provide `unseal-password`, or specify `github-developer` to inject keys.
+- The action automatically flips `seal-vm` to `false` when SSH access is requested.
+- To inject keys manually, include `/authorized_keys` in the public bundle.
+
 ## Agent API
 
 The agent exposes a simple HTTP API:
 
 ```bash
-# The deploy workflow uploads a bundle artifact with docker-compose and public files,
-# then passes the artifact ID to the agent.
+# The deploy workflow uploads a bundle artifact (docker-compose + public files),
+# then passes the artifact ID to the agent along with private env.
 # Start deployment
 curl -X POST http://agent:8000/deploy \
   -H "Authorization: Bearer $GITHUB_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"repo": "owner/repo", "bundle_artifact_id": 123456, "private_env": "KEY=VALUE\n", "seal_vm": true}'
 
-# To enable SSH access, include ENABLE_SSH=true and optionally UNSEAL_PASSWORD in private_env,
-# and add public keys to the bundle as /authorized_keys.
-
 # Status includes host-side serial and QEMU log tails.
-curl http://agent:8000/status/{deployment_id}
-
-# Seal VM access (disable SSH and serial getty) by setting:
-#   SEAL_VM=true
-# When sealed, status omits host log tails after completion.
-
-# Check status
 curl http://agent:8000/status/{deployment_id}
 
 # Health check
 curl http://agent:8000/health
 ```
 
-## TDX Host Requirements
+## Host Setup
 
 ### Prerequisites
 
