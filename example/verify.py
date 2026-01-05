@@ -10,6 +10,7 @@ Usage:
 import sys
 
 import requests
+from easyenclave import connect
 
 
 def main():
@@ -21,33 +22,17 @@ def main():
     repo = sys.argv[1]
     print(f"Connecting to: {repo}")
 
-    # Import SDK
-    try:
-        from easyenclave import connect
-    except ImportError:
-        print("Installing easyenclave SDK...")
-        import subprocess
-        subprocess.run([sys.executable, "-m", "pip", "install", "-e", "../sdk"], check=True)
-        from easyenclave import connect
+    endpoint = connect(repo)
+    print(f"\n✓ Verification successful!")
+    print(f"  Endpoint: {endpoint.endpoint}")
+    print(f"  Measurements: {endpoint.measurements}")
+    print(f"  Release: {endpoint.release}")
 
-    # Connect and verify
-    try:
-        endpoint = connect(repo)
-        print(f"\n✓ Verification successful!")
-        print(f"  Endpoint: {endpoint.endpoint}")
-        print(f"  Measurements: {endpoint.measurements}")
-        print(f"  Release: {endpoint.release}")
-
-        # Test the endpoint
-        print("\nTesting endpoint...")
-        response = requests.get(endpoint.endpoint, timeout=10)
-        print(f"  Status: {response.status_code}")
-        print(f"  Response: {response.text[:200]}")
-
-    except Exception as e:
-        print(f"\n✗ Verification failed: {e}")
-        sys.exit(1)
-
+    # Test the endpoint
+    print("\nTesting endpoint...")
+    response = requests.get(endpoint.endpoint, timeout=10)
+    print(f"  Status: {response.status_code}")
+    print(f"  Response: {response.text[:200]}")
 
 if __name__ == "__main__":
     main()
