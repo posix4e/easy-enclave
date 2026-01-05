@@ -1,16 +1,17 @@
 """Tests for TDX quote verification."""
 import base64
+
 import pytest
+
+from easyenclave.exceptions import DCAPError
 from easyenclave.verify import (
+    extract_certificates,
+    extract_measurements,
+    parse_quote,
     parse_quote_header,
     parse_td_report,
-    parse_quote,
-    extract_measurements,
     verify_quote,
-    extract_certificates,
-    TDXQuoteHeader,
 )
-from easyenclave.exceptions import DCAPError
 
 
 # Sample TDX quote from actual deployment (truncated for tests)

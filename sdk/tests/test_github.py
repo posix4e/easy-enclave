@@ -1,10 +1,11 @@
 """Tests for GitHub attestation fetching."""
 import json
-import pytest
-from unittest.mock import patch, MagicMock, Mock
+from unittest.mock import MagicMock, patch
 
-from easyenclave.github import get_latest_attestation, list_attestations
+import pytest
+
 from easyenclave.exceptions import AttestationNotFoundError
+from easyenclave.github import get_latest_attestation, list_attestations
 
 
 class TestGetLatestAttestation:

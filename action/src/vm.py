@@ -631,7 +631,7 @@ def create_td_vm(docker_compose_path: str, name: str = "ee-workload", port: int 
     log("Checking requirements...")
     check_requirements()
 
-    log(f"Finding TD base image...")
+    log("Finding TD base image...")
     base_image = find_td_image()
     log(f"Using base image: {base_image}")
 

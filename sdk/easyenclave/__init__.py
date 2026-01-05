@@ -9,10 +9,10 @@ Usage:
 
 from .connect import connect
 from .exceptions import (
-    EasyEnclaveError,
-    DCAPError,
-    MeasurementError,
     AttestationNotFoundError,
+    DCAPError,
+    EasyEnclaveError,
+    MeasurementError,
     VerificationError,
 )
 

@@ -5,15 +5,14 @@ Main connect() API for Easy Enclave SDK.
 from dataclasses import dataclass
 from typing import Optional
 
-from .github import get_latest_attestation
-from .verify import verify_quote
 from .exceptions import (
-    EasyEnclaveError,
     AttestationNotFoundError,
     DCAPError,
     MeasurementError,
     VerificationError,
 )
+from .github import get_latest_attestation
+from .verify import verify_quote
 
 
 @dataclass

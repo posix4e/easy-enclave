@@ -4,6 +4,7 @@ GitHub API integration for fetching attestations.
 
 import json
 from typing import Optional
+
 import requests
 
 from .exceptions import AttestationNotFoundError
