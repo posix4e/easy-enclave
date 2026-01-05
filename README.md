@@ -21,33 +21,51 @@ A TDX attestation platform using GitHub as the trust anchor. Deploy workloads to
 │  ┌──────────────┐   ┌──────────────┐   ┌──────────────────────────┐ │
 │  │   CI Job     │   │   CI Job     │   │      CD Job              │ │
 │  │   (Lint)     │──►│   (Test)     │──►│   (Deploy via Agent)     │ │
-│  │              │   │              │   │                          │ │
-│  │ - ruff       │   │ - pytest     │   │ POST /deploy ────────────┼─┼──►┐
-│  │ - mypy       │   │ - SDK tests  │   │ Poll /status             │ │   │
-│  └──────────────┘   └──────────────┘   └──────────────────────────┘ │   │
-└─────────────────────────────────────────────────────────────────────┘   │
-                                                                          │
-                    ┌─────────────────────────────────────────────────────┘
-                    ▼
+│  │ - ruff       │   │ - pytest     │   │                          │ │
+│  │ - mypy       │   │ - SDK tests  │   │ POST /deploy ────────────┼─┼──┐
+│  └──────────────┘   └──────────────┘   │ Poll /status             │ │  │
+│                                        └──────────────────────────┘ │  │
+└─────────────────────────────────────────────────────────────────────┘  │
+                                                                         │
+    ┌────────────────────────────────────────────────────────────────────┘
+    │
+    ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                    TDX Host (Remote Agent)                           │
+│                         TDX Host                                     │
 │                                                                      │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  ee-agent service (port 8000)                                 │   │
-│  │  - Clone repo                                                 │   │
-│  │  - Create TD VM with docker-compose workload                  │   │
-│  │  - Generate TDX attestation quote                             │   │
-│  │  - Create GitHub release with attestation.json                │   │
-│  └──────────────────────────────────────────────────────────────┘   │
+│  ┌───────────────────────────────────────────────────────────────┐  │
+│  │  ee-agent (HTTP API on port 8000)                              │  │
+│  │                                                                │  │
+│  │  POST /deploy ──► Clone repo                                   │  │
+│  │                      │                                         │  │
+│  │                      ▼                                         │  │
+│  │  ┌─────────────────────────────────────────────────────────┐  │  │
+│  │  │            TD VM (TDX-protected)                         │  │  │
+│  │  │                                                          │  │  │
+│  │  │  ┌────────────────┐    ┌─────────────────────────────┐  │  │  │
+│  │  │  │ docker-compose │    │ TDX Quote Generation        │  │  │  │
+│  │  │  │   workload     │    │ via configfs-tsm            │  │  │  │
+│  │  │  └────────────────┘    └─────────────────────────────┘  │  │  │
+│  │  │                                                          │  │  │
+│  │  └──────────────────────────────────────────────────────────┘  │  │
+│  │                      │                                         │  │
+│  │                      ▼                                         │  │
+│  │  GET /status ◄── Create GitHub Release with attestation.json  │  │
+│  │                                                                │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│                                                                      │
 └─────────────────────────────────────────────────────────────────────┘
                     │
-                    │ Attestation
+                    │ Attestation (quote + endpoint)
                     ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                           Clients                                    │
-│                                                                      │
-│  from easyenclave import connect                                     │
-│  client = connect("owner/repo")  # Fetches & verifies attestation   │
+│  GitHub Release                    │  Clients                        │
+│  ┌─────────────────────────┐       │                                │
+│  │ attestation.json        │ ◄─────│  from easyenclave import connect│
+│  │ - TDX quote             │       │  client = connect("owner/repo") │
+│  │ - endpoint URL          │       │                                │
+│  │ - timestamp             │       │  # Verifies quote via DCAP     │
+│  └─────────────────────────┘       │  # Returns verified endpoint   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
