@@ -31,7 +31,9 @@ from vm import (
     create_release,
     create_td_vm,
     find_docker_compose,
+    get_public_ip,
     log,
+    setup_port_forward,
 )
 
 # Force unbuffered output
@@ -111,8 +113,16 @@ def run_deployment(deployment: Deployment, token: str):
         deployment.vm_ip = result.get('ip')
         deployment.quote = result.get('quote')
 
-        # Create release
-        endpoint = f"http://{deployment.vm_ip}:{deployment.port}"
+        # Set up port forwarding from host to VM
+        log("Setting up port forwarding...")
+        setup_port_forward(deployment.vm_ip, deployment.port)
+
+        # Get public IP for endpoint
+        public_ip = get_public_ip()
+        log(f"Public IP: {public_ip}")
+
+        # Create release with public endpoint
+        endpoint = f"http://{public_ip}:{deployment.port}"
         # Set environment for create_release
         os.environ['GITHUB_REPOSITORY'] = deployment.repo
         if token:

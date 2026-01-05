@@ -577,6 +577,91 @@ def wait_for_vm_ip(name: str, timeout: int = 300) -> str:
     raise TimeoutError(f"VM {name} did not get IP within {timeout}s")
 
 
+def get_public_ip() -> str:
+    """Get the host's public IP address."""
+    # Try multiple methods
+    methods = [
+        # Check for public IP on interfaces
+        lambda: subprocess.run(
+            ['hostname', '-I'],
+            capture_output=True, text=True, timeout=5
+        ).stdout.split()[0] if not subprocess.run(
+            ['hostname', '-I'], capture_output=True, text=True, timeout=5
+        ).stdout.split()[0].startswith(('192.168.', '10.', '172.')) else None,
+        # Use external service
+        lambda: urllib.request.urlopen('https://ifconfig.me', timeout=5).read().decode().strip(),
+        lambda: urllib.request.urlopen('https://api.ipify.org', timeout=5).read().decode().strip(),
+    ]
+
+    for method in methods:
+        try:
+            ip = method()
+            if ip and not ip.startswith(('192.168.', '10.', '172.16.', '172.17.', '172.18.')):
+                return ip
+        except Exception:
+            continue
+
+    # Fallback: get first non-private IP from hostname -I
+    try:
+        result = subprocess.run(['hostname', '-I'], capture_output=True, text=True, timeout=5)
+        for ip in result.stdout.split():
+            if not ip.startswith(('192.168.', '10.', '172.', '127.')):
+                return ip
+    except Exception:
+        pass
+
+    raise RuntimeError("Could not determine public IP address")
+
+
+def setup_port_forward(vm_ip: str, vm_port: int, host_port: int = None) -> int:
+    """
+    Set up iptables port forwarding from host to VM.
+
+    Args:
+        vm_ip: VM's private IP address
+        vm_port: Port on the VM to forward to
+        host_port: Port on the host (defaults to vm_port)
+
+    Returns:
+        The host port that was configured
+    """
+    host_port = host_port or vm_port
+
+    # Remove any existing rule for this port first
+    subprocess.run([
+        'sudo', 'iptables', '-t', 'nat', '-D', 'PREROUTING',
+        '-p', 'tcp', '--dport', str(host_port),
+        '-j', 'DNAT', '--to-destination', f'{vm_ip}:{vm_port}'
+    ], capture_output=True)
+
+    # Add PREROUTING rule for incoming traffic
+    result = subprocess.run([
+        'sudo', 'iptables', '-t', 'nat', '-A', 'PREROUTING',
+        '-p', 'tcp', '--dport', str(host_port),
+        '-j', 'DNAT', '--to-destination', f'{vm_ip}:{vm_port}'
+    ], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to add PREROUTING rule: {result.stderr}")
+
+    # Add FORWARD rule to allow the traffic
+    subprocess.run([
+        'sudo', 'iptables', '-D', 'FORWARD',
+        '-p', 'tcp', '-d', vm_ip, '--dport', str(vm_port),
+        '-j', 'ACCEPT'
+    ], capture_output=True)
+
+    result = subprocess.run([
+        'sudo', 'iptables', '-A', 'FORWARD',
+        '-p', 'tcp', '-d', vm_ip, '--dport', str(vm_port),
+        '-j', 'ACCEPT'
+    ], capture_output=True, text=True)
+    if result.returncode != 0:
+        log(f"Warning: Failed to add FORWARD rule: {result.stderr}")
+
+    log(f"Port forwarding configured: *:{host_port} -> {vm_ip}:{vm_port}")
+    return host_port
+
+
 def wait_for_ready(ip: str, port: int = 8080, timeout: int = 300) -> None:
     """Wait for workload to be ready by checking port."""
     import socket
