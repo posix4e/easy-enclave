@@ -17,20 +17,15 @@ A TDX attestation platform using GitHub as the trust anchor. Deploy workloads to
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                    GitHub Actions (Standard Runners)                 │
+│                      Deployment Initiator                             │
 │                                                                      │
-│  ┌──────────────┐   ┌──────────────┐   ┌──────────────────────────┐ │
-│  │   CI Job     │   │   CI Job     │   │      CD Job              │ │
-│  │   (Lint)     │──►│   (Test)     │──►│   (Deploy via Agent)     │ │
-│  │ - ruff       │   │ - pytest     │   │                          │ │
-│  │ - mypy       │   │ - SDK tests  │   │ POST /deploy ────────────┼─┼──┐
-│  └──────────────┘   └──────────────┘   │ Poll /status             │ │  │
-│                                        └──────────────────────────┘ │  │
-└─────────────────────────────────────────────────────────────────────┘  │
-                                                                         │
-    ┌────────────────────────────────────────────────────────────────────┘
-    │
-    ▼
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │ POST /deploy to agent with bundle artifact                    │   │
+│  │ Poll /status for progress and log tails                       │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                         TDX Host                                     │
 │                                                                      │
@@ -72,27 +67,16 @@ A TDX attestation platform using GitHub as the trust anchor. Deploy workloads to
 
 ## Components
 
-- **GitHub Action** (`./action`) - Triggers deployment via remote agent, creates attested releases
-- **Deployment Agent** (`agent/`) - Runs on TDX host, manages TD VMs and attestation
-- **Python SDK** (`sdk/`) - Client library: `connect("owner/repo")` with DCAP verification
+- **GitHub Action** (`action/README.md`) - Bundle-based deploys and inputs
+- **Deployment Agent** (`agent/README.md`) - Host setup, API, and runtime behavior
+- **Python SDK** (`sdk/README.md`) - Client verification and usage
+- **Examples** (`example/README.md`) - Sample workloads and workflow wiring
 
 ## Quick Start
 
 ### 1. Set Up TDX Agent
 
-On your TDX-capable host:
-
-```bash
-# Clone the repo
-git clone https://github.com/posix4e/easy-enclave.git
-cd easy-enclave
-
-# Install the agent
-sudo ./agent/install.sh
-
-# Verify it's running
-sudo systemctl status ee-agent
-```
+See `agent/README.md` for host setup and prerequisites.
 
 ### 2. Configure Repository
 
@@ -103,10 +87,10 @@ Add the agent URL as a repository secret:
 
 ### 3. Deploy
 
-The deployment happens automatically when CI passes on main, or manually via workflow dispatch:
+Trigger deployment by running a workflow that uses the `./action` composite action:
 
 ```bash
-# Trigger manual deployment
+# Example: trigger a workflow run
 gh workflow run deploy
 ```
 
@@ -120,44 +104,9 @@ client = connect("your-org/your-repo")
 print(f"Verified endpoint: {client.endpoint}")
 ```
 
-## GitHub Workflows
-
-### CI Workflow (`.github/workflows/ci.yml`)
-
-Runs on every push/PR:
-- **Lint**: ruff + mypy
-- **Test**: pytest SDK tests
-- **Build**: Validate docker-compose, build SDK package
-
-### Deploy Workflow (`.github/workflows/deploy.yml`)
-
-Runs after CI passes on main (or manually):
-- Triggers remote agent deployment
-- Creates GitHub release with attestation
-- Verifies deployment with SDK
-
 ## Bundle Deployment
 
-The action uploads a **public bundle** (docker-compose + optional public files/env) as a GitHub Actions artifact and
-sends only **private env** inline to the agent. This keeps secrets out of the repo and off the disk on the TDX host.
-
-### Action Inputs (Deploy)
-
-- `docker-compose`: path to the compose file
-- `public-env`: newline-separated KEY=VALUE pairs (bundled)
-- `public-files`: file paths to bundle (comma or newline separated)
-- `private-env`: newline-separated KEY=VALUE pairs (sent inline)
-- `seal-vm`: `true|false` (default: `true` unless SSH is enabled)
-- `enable-ssh`: `true|false` (default: `false`)
-- `github-developer`: GitHub username to fetch public SSH keys from
-- `unseal-password`: password for the `ubuntu` user when SSH is enabled
-
-### Sealing and SSH Access
-
-- **Sealed**: SSH is disabled and serial getty is masked; logs remain available via agent status.
-- **Unsealed**: set `enable-ssh: true`, provide `unseal-password`, or specify `github-developer` to inject keys.
-- The action automatically flips `seal-vm` to `false` when SSH access is requested.
-- To inject keys manually, include `/authorized_keys` in the public bundle.
+Details and inputs live in `action/README.md`.
 
 ## Agent API
 
@@ -181,36 +130,7 @@ curl http://agent:8000/health
 
 ## Host Setup
 
-### Prerequisites
-
-- Intel TDX-capable CPU and BIOS configuration
-- Ubuntu 24.04+ with TDX kernel
-- libvirt + QEMU with TDX support
-- QGS (Quote Generation Service) running
-
-### QGS Setup
-
-QGS listens on vsock (CID 2, port 4050):
-
-```bash
-systemctl status qgsd
-sudo lsof -p $(pgrep qgs) | grep vsock
-```
-
-### AppArmor Configuration
-
-Add vsock network permission for libvirt:
-
-```bash
-echo '  network vsock stream,' | sudo tee -a /etc/apparmor.d/abstractions/libvirt-qemu
-sudo systemctl reload apparmor
-```
-
-### Device Permissions
-
-```bash
-sudo chmod 666 /dev/vhost-vsock /dev/vsock
-```
+Host requirements and setup steps live in `agent/README.md`.
 
 ## Roadmap
 

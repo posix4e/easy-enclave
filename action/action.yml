@@ -36,6 +36,22 @@ inputs:
     description: 'GitHub token for creating releases'
     required: true
     default: ${{ github.token }}
+  agent-release-tag:
+    description: 'Release tag that provides agent attestation allowlist'
+    required: false
+    default: ''
+  agent-allowlist-asset:
+    description: 'Release asset name for agent allowlist JSON'
+    required: false
+    default: 'agent-attestation-allowlist.json'
+  agent-attestation-skip-pccs:
+    description: 'Skip PCCS verification for agent attestation'
+    required: false
+    default: 'false'
+  agent-skip-attestation:
+    description: 'Skip agent attestation checks (development only)'
+    required: false
+    default: 'false'
   vm-name:
     description: 'Name for the TD VM'
     required: false
@@ -70,6 +86,37 @@ runs:
   using: 'composite'
   steps:
     # Agent mode: call remote agent API
+    - name: Fetch agent allowlist
+      id: agent-allowlist
+      if: ${{ inputs.agent-url != '' && inputs.agent-skip-attestation != 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ -z "${{ inputs.agent-release-tag }}" ]; then
+          echo "::error::agent-release-tag is required for agent attestation"
+          exit 1
+        fi
+        RELEASE_JSON=$(curl -sf \
+          -H "Authorization: Bearer ${{ inputs.github-token }}" \
+          -H "Accept: application/vnd.github+json" \
+          "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ inputs.agent-release-tag }}")
+        ASSET_URL=$(echo "$RELEASE_JSON" | jq -r --arg name "${{ inputs.agent-allowlist-asset }}" '.assets[] | select(.name==$name) | .browser_download_url')
+        if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" = "null" ]; then
+          echo "::error::Allowlist asset not found: ${{ inputs.agent-allowlist-asset }}"
+          exit 1
+        fi
+        curl -sfL -o /tmp/agent_allowlist.json "$ASSET_URL"
+
+    - name: Verify agent attestation (pre)
+      if: ${{ inputs.agent-url != '' && inputs.agent-skip-attestation != 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        python3 -m pip install "${{ github.action_path }}/../sdk"
+        python3 "${{ github.action_path }}/src/verify_agent_attestation.py" \
+          --allowlist /tmp/agent_allowlist.json \
+          --attestation-url "${{ inputs.agent-url }}/attestation" \
+          ${{ inputs.agent-attestation-skip-pccs == 'true' && '--skip-pccs' || '' }}
     - name: Build public bundle
       id: bundle
       if: ${{ inputs.agent-url != '' }}
@@ -273,3 +320,13 @@ SEAL_VM=true"
         echo "vm_ip=${{ steps.agent.outputs.vm_ip }}" >> $GITHUB_OUTPUT
         echo "quote=${{ steps.agent.outputs.quote }}" >> $GITHUB_OUTPUT
         echo "release_url=${{ steps.agent.outputs.release_url }}" >> $GITHUB_OUTPUT
+
+    - name: Verify agent attestation (post)
+      if: ${{ inputs.agent-url != '' && inputs.agent-skip-attestation != 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        python3 "${{ github.action_path }}/src/verify_agent_attestation.py" \
+          --allowlist /tmp/agent_allowlist.json \
+          --attestation-url "${{ inputs.agent-url }}/attestation" \
+          ${{ inputs.agent-attestation-skip-pccs == 'true' && '--skip-pccs' || '' }}

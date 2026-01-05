@@ -1,0 +1,48 @@
+name: Deploy Agent VM
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to use for vm.py (tag/branch/sha)'
+        required: true
+        default: 'main'
+      vm_image_tag:
+        description: 'VM image tag for /etc/easy-enclave/vm_image_id'
+        required: true
+      vm_image_sha256:
+        description: 'VM image SHA256 for /etc/easy-enclave/vm_image_id'
+        required: true
+      vm_name:
+        description: 'Agent VM name'
+        required: false
+        default: 'ee-attestor'
+      vm_port:
+        description: 'Agent port'
+        required: false
+        default: '8000'
+
+jobs:
+  deploy-agent:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create agent VM on host
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.AGENT_HOST }}
+          username: ${{ secrets.AGENT_USER }}
+          key: ${{ secrets.AGENT_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            sudo mkdir -p /opt/easy-enclave
+            if [ ! -d /opt/easy-enclave/.git ]; then
+              sudo git clone https://github.com/${{ github.repository }}.git /opt/easy-enclave
+            fi
+            cd /opt/easy-enclave
+            sudo git fetch --tags origin
+            sudo git checkout ${{ inputs.ref }}
+            sudo python3 action/src/vm.py --agent \
+              --name "${{ inputs.vm_name }}" \
+              --port "${{ inputs.vm_port }}" \
+              --vm-image-tag "${{ inputs.vm_image_tag }}" \
+              --vm-image-sha256 "${{ inputs.vm_image_sha256 }}"

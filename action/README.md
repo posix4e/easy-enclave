@@ -5,6 +5,10 @@ Deploy workloads to a remote Easy Enclave agent and publish an attested release.
 ## Inputs
 
 - `agent-url`: URL of the deployment agent
+- `agent-release-tag`: release tag for agent allowlist
+- `agent-allowlist-asset`: allowlist asset name (default: agent-attestation-allowlist.json)
+- `agent-attestation-skip-pccs`: skip PCCS verification (default: false)
+- `agent-skip-attestation`: skip agent attestation checks (default: false)
 - `docker-compose`: path to docker-compose.yml (bundled as a public artifact)
 - `endpoint`: public endpoint URL (use `auto` for `http://{vm_ip}:8080`)
 - `endpoint-port`: port for auto endpoint
@@ -31,3 +35,7 @@ Deploy workloads to a remote Easy Enclave agent and publish an attested release.
 - Private env values are sent inline to the agent and never stored on disk.
 - When SSH access is requested, `seal-vm` is forced off for that deployment.
 - Status polling prints host QEMU and serial log tails for visibility.
+- Agent attestation is verified before and after deploy using the allowlist asset.
+- `agent-release-tag` must point to a release that includes the allowlist asset.
+- For agent VM provisioning, use `.github/workflows/deploy-agent.yml`.
+- The agent VM starts without a workload and waits for deploy requests.
