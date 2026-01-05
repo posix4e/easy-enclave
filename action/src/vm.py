@@ -285,6 +285,8 @@ def create_workload_image(base_image: str, docker_compose_content: str, port: in
     Returns path to the new image.
     """
     workdir = tempfile.mkdtemp(prefix="ee-workload-")
+    # Make workdir world-readable so libvirt/QEMU can access it
+    os.chmod(workdir, 0o755)
     workload_image = os.path.join(workdir, "workload.qcow2")
 
     # Create overlay image (don't specify size - inherit from base)
@@ -338,6 +340,10 @@ chpasswd:
         '-volid', 'cidata', '-joliet', '-rock',
         user_data_path, meta_data_path, network_config_path
     ], check=True, capture_output=True)
+
+    # Make all files readable by libvirt/QEMU
+    for f in os.listdir(workdir):
+        os.chmod(os.path.join(workdir, f), 0o644)
 
     return workload_image, cidata_iso, workdir
 
