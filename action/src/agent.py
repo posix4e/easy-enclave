@@ -115,8 +115,10 @@ def run_deployment(deployment: Deployment, token: str):
 
         # Create release
         endpoint = f"http://{deployment.vm_ip}:{deployment.port}"
-        # Set GITHUB_REPOSITORY for create_release
+        # Set environment for create_release
         os.environ['GITHUB_REPOSITORY'] = deployment.repo
+        if token:
+            os.environ['GITHUB_TOKEN'] = token
         release_url = create_release(deployment.quote, endpoint)
         deployment.release_url = release_url
 
