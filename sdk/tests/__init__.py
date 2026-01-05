@@ -1,1 +1,1 @@
-# Tests for easyenclave SDK
+# SDK tests
