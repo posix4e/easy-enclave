@@ -5,8 +5,8 @@ import pytest
 from easyenclave.exceptions import DCAPError
 from easyenclave.verify import (
     extract_certificates,
-    extract_measurements,
     extract_fmspc_from_cert,
+    extract_measurements,
     parse_quote,
     parse_quote_header,
     parse_td_report,
@@ -167,11 +167,12 @@ class TestFMSPCExtraction:
 
     def test_extract_fmspc_strict_oid(self):
         """Extract FMSPC only when the correct OID is present."""
+        from datetime import datetime, timedelta, timezone
+
         from cryptography import x509
         from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.primitives.asymmetric import rsa
         from cryptography.x509.oid import NameOID, ObjectIdentifier
-        from datetime import datetime, timedelta, timezone
 
         sgx_extensions_oid = ObjectIdentifier("1.2.840.113741.1.13.1")
         fmspc_oid_bytes = bytes.fromhex("060a2a864886f84d010d0104")
@@ -197,11 +198,12 @@ class TestFMSPCExtraction:
 
     def test_extract_fmspc_missing_oid(self):
         """Return None when the FMSPC OID is not present."""
+        from datetime import datetime, timedelta, timezone
+
         from cryptography import x509
         from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.primitives.asymmetric import rsa
         from cryptography.x509.oid import NameOID, ObjectIdentifier
-        from datetime import datetime, timedelta, timezone
 
         sgx_extensions_oid = ObjectIdentifier("1.2.840.113741.1.13.1")
         wrong_oid_bytes = bytes.fromhex("060a2a864886f84d010d0105")

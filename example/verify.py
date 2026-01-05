@@ -23,7 +23,7 @@ def main():
     print(f"Connecting to: {repo}")
 
     endpoint = connect(repo)
-    print(f"\n✓ Verification successful!")
+    print("\n✓ Verification successful!")
     print(f"  Endpoint: {endpoint.endpoint}")
     print(f"  Measurements: {endpoint.measurements}")
     print(f"  Release: {endpoint.release}")

@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 
+
 def get_tdx_quote():
     tsm_path = "/sys/kernel/config/tsm/report"
     if not os.path.exists(tsm_path):
