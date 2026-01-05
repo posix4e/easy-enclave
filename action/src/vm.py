@@ -754,6 +754,41 @@ def destroy_td_vm(name: str = "ee-workload") -> None:
     subprocess.run(['sudo', 'virsh', 'undefine', name], capture_output=True)
 
 
+def cleanup_deploy_releases(repo: str, token: str, prefix: str = "deploy-") -> None:
+    """Delete existing deploy releases so only one remains."""
+    env = {**os.environ, 'GITHUB_TOKEN': token}
+    try:
+        list_result = subprocess.run(
+            [
+                'gh', 'release', 'list',
+                '--repo', repo,
+                '--limit', '100',
+                '--json', 'tagName',
+                '--jq', '.[].tagName',
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        if list_result.returncode != 0:
+            log(f"Warning: failed to list releases: {list_result.stderr.strip()}")
+            return
+        tags = [line.strip() for line in list_result.stdout.splitlines() if line.strip()]
+        for tag in tags:
+            if not tag.startswith(prefix):
+                continue
+            delete_result = subprocess.run(
+                ['gh', 'release', 'delete', tag, '--repo', repo, '--yes'],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            if delete_result.returncode != 0:
+                log(f"Warning: failed to delete release {tag}: {delete_result.stderr.strip()}")
+    except Exception as e:
+        log(f"Warning: release cleanup failed: {e}")
+
+
 def create_release(quote: str, endpoint: str, repo: str = None, token: str = None) -> str:
     """Create a GitHub release with attestation data."""
     repo = repo or os.environ.get('GITHUB_REPOSITORY')
@@ -761,6 +796,8 @@ def create_release(quote: str, endpoint: str, repo: str = None, token: str = Non
 
     if not repo or not token:
         raise ValueError("GITHUB_REPOSITORY and GITHUB_TOKEN must be set")
+
+    cleanup_deploy_releases(repo, token)
 
     now = datetime.now(timezone.utc)
     timestamp = now.strftime('%Y%m%d-%H%M%S')
