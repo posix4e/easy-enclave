@@ -419,7 +419,7 @@ def start_td_vm(
 
     # Dump actual XML to see what libvirt created
     result = subprocess.run(['sudo', 'virsh', 'dumpxml', name], capture_output=True, text=True)
-    log(f"=== Actual VM XML (interface section) ===")
+    log("=== Actual VM XML (interface section) ===")
     for line in result.stdout.split('\n'):
         if 'interface' in line.lower() or 'source network' in line.lower() or 'model type' in line.lower() or 'mac address' in line.lower():
             log(line)
@@ -444,7 +444,7 @@ def start_td_vm(
                                capture_output=True, text=True)
         if result.returncode == 0 and result.stdout.strip():
             lines = result.stdout.strip().split('\n')
-            log(f"Last 10 lines of QEMU log:")
+            log("Last 10 lines of QEMU log:")
             for line in lines[-10:]:
                 log(f"  {line}")
     except Exception as e:
@@ -518,11 +518,11 @@ def wait_for_vm_ip(name: str, timeout: int = 300) -> str:
             result = subprocess.run(['sudo', 'virsh', 'net-dhcp-leases', 'default'],
                                    capture_output=True, text=True)
             if result.stdout.strip():
-                lease_lines = [l for l in result.stdout.split('\n') if '192.168.' in l]
+                lease_lines = [line for line in result.stdout.split('\n') if '192.168.' in line]
                 if lease_lines:
                     log(f"  DHCP leases: {len(lease_lines)} found")
-                    for l in lease_lines[:3]:
-                        log(f"    {l.strip()}")
+                    for lease_line in lease_lines[:3]:
+                        log(f"    {lease_line.strip()}")
 
         # Try virsh domifaddr with agent
         try:

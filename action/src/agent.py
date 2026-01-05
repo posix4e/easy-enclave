@@ -19,21 +19,19 @@ import os
 import sys
 import threading
 import uuid
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from pathlib import Path
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Optional
 
-# Import from vm.py
 from vm import (
-    clone_repo,
-    find_docker_compose,
-    create_td_vm,
-    create_release,
-    check_requirements,
-    log,
     DEPLOYMENTS_DIR,
+    check_requirements,
+    clone_repo,
+    create_release,
+    create_td_vm,
+    find_docker_compose,
+    log,
 )
 
 # Force unbuffered output
