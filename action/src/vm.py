@@ -715,12 +715,12 @@ client = connect("{repo}")
     )
     log(f"Created release: {tag}")
 
-    # Use temp file to avoid permission issues with shared /tmp
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-        json.dump(attestation, f, indent=2)
-        attestation_file = f.name
-
+    # Use temp directory with properly named file for upload
+    tmpdir = tempfile.mkdtemp(prefix='ee-release-')
+    attestation_file = os.path.join(tmpdir, 'attestation.json')
     try:
+        with open(attestation_file, 'w') as f:
+            json.dump(attestation, f, indent=2)
         subprocess.run(
             ['gh', 'release', 'upload', tag, attestation_file, '--repo', repo, '--clobber'],
             check=True, capture_output=True, env={**os.environ, 'GITHUB_TOKEN': token}
@@ -728,6 +728,7 @@ client = connect("{repo}")
         log("Uploaded attestation.json")
     finally:
         os.unlink(attestation_file)
+        os.rmdir(tmpdir)
 
     return f"https://github.com/{repo}/releases/tag/{tag}"
 
