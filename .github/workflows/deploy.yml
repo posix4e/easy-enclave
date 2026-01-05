@@ -30,6 +30,16 @@ jobs:
         with:
           agent-url: ${{ secrets.AGENT_URL }}
           docker-compose: ./example/docker-compose.yml
+          public-env: |
+            PUBLIC_GREETING=Hello from Easy Enclave
+            PUBLIC_REGION=us-east-demo
+          private-env: |
+            PRIVATE_MESSAGE=${{ secrets.DEMO_PRIVATE_MESSAGE }}
+          unseal-password: ${{ secrets.DEMO_UNSEAL_PASSWORD }}
+          github-developer: posix4e
+          seal-vm: 'false'
+          public-files: |
+            example/public/banner.txt
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify deployment

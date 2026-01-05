@@ -1,9 +1,19 @@
 version: '3.8'
 
 services:
-  echo:
-    image: hashicorp/http-echo
-    command: ["-text", "Hello from TDX-attested enclave!"]
+  web:
+    image: hashicorp/http-echo:1.0.0
+    env_file:
+      - .env
+    command:
+      - "-text"
+      - "Public=${PUBLIC_GREETING:-Hello} Private=${PRIVATE_MESSAGE:-unset} Region=${PUBLIC_REGION:-tdx}"
     ports:
       - "8080:5678"
+    restart: unless-stopped
+
+  whoami:
+    image: traefik/whoami:v1.10
+    ports:
+      - "8081:80"
     restart: unless-stopped

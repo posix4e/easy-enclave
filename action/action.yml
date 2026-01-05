@@ -8,6 +8,22 @@ inputs:
     description: 'Path to docker-compose.yml'
     required: false
     default: './docker-compose.yml'
+  public-env:
+    description: 'Public env vars (KEY=VALUE, newline separated) to include in the bundle artifact'
+    required: false
+    default: ''
+  private-env:
+    description: 'Private env vars (KEY=VALUE, newline separated) sent inline to the agent'
+    required: false
+    default: ''
+  public-files:
+    description: 'Public file paths to include in the bundle artifact (comma or newline separated)'
+    required: false
+    default: ''
+  seal-vm:
+    description: 'Seal VM access after deployment (disable SSH and serial getty)'
+    required: false
+    default: 'true'
   endpoint:
     description: 'Public endpoint URL for the service (use "auto" for http://{vm_ip}:8080)'
     required: false
@@ -24,10 +40,22 @@ inputs:
     description: 'Name for the TD VM'
     required: false
     default: 'ee-workload'
+  cleanup-prefixes:
+    description: 'Comma-separated VM name prefixes to cleanup before deployment (agent mode only)'
+    required: false
+    default: ''
   enable-ssh:
     description: 'Enable SSH access to VM (default: false)'
     required: false
     default: 'false'
+  github-developer:
+    description: 'GitHub username to pull public SSH keys from'
+    required: false
+    default: ''
+  unseal-password:
+    description: 'Password to enable SSH access (set in guest as ubuntu)'
+    required: false
+    default: ''
 outputs:
   vm_ip:
     description: 'IP address of the created TD VM'
@@ -42,6 +70,50 @@ runs:
   using: 'composite'
   steps:
     # Agent mode: call remote agent API
+    - name: Build public bundle
+      id: bundle
+      if: ${{ inputs.agent-url != '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        BUNDLE_DIR=$(mktemp -d)
+        cp "${{ inputs.docker-compose }}" "$BUNDLE_DIR/docker-compose.yml"
+
+        if [ -n "${{ inputs.public-env }}" ]; then
+          printf '%s\n' "${{ inputs.public-env }}" > "$BUNDLE_DIR/.env.public"
+        fi
+
+        if [ -n "${{ inputs.github-developer }}" ]; then
+          if curl -fsSL "https://github.com/${{ inputs.github-developer }}.keys" -o "$BUNDLE_DIR/authorized_keys"; then
+            if [ ! -s "$BUNDLE_DIR/authorized_keys" ]; then
+              echo "Warning: no public keys found for ${{ inputs.github-developer }}"
+              rm -f "$BUNDLE_DIR/authorized_keys"
+            fi
+          else
+            echo "Warning: failed to fetch keys for ${{ inputs.github-developer }}"
+            rm -f "$BUNDLE_DIR/authorized_keys"
+          fi
+        fi
+
+        if [ -n "${{ inputs.public-files }}" ]; then
+          printf '%s' "${{ inputs.public-files }}" | tr ',' '\n' | while IFS= read -r path; do
+            path="$(printf '%s' "$path" | xargs)"
+            [ -z "$path" ] && continue
+            cp --parents "$path" "$BUNDLE_DIR/"
+          done
+        fi
+
+        echo "bundle_dir=$BUNDLE_DIR" >> $GITHUB_OUTPUT
+
+    - name: Upload public bundle
+      id: bundle-upload
+      if: ${{ inputs.agent-url != '' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ee-deploy-bundle
+        path: ${{ steps.bundle.outputs.bundle_dir }}
+        if-no-files-found: error
+
     - name: Deploy via Agent
       id: agent
       if: ${{ inputs.agent-url != '' }}
@@ -49,17 +121,72 @@ runs:
       run: |
         echo "Deploying via agent at ${{ inputs.agent-url }}"
 
+        CLEANUP_PREFIXES_JSON="null"
+        if [ -n "${{ inputs.cleanup-prefixes }}" ]; then
+          CLEANUP_PREFIXES_JSON=$(printf '%s' "${{ inputs.cleanup-prefixes }}" | jq -R 'split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length>0))')
+        fi
+        ENABLE_SSH="false"
+        if [ "${{ inputs.enable-ssh }}" = "true" ] || [ -n "${{ inputs.github-developer }}" ] || [ -n "${{ inputs.unseal-password }}" ]; then
+          ENABLE_SSH="true"
+        fi
+        EFFECTIVE_SEAL="${{ inputs.seal-vm }}"
+        if [ "$ENABLE_SSH" = "true" ]; then
+          EFFECTIVE_SEAL="false"
+        fi
+        PRIVATE_ENV_VALUE="${{ inputs.private-env }}"
+        if [ -n "${{ inputs.unseal-password }}" ]; then
+          if [ -n "$PRIVATE_ENV_VALUE" ]; then
+            PRIVATE_ENV_VALUE="${PRIVATE_ENV_VALUE}
+UNSEAL_PASSWORD=${{ inputs.unseal-password }}"
+          else
+            PRIVATE_ENV_VALUE="UNSEAL_PASSWORD=${{ inputs.unseal-password }}"
+          fi
+        fi
+        if [ "$ENABLE_SSH" = "true" ]; then
+          if ! printf '%s\n' "$PRIVATE_ENV_VALUE" | grep -q '^ENABLE_SSH='; then
+            if [ -n "$PRIVATE_ENV_VALUE" ]; then
+              PRIVATE_ENV_VALUE="${PRIVATE_ENV_VALUE}
+ENABLE_SSH=true"
+            else
+              PRIVATE_ENV_VALUE="ENABLE_SSH=true"
+            fi
+          fi
+        fi
+        if [ "$EFFECTIVE_SEAL" = "true" ]; then
+          if ! printf '%s\n' "$PRIVATE_ENV_VALUE" | grep -q '^SEAL_VM='; then
+            if [ -n "$PRIVATE_ENV_VALUE" ]; then
+              PRIVATE_ENV_VALUE="${PRIVATE_ENV_VALUE}
+SEAL_VM=true"
+            else
+              PRIVATE_ENV_VALUE="SEAL_VM=true"
+            fi
+          fi
+        fi
+        PRIVATE_ENV_JSON="null"
+        if [ -n "$PRIVATE_ENV_VALUE" ]; then
+          PRIVATE_ENV_JSON=$(printf '%s' "$PRIVATE_ENV_VALUE" | jq -Rs '.')
+        fi
+
         # Start deployment
+        SEAL_VM_JSON="false"
+        if [ "$EFFECTIVE_SEAL" = "true" ]; then
+          SEAL_VM_JSON="true"
+        fi
+
+        PAYLOAD=$(jq -n \
+          --arg repo "${{ github.repository }}" \
+          --argjson port ${{ inputs.endpoint-port }} \
+          --arg vm_name "${{ inputs.vm-name }}" \
+          --argjson cleanup_prefixes "$CLEANUP_PREFIXES_JSON" \
+          --argjson bundle_artifact_id ${{ steps.bundle-upload.outputs.artifact-id }} \
+          --argjson private_env "$PRIVATE_ENV_JSON" \
+          --argjson seal_vm "$SEAL_VM_JSON" \
+          '{repo:$repo, port:$port, vm_name:$vm_name, bundle_artifact_id:$bundle_artifact_id, seal_vm:$seal_vm} + ( $cleanup_prefixes == null ? {} : {cleanup_prefixes:$cleanup_prefixes} ) + ( $private_env == null ? {} : {private_env:$private_env} )')
+
         RESPONSE=$(curl -sf -X POST "${{ inputs.agent-url }}/deploy" \
           -H "Authorization: Bearer ${{ inputs.github-token }}" \
           -H "Content-Type: application/json" \
-          -d '{
-            "repo": "${{ github.repository }}",
-            "ref": "${{ github.sha }}",
-            "docker_compose": "${{ inputs.docker-compose }}",
-            "port": ${{ inputs.endpoint-port }},
-            "vm_name": "${{ inputs.vm-name }}"
-          }')
+          -d "$PAYLOAD")
 
         DEPLOY_ID=$(echo "$RESPONSE" | jq -r .deployment_id)
         echo "Deployment started: $DEPLOY_ID"
@@ -68,11 +195,22 @@ runs:
         MAX_WAIT=600
         WAITED=0
         while [ $WAITED -lt $MAX_WAIT ]; do
-          STATUS=$(curl -sf "${{ inputs.agent-url }}/status/$DEPLOY_ID" | jq -r .status)
+          STATUS_RESPONSE=$(curl -sf "${{ inputs.agent-url }}/status/$DEPLOY_ID")
+          STATUS=$(echo "$STATUS_RESPONSE" | jq -r .status)
           echo "Status: $STATUS (waited ${WAITED}s)"
+          SERIAL_LOG=$(echo "$STATUS_RESPONSE" | jq -r '.host_logs.serial // empty')
+          QEMU_LOG=$(echo "$STATUS_RESPONSE" | jq -r '.host_logs.qemu // empty')
+          if [ -n "$SERIAL_LOG" ]; then
+            echo "=== Serial log (tail) ==="
+            echo "$SERIAL_LOG"
+          fi
+          if [ -n "$QEMU_LOG" ]; then
+            echo "=== QEMU log (tail) ==="
+            echo "$QEMU_LOG"
+          fi
 
           if [ "$STATUS" = "complete" ]; then
-            RESULT=$(curl -sf "${{ inputs.agent-url }}/status/$DEPLOY_ID")
+            RESULT="$STATUS_RESPONSE"
             echo "vm_ip=$(echo "$RESULT" | jq -r .vm_ip)" >> $GITHUB_OUTPUT
             echo "quote=$(echo "$RESULT" | jq -r .quote)" >> $GITHUB_OUTPUT
             echo "release_url=$(echo "$RESULT" | jq -r .release_url)" >> $GITHUB_OUTPUT
@@ -80,7 +218,7 @@ runs:
           fi
 
           if [ "$STATUS" = "failed" ]; then
-            ERROR=$(curl -sf "${{ inputs.agent-url }}/status/$DEPLOY_ID" | jq -r .error)
+            ERROR=$(echo "$STATUS_RESPONSE" | jq -r .error)
             echo "Deployment failed: $ERROR"
             exit 1
           fi

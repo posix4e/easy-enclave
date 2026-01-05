@@ -1,0 +1,2 @@
+Easy Enclave public bundle file.
+This can be included via the action's public-files input.

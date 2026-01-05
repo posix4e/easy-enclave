@@ -3,6 +3,25 @@ exec > /opt/workload/start.log 2>&1
 echo "=== start.sh starting at $(date) ==="
 set -x
 cd /opt/workload
+if [ -f /opt/workload/.env ]; then
+    set -a
+    . /opt/workload/.env
+    set +a
+fi
+
+if [ "${ENABLE_SSH:-}" = "true" ]; then
+    systemctl enable --now ssh 2>/dev/null || true
+    if [ -f /opt/workload/authorized_keys ]; then
+        install -d -m 700 /home/ubuntu/.ssh
+        install -m 600 /opt/workload/authorized_keys /home/ubuntu/.ssh/authorized_keys
+        chown -R ubuntu:ubuntu /home/ubuntu/.ssh
+    fi
+    if [ -n "${UNSEAL_PASSWORD:-}" ]; then
+        sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+        echo "ubuntu:${UNSEAL_PASSWORD}" | chpasswd
+        systemctl restart ssh 2>/dev/null || true
+    fi
+fi
 
 # Generate TDX quote first
 echo "Starting quote generation..."
@@ -43,3 +62,10 @@ fi
 # Signal ready
 touch /opt/workload/ready
 echo "=== start.sh completed at $(date) ==="
+
+# Seal VM access if requested
+if [ "${SEAL_VM:-}" = "true" ]; then
+    echo "Sealing VM access..."
+    systemctl disable --now ssh 2>/dev/null || true
+    systemctl mask getty@ttyS0.service serial-getty@ttyS0.service 2>/dev/null || true
+fi

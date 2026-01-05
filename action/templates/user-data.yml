@@ -5,6 +5,7 @@ write_files:
   - path: /opt/workload/docker-compose.yml
     content: |
 {docker_compose}
+{extra_files}
 
   - path: /opt/workload/start.sh
     permissions: '0755'

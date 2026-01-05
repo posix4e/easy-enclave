@@ -36,7 +36,7 @@ A TDX attestation platform using GitHub as the trust anchor. Deploy workloads to
 │  ┌───────────────────────────────────────────────────────────────┐  │
 │  │  ee-agent (HTTP API on port 8000)                              │  │
 │  │                                                                │  │
-│  │  POST /deploy ──► Clone repo                                   │  │
+│  │  POST /deploy ──► Download bundle artifact                     │  │
 │  │                      │                                         │  │
 │  │                      ▼                                         │  │
 │  │  ┌─────────────────────────────────────────────────────────┐  │  │
@@ -140,11 +140,23 @@ Runs after CI passes on main (or manually):
 The agent exposes a simple HTTP API:
 
 ```bash
+# The deploy workflow uploads a bundle artifact with docker-compose and public files,
+# then passes the artifact ID to the agent.
 # Start deployment
 curl -X POST http://agent:8000/deploy \
   -H "Authorization: Bearer $GITHUB_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"repo": "owner/repo", "ref": "main", "docker_compose": "./docker-compose.yml"}'
+  -d '{"repo": "owner/repo", "bundle_artifact_id": 123456, "private_env": "KEY=VALUE\n", "seal_vm": true}'
+
+# To enable SSH access, include ENABLE_SSH=true and optionally UNSEAL_PASSWORD in private_env,
+# and add public keys to the bundle as /authorized_keys.
+
+# Status includes host-side serial and QEMU log tails.
+curl http://agent:8000/status/{deployment_id}
+
+# Seal VM access (disable SSH and serial getty) by setting:
+#   SEAL_VM=true
+# When sealed, status omits host log tails after completion.
 
 # Check status
 curl http://agent:8000/status/{deployment_id}

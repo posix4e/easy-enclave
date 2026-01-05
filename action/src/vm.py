@@ -15,6 +15,7 @@ import time
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Sequence
 
 # Force unbuffered output for real-time logging
 sys.stdout.reconfigure(line_buffering=True)
@@ -53,83 +54,6 @@ UBUNTU_CLOUD_IMAGES = {
 
 # Deployment state directory
 DEPLOYMENTS_DIR = Path("/var/lib/easy-enclave/deployments")
-
-
-def clone_repo(repo: str, ref: str = None, token: str = None) -> str:
-    """Clone a GitHub repo and return path to the cloned directory.
-
-    Args:
-        repo: GitHub repo in 'owner/repo' format
-        ref: Git ref (branch, tag, or commit) to checkout
-        token: GitHub token for private repos
-
-    Returns:
-        Path to cloned repository
-    """
-    workdir = tempfile.mkdtemp(prefix="ee-deploy-")
-    repo_path = os.path.join(workdir, "repo")
-
-    # Build clone URL (with token for private repos)
-    if token:
-        clone_url = f"https://x-access-token:{token}@github.com/{repo}.git"
-    else:
-        clone_url = f"https://github.com/{repo}.git"
-
-    log(f"Cloning {repo}...")
-    result = subprocess.run(
-        ['git', 'clone', '--depth', '1', clone_url, repo_path],
-        capture_output=True, text=True
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"Failed to clone repo: {result.stderr}")
-
-    # Checkout specific ref if provided
-    if ref:
-        log(f"Checking out {ref}...")
-        result = subprocess.run(
-            ['git', 'checkout', ref],
-            cwd=repo_path, capture_output=True, text=True
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"Failed to checkout {ref}: {result.stderr}")
-
-    log(f"Cloned to {repo_path}")
-    return repo_path
-
-
-def find_docker_compose(repo_path: str, hint: str = None) -> str:
-    """Find docker-compose.yml in a cloned repo.
-
-    Args:
-        repo_path: Path to cloned repository
-        hint: Optional path hint (e.g., './docker-compose.yml')
-
-    Returns:
-        Absolute path to docker-compose.yml
-    """
-    # If hint provided, try it first
-    if hint:
-        candidates = [os.path.join(repo_path, hint.lstrip('./'))]
-    else:
-        candidates = []
-
-    # Standard locations to check
-    candidates.extend([
-        os.path.join(repo_path, "docker-compose.yml"),
-        os.path.join(repo_path, "docker-compose.yaml"),
-        os.path.join(repo_path, ".easyenclave", "docker-compose.yml"),
-        os.path.join(repo_path, "example", "docker-compose.yml"),
-    ])
-
-    for path in candidates:
-        if os.path.exists(path):
-            log(f"Found docker-compose: {path}")
-            return path
-
-    raise FileNotFoundError(
-        f"No docker-compose.yml found in {repo_path}. "
-        f"Checked: {', '.join(candidates)}"
-    )
 
 
 def check_requirements() -> None:
@@ -278,7 +202,37 @@ def find_td_image() -> str:
     return find_or_download_td_image()
 
 
-def create_workload_image(base_image: str, docker_compose_content: str, port: int = 8080, enable_ssh: bool = False) -> str:
+def build_extra_files_yaml(extra_files: list[dict[str, str]] | None) -> str:
+    """Build cloud-init write_files YAML entries for extra files."""
+    if not extra_files:
+        return ""
+
+    blocks = []
+    for entry in extra_files:
+        rel_path = entry.get("path")
+        if not rel_path:
+            continue
+        rel_path = rel_path.lstrip("/")
+        content = entry.get("content", "")
+        permissions = entry.get("permissions", "0644")
+        block = (
+            f"  - path: /opt/workload/{rel_path}\n"
+            f"    permissions: '{permissions}'\n"
+            f"    content: |\n"
+            f"{indent_yaml(content, 6)}\n"
+        )
+        blocks.append(block)
+
+    return "\n".join(blocks)
+
+
+def create_workload_image(
+    base_image: str,
+    docker_compose_content: str,
+    port: int = 8080,
+    enable_ssh: bool = False,
+    extra_files: list[dict[str, str]] | None = None,
+) -> str:
     """
     Create a workload-specific image with docker-compose baked in.
 
@@ -305,21 +259,17 @@ def create_workload_image(base_image: str, docker_compose_content: str, port: in
     ssh_config = ""
     if enable_ssh:
         ssh_config = """
-ssh_pwauth: true
-chpasswd:
-  expire: false
-  users:
-    - name: ubuntu
-      password: ubuntu
-      type: text
+ssh_pwauth: false
 """
 
     # Build user-data from template
+    extra_files_yaml = build_extra_files_yaml(extra_files)
     user_data = load_template("user-data.yml").format(
         ssh_config=ssh_config,
         docker_compose=indent_yaml(docker_compose_content, 6),
         start_sh=indent_yaml(start_sh, 6),
         get_quote=indent_yaml(get_quote, 6),
+        extra_files=extra_files_yaml,
     )
 
     user_data_path = os.path.join(workdir, "user-data")
@@ -707,7 +657,13 @@ def get_quote_from_vm(ip: str, port: int = 8080) -> str:
     return data["quote"]
 
 
-def create_td_vm(docker_compose_path: str, name: str = "ee-workload", port: int = 8080, enable_ssh: bool = False) -> dict:
+def create_td_vm(
+    docker_compose_path: str,
+    name: str = "ee-workload",
+    port: int = 8080,
+    enable_ssh: bool = False,
+    extra_files: list[dict[str, str]] | None = None,
+) -> dict:
     """
     Create a TD VM with the given workload.
 
@@ -726,7 +682,11 @@ def create_td_vm(docker_compose_path: str, name: str = "ee-workload", port: int 
 
     log("Creating workload image...")
     workload_image, cidata_iso, workdir = create_workload_image(
-        base_image, docker_compose_content, port=port, enable_ssh=enable_ssh
+        base_image,
+        docker_compose_content,
+        port=port,
+        enable_ssh=enable_ssh,
+        extra_files=extra_files,
     )
 
     log("Starting TD VM...")
@@ -752,6 +712,30 @@ def destroy_td_vm(name: str = "ee-workload") -> None:
     """Destroy a TD VM."""
     subprocess.run(['sudo', 'virsh', 'destroy', name], capture_output=True)
     subprocess.run(['sudo', 'virsh', 'undefine', name], capture_output=True)
+
+
+def cleanup_td_vms(prefixes: Sequence[str] | None = None) -> None:
+    """Destroy any TD VMs whose names match the provided prefixes."""
+    if prefixes is None:
+        prefixes = ("ee-deploy-", "ee-workload", "ee-")
+    elif isinstance(prefixes, str):
+        prefixes = (prefixes,)
+    else:
+        prefixes = tuple(prefixes)
+    result = subprocess.run(
+        ['sudo', 'virsh', 'list', '--all', '--name'],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        log(f"Warning: failed to list VMs: {result.stderr.strip()}")
+        return
+    for name in [line.strip() for line in result.stdout.splitlines() if line.strip()]:
+        if not name.startswith(prefixes):
+            continue
+        log(f"Cleaning up existing VM {name}...")
+        subprocess.run(['sudo', 'virsh', 'destroy', name], capture_output=True)
+        subprocess.run(['sudo', 'virsh', 'undefine', name, '--nvram', '--remove-all-storage'], capture_output=True)
 
 
 def cleanup_deploy_releases(repo: str, token: str, prefix: str = "deploy-") -> None:
@@ -789,7 +773,13 @@ def cleanup_deploy_releases(repo: str, token: str, prefix: str = "deploy-") -> N
         log(f"Warning: release cleanup failed: {e}")
 
 
-def create_release(quote: str, endpoint: str, repo: str = None, token: str = None) -> str:
+def create_release(
+    quote: str,
+    endpoint: str,
+    repo: str = None,
+    token: str = None,
+    seal_vm: bool = False,
+) -> str:
     """Create a GitHub release with attestation data."""
     repo = repo or os.environ.get('GITHUB_REPOSITORY')
     token = token or os.environ.get('GITHUB_TOKEN')
@@ -808,7 +798,8 @@ def create_release(quote: str, endpoint: str, repo: str = None, token: str = Non
         "quote": quote,
         "endpoint": endpoint,
         "timestamp": now.isoformat().replace('+00:00', 'Z'),
-        "repo": repo
+        "repo": repo,
+        "sealed": seal_vm,
     }
 
     body = f"""## TDX Attested Deployment
@@ -858,9 +849,7 @@ client = connect("{repo}")
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Create TD VM with workload')
-    parser.add_argument('docker_compose', nargs='?', help='Path to docker-compose.yml (optional if --repo is used)')
-    parser.add_argument('--repo', help='GitHub repo to clone (owner/repo format)')
-    parser.add_argument('--ref', help='Git ref to checkout (branch/tag/commit)')
+    parser.add_argument('docker_compose', help='Path to docker-compose.yml')
     parser.add_argument('--name', default='ee-workload', help='VM name (default: ee-workload)')
     parser.add_argument('--port', type=int, default=8080, help='HTTP port (default: 8080)')
     parser.add_argument('--enable-ssh', action='store_true', help='Enable SSH access (default: off)')
@@ -868,23 +857,9 @@ if __name__ == '__main__':
     parser.add_argument('--endpoint', help='Endpoint URL for release (default: http://{vm_ip}:{port})')
     args = parser.parse_args()
 
-    # Determine docker-compose path
-    if args.repo:
-        # Clone repo and find docker-compose
-        token = os.environ.get('GITHUB_TOKEN')
-        repo_path = clone_repo(args.repo, ref=args.ref, token=token)
-        docker_compose = find_docker_compose(repo_path, hint=args.docker_compose)
-    elif args.docker_compose:
-        docker_compose = args.docker_compose
-    else:
-        parser.error('Either docker_compose path or --repo is required')
+    docker_compose = args.docker_compose
 
     result = create_td_vm(docker_compose, name=args.name, port=args.port, enable_ssh=args.enable_ssh)
-
-    # Add repo info to result if cloning was used
-    if args.repo:
-        result['repo'] = args.repo
-        result['ref'] = args.ref
 
     if args.create_release:
         endpoint = args.endpoint or f"http://{result['ip']}:{result['port']}"

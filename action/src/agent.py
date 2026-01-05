@@ -17,20 +17,23 @@ API:
 import json
 import os
 import sys
+import tempfile
 import threading
 import uuid
+import zipfile
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from typing import Optional
+from urllib.request import Request, urlopen
 
 from vm import (
     DEPLOYMENTS_DIR,
     check_requirements,
-    clone_repo,
     create_release,
     create_td_vm,
-    find_docker_compose,
+    cleanup_td_vms,
     get_public_ip,
     log,
     setup_port_forward,
@@ -46,10 +49,12 @@ class Deployment:
     """Deployment state."""
     id: str
     repo: str
-    ref: Optional[str]
-    docker_compose: Optional[str]
     port: int
     status: str  # pending, cloning, deploying, complete, failed
+    cleanup_prefixes: Optional[list[str]] = None
+    bundle_artifact_id: Optional[int] = None
+    private_env: Optional[str] = None
+    seal_vm: bool = False
     vm_name: Optional[str] = None
     vm_ip: Optional[str] = None
     quote: Optional[str] = None
@@ -76,7 +81,9 @@ def save_deployment(deployment: Deployment):
     deployment.updated_at = datetime.now(timezone.utc).isoformat()
     path = DEPLOYMENTS_DIR / f"{deployment.id}.json"
     with open(path, 'w') as f:
-        json.dump(asdict(deployment), f, indent=2)
+        data = asdict(deployment)
+        data.pop("private_env", None)
+        json.dump(data, f, indent=2)
 
 
 def load_deployment(deployment_id: str) -> Optional[Deployment]:
@@ -86,26 +93,118 @@ def load_deployment(deployment_id: str) -> Optional[Deployment]:
         return None
     with open(path) as f:
         data = json.load(f)
-    return Deployment(**data)
+    fields = Deployment.__annotations__.keys()
+    filtered = {key: value for key, value in data.items() if key in fields}
+    return Deployment(**filtered)
+
+
+def read_tail(path: str, max_bytes: int = 20000) -> str:
+    """Read the tail of a log file."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            start = max(size - max_bytes, 0)
+            f.seek(start)
+            data = f.read()
+        return data.decode(errors="replace")
+    except FileNotFoundError:
+        return ""
+    except Exception as e:
+        return f"[log read error: {e}]"
+
+
+def download_bundle_artifact(repo: str, artifact_id: int, token: Optional[str]) -> str:
+    """Download and extract a bundle artifact, returning the extract directory."""
+    tmpdir = tempfile.mkdtemp(prefix="ee-bundle-")
+    zip_path = os.path.join(tmpdir, "bundle.zip")
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    url = f"https://api.github.com/repos/{repo}/actions/artifacts/{artifact_id}/zip"
+    req = Request(url, headers=headers)
+    with urlopen(req) as response, open(zip_path, "wb") as f:
+        f.write(response.read())
+
+    with zipfile.ZipFile(zip_path) as zf:
+        zf.extractall(tmpdir)
+
+    return tmpdir
+
+
+def load_bundle(bundle_dir: str, private_env: Optional[str]) -> tuple[str, list[dict[str, str]]]:
+    """Load docker-compose and extra files from the bundle."""
+    root = Path(bundle_dir)
+    compose_paths = list(root.rglob("docker-compose.yml")) + list(root.rglob("docker-compose.yaml"))
+    if not compose_paths:
+        raise FileNotFoundError("Bundle missing docker-compose.yml")
+    if len(compose_paths) > 1:
+        raise ValueError("Bundle has multiple docker-compose files")
+    compose_path = compose_paths[0]
+    docker_compose_content = compose_path.read_text(encoding="utf-8")
+
+    public_env = None
+    extra_files = []
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.name == "bundle.zip":
+            continue
+        if path == compose_path:
+            continue
+        if path.name in (".env.public", ".env"):
+            public_env = path.read_text(encoding="utf-8")
+            continue
+        rel_path = path.relative_to(root)
+        extra_files.append({
+            "path": str(rel_path),
+            "content": path.read_text(encoding="utf-8"),
+        })
+
+    env_parts = []
+    if public_env:
+        env_parts.append(public_env.rstrip())
+    if private_env:
+        env_parts.append(private_env.rstrip())
+    if env_parts:
+        combined = "\n".join(part for part in env_parts if part) + "\n"
+        extra_files.append({
+            "path": ".env",
+            "content": combined,
+            "permissions": "0600",
+        })
+
+    return docker_compose_content, extra_files
 
 
 def run_deployment(deployment: Deployment, token: str):
     """Run deployment in background thread."""
     try:
-        # Clone repo
+        if not deployment.bundle_artifact_id:
+            raise ValueError("bundle_artifact_id is required")
+
         deployment.status = "cloning"
         save_deployment(deployment)
-        repo_path = clone_repo(deployment.repo, ref=deployment.ref, token=token)
-        docker_compose = find_docker_compose(repo_path, hint=deployment.docker_compose)
+        bundle_dir = download_bundle_artifact(deployment.repo, deployment.bundle_artifact_id, token)
+        docker_compose_content, extra_files = load_bundle(bundle_dir, deployment.private_env)
+        docker_compose_path = os.path.join(bundle_dir, "docker-compose.yml")
+        with open(docker_compose_path, "w", encoding="utf-8") as f:
+            f.write(docker_compose_content)
 
         # Deploy VM
         deployment.status = "deploying"
         save_deployment(deployment)
+        cleanup_td_vms(deployment.cleanup_prefixes)
         result = create_td_vm(
-            docker_compose,
-            name=deployment.vm_name or f"ee-{deployment.id[:8]}",
+            docker_compose_path,
+            name=deployment.vm_name or f"ee-deploy-{deployment.id[:8]}",
             port=deployment.port,
             enable_ssh=False,
+            extra_files=extra_files,
         )
 
         # Update deployment with results
@@ -127,7 +226,7 @@ def run_deployment(deployment: Deployment, token: str):
         os.environ['GITHUB_REPOSITORY'] = deployment.repo
         if token:
             os.environ['GITHUB_TOKEN'] = token
-        release_url = create_release(deployment.quote, endpoint)
+        release_url = create_release(deployment.quote, endpoint, seal_vm=deployment.seal_vm)
         deployment.release_url = release_url
 
         deployment.status = "complete"
@@ -169,7 +268,15 @@ class AgentHandler(BaseHTTPRequestHandler):
             if not deployment:
                 self.send_json({"error": "Deployment not found"}, status=404)
                 return
-            self.send_json(asdict(deployment))
+            payload = asdict(deployment)
+            if deployment.vm_name:
+                qemu_log = f"/var/log/libvirt/qemu/{deployment.vm_name}.log"
+                serial_log = f"/var/log/libvirt/qemu/{deployment.vm_name}-serial.log"
+                payload["host_logs"] = {
+                    "qemu": read_tail(qemu_log),
+                    "serial": read_tail(serial_log),
+                }
+            self.send_json(payload)
             return
 
         self.send_json({"error": "Not found"}, status=404)
@@ -199,14 +306,33 @@ class AgentHandler(BaseHTTPRequestHandler):
                 token = auth_header[7:]
 
             # Create deployment
+            cleanup_prefixes = data.get('cleanup_prefixes')
+            if cleanup_prefixes is not None:
+                if not isinstance(cleanup_prefixes, list) or not all(isinstance(p, str) for p in cleanup_prefixes):
+                    self.send_json({"error": "cleanup_prefixes must be a list of strings"}, status=400)
+                    return
+            bundle_artifact_id = data.get('bundle_artifact_id')
+            if not isinstance(bundle_artifact_id, int):
+                self.send_json({"error": "bundle_artifact_id must be an integer"}, status=400)
+                return
+            private_env = data.get('private_env')
+            if private_env is not None and not isinstance(private_env, str):
+                self.send_json({"error": "private_env must be a string"}, status=400)
+                return
+            seal_vm = data.get('seal_vm', False)
+            if not isinstance(seal_vm, bool):
+                self.send_json({"error": "seal_vm must be a boolean"}, status=400)
+                return
             deployment = Deployment(
                 id=str(uuid.uuid4()),
                 repo=repo,
-                ref=data.get('ref'),
-                docker_compose=data.get('docker_compose'),
                 port=data.get('port', 8080),
                 status='pending',
                 vm_name=data.get('vm_name'),
+                cleanup_prefixes=cleanup_prefixes,
+                bundle_artifact_id=bundle_artifact_id,
+                private_env=private_env,
+                seal_vm=seal_vm,
             )
             save_deployment(deployment)
 
