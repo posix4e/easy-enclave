@@ -3,7 +3,7 @@ GitHub API integration for fetching attestations.
 """
 
 import json
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import requests
 
@@ -73,7 +73,7 @@ def get_latest_attestation(repo: str, token: Optional[str] = None) -> dict[str, 
             f"Release {release['tag_name']} has no attestation data"
         )
 
-    return attestation
+    return cast(dict[str, Any], attestation)
 
 
 def list_attestations(repo: str, token: Optional[str] = None, limit: int = 10) -> list:
