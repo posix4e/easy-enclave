@@ -392,8 +392,13 @@ def verify_quote(
                         result["tcb_status"] = "measurement_mismatch"
                         return result
 
-        # Step 7: PCCS verification (unless skipped)
-        if not skip_pccs and chain_valid and sig_valid:
+        # Step 7: PCCS verification (required unless explicitly skipped)
+        if not skip_pccs:
+            if not (chain_valid and sig_valid):
+                result["verified"] = False
+                result["tcb_status"] = "signature_verification_failed"
+                return result
+
             pccs_result = verify_with_pccs(quote_bytes, pccs_url)
             result["pccs_verification"] = pccs_result
             verification_steps.append(f"PCCS verification: {pccs_result.get('status')}")
@@ -406,15 +411,15 @@ def verify_quote(
                 result["verified"] = True
                 verification_steps.append(f"Warning: {pccs_result.get('tcb_status')}")
             elif pccs_result.get("status") in ["partial", "error"]:
-                # PCCS unavailable, fall back to local verification
-                verification_steps.append("PCCS unavailable, using local verification only")
-                result["verified"] = chain_valid and sig_valid
-                result["tcb_status"] = "local_only"
+                # PCCS unavailable - fail verification (no fallback)
+                result["verified"] = False
+                result["tcb_status"] = "pccs_unavailable"
+                raise DCAPError(f"PCCS verification failed: {pccs_result.get('error', 'unavailable')}")
             else:
                 result["verified"] = False
                 result["tcb_status"] = pccs_result.get("tcb_status", "verification_failed")
         else:
-            # Local verification only
+            # Local verification only (explicitly requested via skip_pccs=True)
             result["verified"] = chain_valid and sig_valid
             result["tcb_status"] = "local_only" if result["verified"] else "verification_failed"
 
