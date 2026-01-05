@@ -26,7 +26,13 @@ def log(msg):
     print(msg, file=sys.stderr)
 
 
-TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
+# Templates directory - check multiple locations
+_script_dir = Path(__file__).parent
+_possible_template_dirs = [
+    _script_dir.parent / "templates",      # action/src/vm.py -> action/templates
+    _script_dir / "templates",             # /opt/easy-enclave/vm.py -> /opt/easy-enclave/templates
+]
+TEMPLATES_DIR = next((d for d in _possible_template_dirs if d.exists()), _possible_template_dirs[0])
 
 
 def load_template(name: str) -> str:
