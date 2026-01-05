@@ -6,6 +6,7 @@ from easyenclave.exceptions import DCAPError
 from easyenclave.verify import (
     extract_certificates,
     extract_measurements,
+    extract_fmspc_from_cert,
     parse_quote,
     parse_quote_header,
     parse_td_report,
@@ -159,3 +160,67 @@ class TestVerifyQuote:
         short_quote = base64.b64encode(b'\x00' * 100).decode()
         with pytest.raises(DCAPError, match="too short"):
             verify_quote(short_quote)
+
+
+class TestFMSPCExtraction:
+    """Tests for FMSPC extraction from PCK certificate."""
+
+    def test_extract_fmspc_strict_oid(self):
+        """Extract FMSPC only when the correct OID is present."""
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509.oid import NameOID, ObjectIdentifier
+        from datetime import datetime, timedelta, timezone
+
+        sgx_extensions_oid = ObjectIdentifier("1.2.840.113741.1.13.1")
+        fmspc_oid_bytes = bytes.fromhex("060a2a864886f84d010d0104")
+        fmspc_bytes = bytes.fromhex("00906ED50000")
+        ext_value = fmspc_oid_bytes + b"\x04\x06" + fmspc_bytes
+
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "test")])
+        now = datetime.now(timezone.utc)
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(subject)
+            .issuer_name(issuer)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - timedelta(days=1))
+            .not_valid_after(now + timedelta(days=1))
+            .add_extension(x509.UnrecognizedExtension(sgx_extensions_oid, ext_value), critical=False)
+            .sign(key, hashes.SHA256())
+        )
+
+        assert extract_fmspc_from_cert(cert) == "00906ED50000"
+
+    def test_extract_fmspc_missing_oid(self):
+        """Return None when the FMSPC OID is not present."""
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509.oid import NameOID, ObjectIdentifier
+        from datetime import datetime, timedelta, timezone
+
+        sgx_extensions_oid = ObjectIdentifier("1.2.840.113741.1.13.1")
+        wrong_oid_bytes = bytes.fromhex("060a2a864886f84d010d0105")
+        fmspc_bytes = bytes.fromhex("00906ED50000")
+        ext_value = wrong_oid_bytes + b"\x04\x06" + fmspc_bytes
+
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "test")])
+        now = datetime.now(timezone.utc)
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(subject)
+            .issuer_name(issuer)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - timedelta(days=1))
+            .not_valid_after(now + timedelta(days=1))
+            .add_extension(x509.UnrecognizedExtension(sgx_extensions_oid, ext_value), critical=False)
+            .sign(key, hashes.SHA256())
+        )
+
+        assert extract_fmspc_from_cert(cert) is None

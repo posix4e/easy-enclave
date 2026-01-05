@@ -481,8 +481,8 @@ def extract_fmspc_from_cert(cert: x509.Certificate) -> Optional[str]:
     FMSPC OID within SGX extensions: 1.2.840.113741.1.13.1.4
     """
     SGX_EXTENSIONS_OID = "1.2.840.113741.1.13.1"
-    # FMSPC OID encoded: 06 09 2A 86 48 86 F8 4D 01 0D 01 04
-    FMSPC_OID_BYTES = bytes.fromhex("06092a864886f84d010d0104")
+    # FMSPC OID encoded: 06 0A 2A 86 48 86 F8 4D 01 0D 01 04
+    FMSPC_OID_BYTES = bytes.fromhex("060a2a864886f84d010d0104")
 
     try:
         for ext in cert.extensions:
@@ -500,21 +500,6 @@ def extract_fmspc_from_cert(cert: x509.Certificate) -> Optional[str]:
                             fmspc_bytes = ext_value[fmspc_start + 2:fmspc_start + 8]
                             return str(fmspc_bytes.hex().upper())
 
-                # Fallback: look for any 6-byte OCTET STRING that could be FMSPC
-                # FMSPC typically starts with platform identifier bytes
-                octet_marker = bytes.fromhex("0406")  # OCTET STRING of length 6
-                pos = 0
-                while True:
-                    idx = ext_value.find(octet_marker, pos)
-                    if idx == -1:
-                        break
-                    fmspc_bytes = ext_value[idx + 2:idx + 8]
-                    # Check if it looks like a valid FMSPC (not all zeros or 0xFF)
-                    if fmspc_bytes != b'\x00' * 6 and fmspc_bytes != b'\xff' * 6:
-                        fmspc_hex = fmspc_bytes.hex().upper()
-                        # FMSPC should have some structure - return first plausible one
-                        return str(fmspc_hex)
-                    pos = idx + 1
     except Exception:
         pass
 
