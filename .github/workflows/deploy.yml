@@ -24,12 +24,24 @@ jobs:
             exit 1
           fi
 
+      - name: Resolve latest release tag
+        id: latest-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=$(gh api repos/${{ github.repository }}/releases/latest --jq .tag_name)
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "::error::No latest release tag found"
+            exit 1
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
       - name: Deploy via Agent
         id: deploy
         uses: ./action
         with:
           agent-url: ${{ secrets.AGENT_URL }}
-          agent-release-tag: ${{ github.ref_name }}
+          agent-release-tag: ${{ steps.latest-release.outputs.tag }}
           docker-compose: ./example/docker-compose.yml
           public-env: |
             PUBLIC_GREETING=Hello from Easy Enclave
