@@ -6,7 +6,6 @@ including certificate chain validation and ECDSA signature verification.
 """
 
 import base64
-import hashlib
 import struct
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -17,7 +16,6 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 
 from .exceptions import DCAPError
-
 
 # Intel SGX/TDX Root CA certificate (PEM format)
 # This is Intel's root CA for SGX/TDX attestation
@@ -152,7 +150,7 @@ def parse_quote(quote_bytes: bytes) -> TDXQuote:
     sig_len = struct.unpack('<I', quote_bytes[632:636])[0]
 
     if len(quote_bytes) < 636 + sig_len:
-        raise DCAPError(f"Quote truncated: missing signature data")
+        raise DCAPError("Quote truncated: missing signature data")
 
     sig_data = quote_bytes[636:636+sig_len]
 
@@ -280,9 +278,6 @@ def verify_quote_signature(quote: TDXQuote, quote_bytes: bytes) -> Tuple[bool, s
     try:
         # Data that was signed: header + td report body
         signed_data = quote_bytes[0:632]
-
-        # Hash the data (SHA-256)
-        digest = hashlib.sha256(signed_data).digest()
 
         # Parse ECDSA public key (uncompressed point: x || y, each 32 bytes)
         x = int.from_bytes(quote.ecdsa_public_key[0:32], 'big')
@@ -448,12 +443,9 @@ def verify_with_pccs(quote_bytes: bytes, pccs_url: str = None) -> dict:
     Returns:
         Verification result from PCCS
     """
-    import requests
-
-    url = pccs_url or "https://api.trustedservices.intel.com/sgx/certification/v4/qve/identity"
-
     # For now, we do local verification
-    # Full PCCS integration would POST the quote and get TCB status back
+    # Full PCCS integration would POST the quote to pccs_url and get TCB status back
+    _ = pccs_url  # Unused until PCCS integration is implemented
 
     return {
         "status": "local_verification_only",

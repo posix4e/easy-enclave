@@ -2,7 +2,6 @@
 import base64
 
 import pytest
-
 from easyenclave.exceptions import DCAPError
 from easyenclave.verify import (
     extract_certificates,
@@ -12,7 +11,6 @@ from easyenclave.verify import (
     parse_td_report,
     verify_quote,
 )
-
 
 # Sample TDX quote from actual deployment (truncated for tests)
 # This is a real quote structure with valid header and TD report
