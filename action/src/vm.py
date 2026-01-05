@@ -341,9 +341,13 @@ chpasswd:
         user_data_path, meta_data_path, network_config_path
     ], check=True, capture_output=True)
 
-    # Make all files readable by libvirt/QEMU
+    # Make all files accessible by libvirt/QEMU (qcow2 needs write access)
     for f in os.listdir(workdir):
-        os.chmod(os.path.join(workdir, f), 0o644)
+        filepath = os.path.join(workdir, f)
+        if f.endswith('.qcow2'):
+            os.chmod(filepath, 0o666)  # VM disk needs write access
+        else:
+            os.chmod(filepath, 0o644)
 
     return workload_image, cidata_iso, workdir
 
