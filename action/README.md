@@ -9,6 +9,15 @@ Deploy workloads to a remote Easy Enclave agent and publish an attested release.
 - `agent-allowlist-asset`: allowlist asset name (default: agent-attestation-allowlist.json)
 - `agent-attestation-skip-pccs`: skip PCCS verification (default: false)
 - `agent-skip-attestation`: skip agent attestation checks (default: false)
+- `agent-ssh-host`: SSH host for agent VM provisioning
+- `agent-ssh-user`: SSH user (default: ubuntu)
+- `agent-ssh-key`: SSH private key for agent VM provisioning
+- `agent-ssh-port`: SSH port (default: 22)
+- `agent-vm-ref`: git ref to use for provisioning (default: main)
+- `agent-vm-name`: agent VM name (default: ee-attestor)
+- `agent-vm-port`: agent VM port (default: 8000)
+- `agent-vm-image-tag`: agent VM image tag
+- `agent-vm-image-sha256`: agent VM image sha256
 - `docker-compose`: path to docker-compose.yml (bundled as a public artifact)
 - `endpoint`: public endpoint URL (use `auto` for `http://{vm_ip}:8080`)
 - `endpoint-port`: port for auto endpoint
