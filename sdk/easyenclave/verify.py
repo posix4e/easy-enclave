@@ -478,34 +478,43 @@ def extract_fmspc_from_cert(cert: x509.Certificate) -> Optional[str]:
     Extract FMSPC (Family-Model-Stepping-Platform-CustomSKU) from PCK certificate.
 
     The FMSPC is stored in the SGX Extensions OID (1.2.840.113741.1.13.1).
+    FMSPC OID within SGX extensions: 1.2.840.113741.1.13.1.4
     """
     SGX_EXTENSIONS_OID = "1.2.840.113741.1.13.1"
+    # FMSPC OID encoded: 06 09 2A 86 48 86 F8 4D 01 0D 01 04
+    FMSPC_OID_BYTES = bytes.fromhex("06092a864886f84d010d0104")
 
     try:
         for ext in cert.extensions:
             if ext.oid.dotted_string == SGX_EXTENSIONS_OID:
-                # Parse the SGX extensions to find FMSPC
-                # The extension value contains ASN.1 encoded data
                 ext_value = ext.value.value
-                # Look for FMSPC OID in the raw bytes
-                # FMSPC is 6 bytes, typically after the OID marker
-                fmspc_marker = bytes.fromhex("0604")  # OCTET STRING of length 6
-                idx = ext_value.find(fmspc_marker)
-                if idx != -1:
-                    fmspc_bytes = ext_value[idx + 2:idx + 8]
-                    return str(fmspc_bytes.hex().upper())
-    except Exception:
-        pass
 
-    # Fallback: try to find FMSPC in certificate subject or extensions
-    try:
-        # Some PCK certs have FMSPC in a custom extension
-        for ext in cert.extensions:
-            ext_data = ext.value.public_bytes()
-            # FMSPC is typically 6 bytes
-            if len(ext_data) >= 6:
-                # Look for common FMSPC patterns
-                pass
+                # Look for FMSPC OID in the extension data
+                idx = ext_value.find(FMSPC_OID_BYTES)
+                if idx != -1:
+                    # FMSPC value follows the OID: typically 04 06 <6 bytes>
+                    fmspc_start = idx + len(FMSPC_OID_BYTES)
+                    if fmspc_start + 8 <= len(ext_value):
+                        # Skip the OCTET STRING tag (04) and length (06)
+                        if ext_value[fmspc_start] == 0x04 and ext_value[fmspc_start + 1] == 0x06:
+                            fmspc_bytes = ext_value[fmspc_start + 2:fmspc_start + 8]
+                            return str(fmspc_bytes.hex().upper())
+
+                # Fallback: look for any 6-byte OCTET STRING that could be FMSPC
+                # FMSPC typically starts with platform identifier bytes
+                octet_marker = bytes.fromhex("0406")  # OCTET STRING of length 6
+                pos = 0
+                while True:
+                    idx = ext_value.find(octet_marker, pos)
+                    if idx == -1:
+                        break
+                    fmspc_bytes = ext_value[idx + 2:idx + 8]
+                    # Check if it looks like a valid FMSPC (not all zeros or 0xFF)
+                    if fmspc_bytes != b'\x00' * 6 and fmspc_bytes != b'\xff' * 6:
+                        fmspc_hex = fmspc_bytes.hex().upper()
+                        # FMSPC should have some structure - return first plausible one
+                        return str(fmspc_hex)
+                    pos = idx + 1
     except Exception:
         pass
 
@@ -688,10 +697,10 @@ def verify_with_pccs(quote_bytes: bytes, pccs_url: Optional[str] = None) -> dict
                 break
 
         if not fmspc:
-            # Use a default FMSPC for testing or try to continue without it
-            verification_steps.append("FMSPC not found in certificate, using platform default")
-            # Try common FMSPC values or skip TCB lookup
-            fmspc = "00906ED50000"  # Common Intel TDX platform FMSPC
+            # Cannot proceed without FMSPC
+            result["status"] = "error"
+            result["error"] = "FMSPC not found in PCK certificate"
+            return result
 
         result["fmspc"] = fmspc
         verification_steps.append(f"FMSPC: {fmspc}")
