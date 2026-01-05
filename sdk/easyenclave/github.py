@@ -3,14 +3,14 @@ GitHub API integration for fetching attestations.
 """
 
 import json
-from typing import Optional
+from typing import Any, Optional
 
 import requests
 
 from .exceptions import AttestationNotFoundError
 
 
-def get_latest_attestation(repo: str, token: Optional[str] = None) -> dict:
+def get_latest_attestation(repo: str, token: Optional[str] = None) -> dict[str, Any]:
     """
     Fetch the latest attestation from a GitHub repository's releases.
 

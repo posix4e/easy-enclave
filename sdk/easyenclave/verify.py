@@ -327,50 +327,49 @@ def verify_quote(quote_b64: str, expected_measurements: Optional[dict] = None) -
     if len(quote_bytes) < 636:
         raise DCAPError(f"Quote too short: {len(quote_bytes)} bytes (minimum 636)")
 
-    result = {
+    verification_steps: list[str] = []
+    result: dict = {
         "verified": False,
         "quote_size": len(quote_bytes),
         "measurements": {},
         "tcb_status": "unknown",
-        "verification_steps": [],
+        "verification_steps": verification_steps,
     }
 
     try:
         # Step 1: Parse quote structure
         quote = parse_quote(quote_bytes)
-        result["verification_steps"].append("Quote structure parsed successfully")
+        verification_steps.append("Quote structure parsed successfully")
         result["version"] = quote.header.version
         result["tee_type"] = "TDX"
         result["att_key_type"] = quote.header.att_key_type
 
         # Step 2: Extract certificates
         certs = extract_certificates(quote.cert_data)
-        result["verification_steps"].append(f"Extracted {len(certs)} certificate(s)")
+        verification_steps.append(f"Extracted {len(certs)} certificate(s)")
         result["cert_count"] = len(certs)
 
         # Step 3: Verify certificate chain
         chain_valid, chain_msg = verify_certificate_chain(certs)
-        result["verification_steps"].append(f"Certificate chain: {chain_msg}")
+        verification_steps.append(f"Certificate chain: {chain_msg}")
         result["chain_verified"] = chain_valid
 
         # Step 4: Verify quote signature
         sig_valid, sig_msg = verify_quote_signature(quote, quote_bytes)
-        result["verification_steps"].append(f"Quote signature: {sig_msg}")
+        verification_steps.append(f"Quote signature: {sig_msg}")
         result["signature_verified"] = sig_valid
 
         # Step 5: Extract measurements
         measurements = extract_measurements(quote_bytes)
         result["measurements"] = measurements
-        result["verification_steps"].append("Measurements extracted")
+        verification_steps.append("Measurements extracted")
 
         # Step 6: Check expected measurements if provided
         if expected_measurements:
             for key, expected in expected_measurements.items():
                 if key in measurements:
                     if measurements[key] != expected:
-                        result["verification_steps"].append(
-                            f"Measurement mismatch: {key}"
-                        )
+                        verification_steps.append(f"Measurement mismatch: {key}")
                         result["verified"] = False
                         result["tcb_status"] = "measurement_mismatch"
                         return result
@@ -429,7 +428,7 @@ def extract_measurements(quote_bytes: bytes) -> dict:
     }
 
 
-def verify_with_pccs(quote_bytes: bytes, pccs_url: str = None) -> dict:
+def verify_with_pccs(quote_bytes: bytes, pccs_url: Optional[str] = None) -> dict:
     """
     Verify quote using Intel PCCS API (optional remote verification).
 
