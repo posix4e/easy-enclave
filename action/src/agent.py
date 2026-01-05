@@ -35,9 +35,9 @@ from urllib.request import Request, urlopen
 from vm import (
     DEPLOYMENTS_DIR,
     check_requirements,
+    cleanup_td_vms,
     create_release,
     create_td_vm,
-    cleanup_td_vms,
     get_public_ip,
     log,
     setup_port_forward,
