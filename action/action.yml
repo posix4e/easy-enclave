@@ -52,6 +52,42 @@ inputs:
     description: 'Skip agent attestation checks (development only)'
     required: false
     default: 'false'
+  agent-ssh-host:
+    description: 'SSH host for agent VM provisioning'
+    required: false
+    default: ''
+  agent-ssh-user:
+    description: 'SSH user for agent VM provisioning'
+    required: false
+    default: 'ubuntu'
+  agent-ssh-key:
+    description: 'SSH private key for agent VM provisioning'
+    required: false
+    default: ''
+  agent-ssh-port:
+    description: 'SSH port for agent VM provisioning'
+    required: false
+    default: '22'
+  agent-vm-ref:
+    description: 'Git ref to use when provisioning the agent VM'
+    required: false
+    default: 'main'
+  agent-vm-name:
+    description: 'Agent VM name to provision'
+    required: false
+    default: 'ee-attestor'
+  agent-vm-port:
+    description: 'Agent VM port'
+    required: false
+    default: '8000'
+  agent-vm-image-tag:
+    description: 'VM image tag for the agent VM'
+    required: false
+    default: ''
+  agent-vm-image-sha256:
+    description: 'VM image sha256 for the agent VM'
+    required: false
+    default: ''
   vm-name:
     description: 'Name for the TD VM'
     required: false
@@ -86,6 +122,37 @@ runs:
   using: 'composite'
   steps:
     # Agent mode: call remote agent API
+    - name: Ensure agent VM
+      if: ${{ inputs.agent-url != '' && inputs.agent-ssh-host != '' && inputs.agent-ssh-key != '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        if curl -sf "${{ inputs.agent-url }}/health" >/dev/null; then
+          echo "Agent reachable"
+          exit 0
+        fi
+        if [ -z "${{ inputs.agent-vm-image-tag }}" ] || [ -z "${{ inputs.agent-vm-image-sha256 }}" ]; then
+          echo "::error::agent-vm-image-tag and agent-vm-image-sha256 are required to provision agent VM"
+          exit 1
+        fi
+        echo "Provisioning agent VM via SSH..."
+        KEY_FILE=$(mktemp)
+        chmod 600 "$KEY_FILE"
+        printf '%s\n' "${{ inputs.agent-ssh-key }}" > "$KEY_FILE"
+        ssh -o StrictHostKeyChecking=no -p "${{ inputs.agent-ssh-port }}" -i "$KEY_FILE" \
+          "${{ inputs.agent-ssh-user }}@${{ inputs.agent-ssh-host }}" \
+          "set -euo pipefail; \
+           sudo mkdir -p /opt/easy-enclave; \
+           if [ ! -d /opt/easy-enclave/.git ]; then sudo git clone https://github.com/${{ github.repository }}.git /opt/easy-enclave; fi; \
+           cd /opt/easy-enclave; \
+           sudo git fetch --tags origin; \
+           sudo git checkout ${{ inputs.agent-vm-ref }}; \
+           sudo python3 action/src/vm.py --agent \
+             --name \"${{ inputs.agent-vm-name }}\" \
+             --port \"${{ inputs.agent-vm-port }}\" \
+             --vm-image-tag \"${{ inputs.agent-vm-image-tag }}\" \
+             --vm-image-sha256 \"${{ inputs.agent-vm-image-sha256 }}\""
+        rm -f "$KEY_FILE"
     - name: Fetch agent allowlist
       id: agent-allowlist
       if: ${{ inputs.agent-url != '' && inputs.agent-skip-attestation != 'true' }}
@@ -181,32 +248,24 @@ runs:
           EFFECTIVE_SEAL="false"
         fi
         PRIVATE_ENV_VALUE="${{ inputs.private-env }}"
-        if [ -n "${{ inputs.unseal-password }}" ]; then
+        append_env() {
           if [ -n "$PRIVATE_ENV_VALUE" ]; then
-            PRIVATE_ENV_VALUE="${PRIVATE_ENV_VALUE}
-UNSEAL_PASSWORD=${{ inputs.unseal-password }}"
+            PRIVATE_ENV_VALUE="${PRIVATE_ENV_VALUE}"$'\n'"$1"
           else
-            PRIVATE_ENV_VALUE="UNSEAL_PASSWORD=${{ inputs.unseal-password }}"
+            PRIVATE_ENV_VALUE="$1"
           fi
+        }
+        if [ -n "${{ inputs.unseal-password }}" ]; then
+          append_env "UNSEAL_PASSWORD=${{ inputs.unseal-password }}"
         fi
         if [ "$ENABLE_SSH" = "true" ]; then
           if ! printf '%s\n' "$PRIVATE_ENV_VALUE" | grep -q '^ENABLE_SSH='; then
-            if [ -n "$PRIVATE_ENV_VALUE" ]; then
-              PRIVATE_ENV_VALUE="${PRIVATE_ENV_VALUE}
-ENABLE_SSH=true"
-            else
-              PRIVATE_ENV_VALUE="ENABLE_SSH=true"
-            fi
+            append_env "ENABLE_SSH=true"
           fi
         fi
         if [ "$EFFECTIVE_SEAL" = "true" ]; then
           if ! printf '%s\n' "$PRIVATE_ENV_VALUE" | grep -q '^SEAL_VM='; then
-            if [ -n "$PRIVATE_ENV_VALUE" ]; then
-              PRIVATE_ENV_VALUE="${PRIVATE_ENV_VALUE}
-SEAL_VM=true"
-            else
-              PRIVATE_ENV_VALUE="SEAL_VM=true"
-            fi
+            append_env "SEAL_VM=true"
           fi
         fi
         PRIVATE_ENV_JSON="null"
