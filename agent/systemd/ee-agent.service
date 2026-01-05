@@ -19,7 +19,8 @@ Environment=PYTHONUNBUFFERED=1
 ProtectSystem=full
 ProtectHome=read-only
 NoNewPrivileges=false
-PrivateTmp=true
+# PrivateTmp must be false so libvirt can access the temp files
+PrivateTmp=false
 
 # Logging
 StandardOutput=journal
