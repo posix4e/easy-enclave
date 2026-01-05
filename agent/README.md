@@ -2,12 +2,55 @@
 
 HTTP service that deploys TD VMs and publishes attested releases.
 
+## Host Setup
+
+### Prerequisites
+
+- Intel TDX-capable CPU and BIOS configuration
+- Ubuntu 24.04+ with TDX kernel
+- libvirt + QEMU with TDX support
+- QGS (Quote Generation Service) running
+
+### QGS Setup
+
+QGS listens on vsock (CID 2, port 4050):
+
+```bash
+systemctl status qgsd
+sudo lsof -p $(pgrep qgs) | grep vsock
+```
+
+### AppArmor Configuration
+
+Add vsock network permission for libvirt:
+
+```bash
+echo '  network vsock stream,' | sudo tee -a /etc/apparmor.d/abstractions/libvirt-qemu
+sudo systemctl reload apparmor
+```
+
+### Device Permissions
+
+```bash
+sudo chmod 666 /dev/vhost-vsock /dev/vsock
+```
+
 ## Install
 
 ```bash
 sudo ./agent/install.sh
 sudo systemctl status ee-agent
 ```
+
+## Agent VM
+
+To run the agent inside a dedicated VM, use `action/src/vm.py --agent` on a TDX host.
+This bootstraps the agent via cloud-init and starts the service in the VM.
+
+The agent VM waits for a deploy request and then starts the workload using
+`docker compose` inside the VM.
+
+By default the agent VM runs sealed (`SEAL_VM=true`).
 
 ## API
 
@@ -49,3 +92,33 @@ The agent combines `.env.public` and `private_env` into `/opt/workload/.env`.
 
 - Private env is never written to `/var/lib/easy-enclave/deployments`.
 - Sealed deployments disable SSH and serial getty inside the VM.
+
+## Agent Attestation
+
+The agent can return a TDX quote and measurements:
+
+```bash
+curl http://agent:8000/attestation
+```
+
+The response includes:
+- `quote`: base64 TDX quote
+- `report_data`: hex report data bound to measurements
+- `measurements`: hashes + `vm_image_id` + `sealed`
+
+Set `/etc/easy-enclave/vm_image_id` with:
+
+```
+tag=<release-tag>
+sha256=<image-sha256>
+```
+
+### Allowlist Generation
+
+Generate a release allowlist on the TDX test node:
+
+```bash
+python3 agent/scripts/generate_allowlist.py --release-tag v0.1.0
+```
+
+Upload `agent-attestation-allowlist.json` to the matching GitHub release.

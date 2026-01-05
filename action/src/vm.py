@@ -302,6 +302,126 @@ ssh_pwauth: false
     return workload_image, cidata_iso, workdir
 
 
+def build_vm_image_id(tag: str, sha256: str) -> str:
+    """Build vm_image_id contents."""
+    lines = []
+    if tag:
+        lines.append(f"tag={tag}")
+    if sha256:
+        lines.append(f"sha256={sha256}")
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
+def build_vm_image_id_yaml(tag: str, sha256: str) -> str:
+    """Build cloud-init write_files entry for vm_image_id."""
+    content = build_vm_image_id(tag, sha256)
+    if not content:
+        return ""
+    return (
+        "  - path: /etc/easy-enclave/vm_image_id\n"
+        "    permissions: '0644'\n"
+        "    content: |\n"
+        f"{indent_yaml(content, 6)}\n"
+    )
+
+
+def create_agent_image(
+    base_image: str,
+    agent_py: str,
+    vm_py: str,
+    vm_image_tag: str,
+    vm_image_sha256: str,
+) -> str:
+    """Create an agent VM image with agent service installed."""
+    workdir = tempfile.mkdtemp(prefix="ee-agent-")
+    os.chmod(workdir, 0o755)
+    agent_image = os.path.join(workdir, "agent.qcow2")
+
+    subprocess.run([
+        'qemu-img', 'create', '-f', 'qcow2',
+        '-b', base_image, '-F', 'qcow2',
+        agent_image
+    ], check=True, capture_output=True)
+
+    agent_service = load_template("agent-service.service")
+    network_config = load_template("network-config.yml")
+    vm_image_id = build_vm_image_id_yaml(vm_image_tag, vm_image_sha256)
+
+    user_data = load_template("agent-user-data.yml").format(
+        agent_py=indent_yaml(agent_py, 6),
+        vm_py=indent_yaml(vm_py, 6),
+        agent_service=indent_yaml(agent_service, 6),
+        vm_image_id=vm_image_id,
+    )
+
+    user_data_path = os.path.join(workdir, "user-data")
+    meta_data_path = os.path.join(workdir, "meta-data")
+    network_config_path = os.path.join(workdir, "network-config")
+
+    with open(user_data_path, 'w') as f:
+        f.write(user_data)
+    with open(meta_data_path, 'w') as f:
+        f.write("instance-id: ee-agent\nlocal-hostname: ee-agent\n")
+    with open(network_config_path, 'w') as f:
+        f.write(network_config)
+
+    cidata_iso = os.path.join(workdir, "cidata.iso")
+    subprocess.run([
+        'genisoimage', '-output', cidata_iso,
+        '-volid', 'cidata', '-joliet', '-rock',
+        user_data_path, meta_data_path, network_config_path
+    ], check=True, capture_output=True)
+
+    for f in os.listdir(workdir):
+        filepath = os.path.join(workdir, f)
+        if f.endswith('.qcow2'):
+            os.chmod(filepath, 0o666)
+        else:
+            os.chmod(filepath, 0o644)
+
+    return agent_image, cidata_iso, workdir
+
+
+def create_agent_vm(
+    name: str = "ee-attestor",
+    port: int = 8000,
+    vm_image_tag: str = "",
+    vm_image_sha256: str = "",
+) -> dict:
+    """Create an agent VM with no workload compose."""
+    log("Checking requirements...")
+    check_requirements()
+
+    log("Finding TD base image...")
+    base_image = find_td_image()
+    log(f"Using base image: {base_image}")
+
+    agent_py = (Path(__file__).parent / "agent.py").read_text()
+    vm_py = Path(__file__).read_text()
+
+    log("Creating agent image...")
+    agent_image, cidata_iso, workdir = create_agent_image(
+        base_image,
+        agent_py,
+        vm_py,
+        vm_image_tag,
+        vm_image_sha256,
+    )
+
+    log("Starting agent VM...")
+    ip = start_td_vm(agent_image, cidata_iso, name)
+    log(f"Agent VM IP: {ip}")
+
+    log("Waiting for agent to be ready...")
+    wait_for_ready(ip, port=port, timeout=300)
+
+    return {
+        "name": name,
+        "ip": ip,
+        "port": port,
+        "workdir": workdir,
+    }
+
 def indent_yaml(content: str, spaces: int) -> str:
     """Indent YAML content."""
     indent = ' ' * spaces
@@ -849,14 +969,31 @@ client = connect("{repo}")
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Create TD VM with workload')
-    parser.add_argument('docker_compose', help='Path to docker-compose.yml')
+    parser.add_argument('docker_compose', nargs='?', help='Path to docker-compose.yml')
     parser.add_argument('--name', default='ee-workload', help='VM name (default: ee-workload)')
     parser.add_argument('--port', type=int, default=8080, help='HTTP port (default: 8080)')
     parser.add_argument('--enable-ssh', action='store_true', help='Enable SSH access (default: off)')
     parser.add_argument('--create-release', action='store_true', help='Create GitHub release with attestation')
     parser.add_argument('--endpoint', help='Endpoint URL for release (default: http://{vm_ip}:{port})')
+    parser.add_argument('--agent', action='store_true', help='Create agent VM (no workload)')
+    parser.add_argument('--vm-image-tag', default='', help='Agent VM image tag')
+    parser.add_argument('--vm-image-sha256', default='', help='Agent VM image sha256')
     args = parser.parse_args()
 
+    if args.agent:
+        if args.name == 'ee-workload':
+            args.name = 'ee-attestor'
+        result = create_agent_vm(
+            name=args.name,
+            port=args.port,
+            vm_image_tag=args.vm_image_tag,
+            vm_image_sha256=args.vm_image_sha256,
+        )
+        print(json.dumps(result, indent=2))
+        sys.exit(0)
+
+    if not args.docker_compose:
+        parser.error('docker_compose is required unless --agent is used')
     docker_compose = args.docker_compose
 
     result = create_td_vm(docker_compose, name=args.name, port=args.port, enable_ssh=args.enable_ssh)

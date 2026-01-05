@@ -1,0 +1,16 @@
+[Unit]
+Description=Easy Enclave Agent (VM)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=EE_AGENT_MODE=vm
+Environment=EE_AGENT_DIR=/opt/ee-agent
+Environment=SEAL_VM=true
+WorkingDirectory=/opt/ee-agent
+ExecStart=/usr/bin/python3 /opt/ee-agent/agent.py --host 0.0.0.0 --port 8000
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

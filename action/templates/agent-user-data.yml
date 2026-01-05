@@ -1,0 +1,24 @@
+#cloud-config
+write_files:
+  - path: /opt/ee-agent/agent.py
+    permissions: '0755'
+    content: |
+{agent_py}
+
+  - path: /opt/ee-agent/vm.py
+    permissions: '0644'
+    content: |
+{vm_py}
+
+  - path: /etc/systemd/system/ee-agent.service
+    content: |
+{agent_service}
+{vm_image_id}
+
+runcmd:
+  - mkdir -p /etc/easy-enclave
+  - apt-get update
+  - apt-get install -y docker.io docker-compose-plugin gh
+  - systemctl enable --now docker
+  - systemctl daemon-reload
+  - systemctl enable --now ee-agent

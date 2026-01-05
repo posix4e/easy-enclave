@@ -12,10 +12,14 @@ API:
     POST /deploy - Start a new deployment
     GET /status/{id} - Get deployment status
     GET /health - Health check
+    GET /attestation - TDX quote + measurements for agent verification
 """
 
+import base64
+import hashlib
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -31,9 +35,9 @@ from urllib.request import Request, urlopen
 from vm import (
     DEPLOYMENTS_DIR,
     check_requirements,
+    cleanup_td_vms,
     create_release,
     create_td_vm,
-    cleanup_td_vms,
     get_public_ip,
     log,
     setup_port_forward,
@@ -112,6 +116,133 @@ def read_tail(path: str, max_bytes: int = 20000) -> str:
         return ""
     except Exception as e:
         return f"[log read error: {e}]"
+
+
+def sha256_file(path: Path) -> str:
+    """Hash a file using SHA256."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def sha256_dir(root: Path) -> str:
+    """Hash a directory tree deterministically."""
+    h = hashlib.sha256()
+    skip_names = {"__pycache__", ".git", "deployments", "tmp"}
+    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        if any(part in skip_names for part in path.parts):
+            continue
+        rel = path.relative_to(root).as_posix().encode()
+        h.update(rel + b"\n")
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                h.update(chunk)
+    return h.hexdigest()
+
+
+def get_vm_image_id() -> str:
+    """Get the VM image identifier used for attestation."""
+    env_id = os.environ.get("VM_IMAGE_ID")
+    if env_id:
+        return env_id
+    path = Path("/etc/easy-enclave/vm_image_id")
+    if path.exists():
+        return path.read_text(encoding="utf-8").strip()
+    raise RuntimeError("VM_IMAGE_ID not set")
+
+
+def get_sealed_state() -> bool:
+    """Return sealed state based on environment."""
+    value = os.environ.get("SEAL_VM", "").lower()
+    return value in ("1", "true", "yes")
+
+
+def build_report_data(measurements: dict) -> bytes:
+    """Build 64-byte report data from measurements."""
+    material = (
+        f"agent_dir={measurements['agent_dir_sha256']}\n"
+        f"agent_py={measurements['agent_py_sha256']}\n"
+        f"vm_image_id={measurements['vm_image_id']}\n"
+        f"sealed={str(measurements['sealed']).lower()}"
+    ).encode()
+    digest = hashlib.sha256(material).digest()
+    return digest + b"\x00" * 32
+
+
+def get_tdx_quote(report_data: bytes) -> bytes:
+    """Get a TDX quote from configfs-tsm."""
+    tsm_path = Path("/sys/kernel/config/tsm/report")
+    if not tsm_path.exists():
+        raise RuntimeError(f"configfs-tsm not available at {tsm_path}")
+    report_dir = tempfile.mkdtemp(dir=tsm_path)
+    inblob = Path(report_dir) / "inblob"
+    outblob = Path(report_dir) / "outblob"
+    with open(inblob, "wb") as f:
+        f.write(report_data.ljust(64, b"\x00")[:64])
+    with open(outblob, "rb") as f:
+        data = f.read()
+    if len(data) == 0:
+        raise RuntimeError("Empty quote from configfs-tsm")
+    return data
+
+
+def build_attestation() -> dict:
+    """Build attestation payload for the agent."""
+    agent_path = Path(__file__).resolve()
+    agent_dir = Path(os.environ.get("EE_AGENT_DIR", agent_path.parent))
+    measurements = {
+        "agent_dir_sha256": sha256_dir(agent_dir),
+        "agent_py_sha256": sha256_file(agent_path),
+        "vm_image_id": get_vm_image_id(),
+        "sealed": get_sealed_state(),
+    }
+    report_data = build_report_data(measurements)
+    quote = get_tdx_quote(report_data)
+    return {
+        "quote": base64.b64encode(quote).decode(),
+        "report_data": report_data.hex(),
+        "measurements": measurements,
+    }
+
+
+def is_vm_mode() -> bool:
+    """Return true if agent is running inside the agent VM."""
+    return os.environ.get("EE_AGENT_MODE", "").lower() == "vm"
+
+
+def write_bundle_files(bundle_dir: str, extra_files: list[dict[str, str]]) -> str:
+    """Write bundle files to /opt/workload and return compose path."""
+    target_root = Path("/opt/workload")
+    target_root.mkdir(parents=True, exist_ok=True)
+    compose_path = target_root / "docker-compose.yml"
+    src_compose = Path(bundle_dir) / "docker-compose.yml"
+    if not src_compose.exists():
+        src_compose = Path(bundle_dir) / "docker-compose.yaml"
+    compose_path.write_text(src_compose.read_text(encoding="utf-8"), encoding="utf-8")
+
+    for entry in extra_files:
+        rel_path = entry.get("path")
+        if not rel_path:
+            continue
+        dest_path = target_root / rel_path.lstrip("/")
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        dest_path.write_text(entry.get("content", ""), encoding="utf-8")
+        if entry.get("permissions"):
+            os.chmod(dest_path, int(entry["permissions"], 8))
+    return str(compose_path)
+
+
+def run_docker_compose(compose_path: str) -> None:
+    """Run docker compose to start workload."""
+    result = subprocess.run(
+        ["docker", "compose", "-f", compose_path, "up", "-d", "--remove-orphans"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"docker compose failed: {result.stderr.strip()}")
 
 
 def download_bundle_artifact(repo: str, artifact_id: int, token: Optional[str]) -> str:
@@ -195,43 +326,52 @@ def run_deployment(deployment: Deployment, token: str):
         with open(docker_compose_path, "w", encoding="utf-8") as f:
             f.write(docker_compose_content)
 
-        # Deploy VM
         deployment.status = "deploying"
         save_deployment(deployment)
-        cleanup_td_vms(deployment.cleanup_prefixes)
-        result = create_td_vm(
-            docker_compose_path,
-            name=deployment.vm_name or f"ee-deploy-{deployment.id[:8]}",
-            port=deployment.port,
-            enable_ssh=False,
-            extra_files=extra_files,
-        )
 
-        # Update deployment with results
-        deployment.vm_name = result.get('name')
-        deployment.vm_ip = result.get('ip')
-        deployment.quote = result.get('quote')
+        if is_vm_mode():
+            compose_path = write_bundle_files(bundle_dir, extra_files)
+            run_docker_compose(compose_path)
+            attestation = build_attestation()
+            deployment.quote = attestation.get("quote")
+            public_ip = get_public_ip()
+            endpoint = f"http://{public_ip}:{deployment.port}"
+            deployment.vm_ip = public_ip
+            os.environ['GITHUB_REPOSITORY'] = deployment.repo
+            if token:
+                os.environ['GITHUB_TOKEN'] = token
+            release_url = create_release(deployment.quote, endpoint, seal_vm=deployment.seal_vm)
+            deployment.release_url = release_url
+        else:
+            cleanup_td_vms(deployment.cleanup_prefixes)
+            result = create_td_vm(
+                docker_compose_path,
+                name=deployment.vm_name or f"ee-deploy-{deployment.id[:8]}",
+                port=deployment.port,
+                enable_ssh=False,
+                extra_files=extra_files,
+            )
 
-        # Set up port forwarding from host to VM
-        log("Setting up port forwarding...")
-        setup_port_forward(deployment.vm_ip, deployment.port)
+            deployment.vm_name = result.get('name')
+            deployment.vm_ip = result.get('ip')
+            deployment.quote = result.get('quote')
 
-        # Get public IP for endpoint
-        public_ip = get_public_ip()
-        log(f"Public IP: {public_ip}")
+            log("Setting up port forwarding...")
+            setup_port_forward(deployment.vm_ip, deployment.port)
 
-        # Create release with public endpoint
-        endpoint = f"http://{public_ip}:{deployment.port}"
-        # Set environment for create_release
-        os.environ['GITHUB_REPOSITORY'] = deployment.repo
-        if token:
-            os.environ['GITHUB_TOKEN'] = token
-        release_url = create_release(deployment.quote, endpoint, seal_vm=deployment.seal_vm)
-        deployment.release_url = release_url
+            public_ip = get_public_ip()
+            log(f"Public IP: {public_ip}")
+
+            endpoint = f"http://{public_ip}:{deployment.port}"
+            os.environ['GITHUB_REPOSITORY'] = deployment.repo
+            if token:
+                os.environ['GITHUB_TOKEN'] = token
+            release_url = create_release(deployment.quote, endpoint, seal_vm=deployment.seal_vm)
+            deployment.release_url = release_url
 
         deployment.status = "complete"
         save_deployment(deployment)
-        log(f"Deployment {deployment.id} complete: {release_url}")
+        log(f"Deployment {deployment.id} complete: {deployment.release_url}")
 
     except Exception as e:
         deployment.status = "failed"
@@ -260,6 +400,14 @@ class AgentHandler(BaseHTTPRequestHandler):
         """Handle GET requests."""
         if self.path == '/health':
             self.send_json({"status": "ok"})
+            return
+
+        if self.path == '/attestation':
+            try:
+                payload = build_attestation()
+                self.send_json(payload)
+            except Exception as e:
+                self.send_json({"error": str(e)}, status=500)
             return
 
         if self.path.startswith('/status/'):

@@ -29,6 +29,7 @@ jobs:
         uses: ./action
         with:
           agent-url: ${{ secrets.AGENT_URL }}
+          agent-release-tag: ${{ github.ref_name }}
           docker-compose: ./example/docker-compose.yml
           public-env: |
             PUBLIC_GREETING=Hello from Easy Enclave
