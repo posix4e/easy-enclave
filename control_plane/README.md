@@ -59,6 +59,8 @@ Set via environment variables:
 
 ## Run locally
 
+From the repo root:
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
