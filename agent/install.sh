@@ -3,7 +3,7 @@
 set -e
 
 INSTALL_DIR="/opt/easy-enclave"
-AGENT_SRC="$(dirname "$0")/../action/src"
+AGENT_SRC="$(dirname "$0")"
 
 echo "Installing Easy Enclave Agent..."
 
@@ -42,7 +42,7 @@ mkdir -p /var/lib/easy-enclave/deployments
 echo "Copying agent files..."
 cp "$AGENT_SRC/vm.py" "$INSTALL_DIR/"
 cp "$AGENT_SRC/agent.py" "$INSTALL_DIR/"
-cp -r "$(dirname "$0")/../action/templates" "$INSTALL_DIR/"
+cp -r "$AGENT_SRC/templates" "$INSTALL_DIR/"
 
 # Install systemd service
 echo "Installing systemd service..."

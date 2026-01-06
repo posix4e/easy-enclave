@@ -86,7 +86,7 @@ jobs:
              IP=\$(get_ip)
              if [ -z \"\$IP\" ]; then
                if [ -n \"\$AGENT_IMAGE\" ]; then
-                 sudo python3 action/src/vm.py --agent \
+                 sudo python3 agent/vm.py --agent \
                    --name \"\$VM_NAME\" \
                    --port \"\$VM_PORT\" \
                    --agent-image \"\$AGENT_IMAGE\" >/tmp/ee-agent-create.json
@@ -95,7 +95,7 @@ jobs:
                  if [ -n \"\$BASE_IMAGE\" ]; then
                    BASE_ARG=\"--base-image \$BASE_IMAGE\"
                  fi
-                 sudo python3 action/src/vm.py --agent \
+                 sudo python3 agent/vm.py --agent \
                    --name \"\$VM_NAME\" \
                    --port \"\$VM_PORT\" \
                    --vm-image-tag \"\$VM_TAG\" \

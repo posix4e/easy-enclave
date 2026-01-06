@@ -44,7 +44,7 @@ sudo systemctl status ee-agent
 
 ## Agent VM
 
-To run the agent inside a dedicated VM, use `action/src/vm.py --agent` on a TDX host.
+To run the agent inside a dedicated VM, use `agent/vm.py --agent` on a TDX host.
 This bootstraps the agent via cloud-init and starts the service in the VM.
 
 The agent VM waits for a deploy request and then starts the workload using
@@ -55,7 +55,7 @@ By default the agent VM runs sealed (`SEAL_VM=true`).
 To boot from a pre-baked pristine image:
 
 ```bash
-sudo python3 action/src/vm.py --agent --agent-image /var/lib/easy-enclave/agent-pristine-v0.1.0.qcow2
+sudo python3 agent/vm.py --agent --agent-image /var/lib/easy-enclave/agent-pristine-v0.1.0.qcow2
 ```
 
 ## Pristine Agent Image
@@ -65,7 +65,7 @@ This clones `canonical/tdx`, builds a TD guest image, boots once to install the
 agent via cloud-init, then powers off and exports a clean qcow2.
 
 ```bash
-sudo python3 action/src/vm.py \
+sudo python3 agent/vm.py \
   --build-pristine-agent-image \
   --vm-image-tag v0.1.0 \
   --tdx-guest-version 24.04 \

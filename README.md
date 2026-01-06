@@ -137,7 +137,7 @@ EE_RELEASE_TAG=v0.1.3 \
 EE_APP_NAME=myapp \
 EE_NETWORK=forge-1 \
 EE_BACKEND_URL=http://127.0.0.1:8080 \
-python action/src/agent.py --host 0.0.0.0 --port 8000
+python agent/agent.py --host 0.0.0.0 --port 8000
 ```
 
 ## Agent API

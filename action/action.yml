@@ -182,7 +182,7 @@ runs:
            cd /opt/easy-enclave; \
            sudo git fetch --tags origin; \
            sudo git checkout ${{ inputs.agent-vm-ref }}; \
-           sudo python3 action/src/vm.py --agent \
+           sudo python3 agent/vm.py --agent \
              --name \"${{ inputs.agent-vm-name }}\" \
              --port \"${{ inputs.agent-vm-port }}\" \
              --vm-image-tag \"${{ inputs.agent-vm-image-tag }}\" \
@@ -419,7 +419,7 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
-        python3 ${{ github.action_path }}/src/vm.py ${{ inputs.docker-compose }} \
+        python3 ${{ github.action_path }}/../agent/vm.py ${{ inputs.docker-compose }} \
           --name ${{ inputs.vm-name }} \
           --port ${{ inputs.endpoint-port }} \
           ${{ inputs.enable-ssh == 'true' && '--enable-ssh' || '' }} \
