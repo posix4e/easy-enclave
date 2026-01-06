@@ -503,6 +503,7 @@ def create_agent_vm(
 def create_minimal_cidata(workdir: str, hostname: str = "ee-agent") -> str:
     """Create a minimal cloud-init ISO for networking/metadata."""
     os.makedirs(workdir, exist_ok=True)
+    os.chmod(workdir, 0o755)
     user_data_path = os.path.join(workdir, "user-data")
     meta_data_path = os.path.join(workdir, "meta-data")
     network_config_path = os.path.join(workdir, "network-config")
@@ -514,12 +515,16 @@ def create_minimal_cidata(workdir: str, hostname: str = "ee-agent") -> str:
     with open(network_config_path, "w") as f:
         f.write(load_template("network-config.yml"))
 
+    for path in (user_data_path, meta_data_path, network_config_path):
+        os.chmod(path, 0o644)
+
     cidata_iso = os.path.join(workdir, "cidata.iso")
     subprocess.run([
         "genisoimage", "-output", cidata_iso,
         "-volid", "cidata", "-joliet", "-rock",
         user_data_path, meta_data_path, network_config_path
     ], check=True, capture_output=True)
+    os.chmod(cidata_iso, 0o644)
     return cidata_iso
 
 
