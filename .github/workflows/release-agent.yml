@@ -1,0 +1,108 @@
+name: Release Agent Allowlist
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to create/update'
+        required: true
+      ref:
+        description: 'Git ref to use for vm.py (tag/branch/sha)'
+        required: true
+        default: 'main'
+      vm_image_tag:
+        description: 'VM image tag for /etc/easy-enclave/vm_image_id'
+        required: true
+      vm_image_sha256:
+        description: 'VM image SHA256 for /etc/easy-enclave/vm_image_id'
+        required: true
+      vm_name:
+        description: 'Agent VM name'
+        required: false
+        default: 'ee-attestor'
+      vm_port:
+        description: 'Agent port'
+        required: false
+        default: '8000'
+      base_image:
+        description: 'Base TD image path override (optional)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  release-agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Generate allowlist on host
+        id: allowlist
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEY_FILE=$(mktemp)
+          chmod 600 "$KEY_FILE"
+          printf '%s\n' "${{ secrets.AGENT_SSH_KEY }}" > "$KEY_FILE"
+
+          RELEASE_TAG="${{ inputs.release_tag }}"
+          REF="${{ inputs.ref }}"
+          VM_NAME="${{ inputs.vm_name }}"
+          VM_PORT="${{ inputs.vm_port }}"
+          VM_TAG="${{ inputs.vm_image_tag }}"
+          VM_SHA="${{ inputs.vm_image_sha256 }}"
+          BASE_IMAGE="${{ inputs.base_image }}"
+
+          ALLOWLIST_B64=$(ssh -o StrictHostKeyChecking=no -p "${{ secrets.AGENT_SSH_PORT }}" -i "$KEY_FILE" \
+            "${{ secrets.AGENT_SSH_USER }}@${{ secrets.AGENT_SSH_HOST }}" \
+            "set -euo pipefail
+             sudo mkdir -p /opt/easy-enclave
+             if [ ! -d /opt/easy-enclave/.git ]; then
+               sudo git clone https://github.com/${{ github.repository }}.git /opt/easy-enclave
+             fi
+             cd /opt/easy-enclave
+             sudo git fetch --tags origin
+             sudo git checkout \"$REF\"
+
+             get_ip() {
+               sudo virsh domifaddr \"$VM_NAME\" --source lease | awk '/ipv4/ {print \$4}' | head -n1 | cut -d/ -f1 || true
+             }
+             IP=\$(get_ip)
+             if [ -z \"\$IP\" ]; then
+               BASE_ARG=\"\"
+               if [ -n \"$BASE_IMAGE\" ]; then
+                 BASE_ARG=\"--base-image $BASE_IMAGE\"
+               fi
+               sudo python3 action/src/vm.py --agent \
+                 --name \"$VM_NAME\" \
+                 --port \"$VM_PORT\" \
+                 --vm-image-tag \"$VM_TAG\" \
+                 --vm-image-sha256 \"$VM_SHA\" \
+                 \$BASE_ARG >/tmp/ee-agent-create.json
+               IP=\$(get_ip)
+             fi
+             if [ -z \"\$IP\" ]; then
+               echo \"Failed to determine agent VM IP\" >&2
+               exit 1
+             fi
+             python3 agent/scripts/generate_allowlist.py \
+               --attestation-url \"http://\$IP:\$VM_PORT/attestation\" \
+               --release-tag \"$RELEASE_TAG\" \
+               --output /tmp/agent-attestation-allowlist.json
+             base64 -w0 /tmp/agent-attestation-allowlist.json")
+
+          rm -f "$KEY_FILE"
+          echo "$ALLOWLIST_B64" | base64 -d > /tmp/agent-attestation-allowlist.json
+
+      - name: Publish release allowlist
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.release_tag }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" /tmp/agent-attestation-allowlist.json#agent-attestation-allowlist.json --clobber
+          else
+            gh release create "$TAG" /tmp/agent-attestation-allowlist.json#agent-attestation-allowlist.json \
+              -t "$TAG" -n "Agent allowlist for $TAG"
+          fi
