@@ -460,13 +460,19 @@ def create_agent_vm(
     port: int = 8000,
     vm_image_tag: str = "",
     vm_image_sha256: str = "",
+    base_image: str | None = None,
 ) -> dict:
     """Create an agent VM with no workload compose."""
     log("Checking requirements...")
     check_requirements()
 
     log("Finding TD base image...")
-    base_image = find_td_image()
+    if base_image:
+        base_image = os.path.expanduser(base_image)
+        if not os.path.exists(base_image):
+            raise FileNotFoundError(f"Base image not found: {base_image}")
+    else:
+        base_image = find_td_image()
     log(f"Using base image: {base_image}")
 
     agent_py = (Path(__file__).parent / "agent.py").read_text()
@@ -1016,6 +1022,7 @@ def create_td_vm(
     port: int = 8080,
     enable_ssh: bool = False,
     extra_files: list[dict[str, str]] | None = None,
+    base_image: str | None = None,
 ) -> dict:
     """
     Create a TD VM with the given workload.
@@ -1026,7 +1033,12 @@ def create_td_vm(
     check_requirements()
 
     log("Finding TD base image...")
-    base_image = find_td_image()
+    if base_image:
+        base_image = os.path.expanduser(base_image)
+        if not os.path.exists(base_image):
+            raise FileNotFoundError(f"Base image not found: {base_image}")
+    else:
+        base_image = find_td_image()
     log(f"Using base image: {base_image}")
 
     log(f"Reading docker-compose from {docker_compose_path}...")
@@ -1223,6 +1235,7 @@ if __name__ == '__main__':
     parser.add_argument('--agent-image', default='', help='Start agent VM from a pre-baked image')
     parser.add_argument('--vm-image-tag', default='', help='Agent VM image tag')
     parser.add_argument('--vm-image-sha256', default='', help='Agent VM image sha256')
+    parser.add_argument('--base-image', default='', help='Base TD image path override')
     parser.add_argument('--build-pristine-agent-image', action='store_true', help='Bake a pristine agent image')
     parser.add_argument('--tdx-repo-dir', default='', help='canonical/tdx repo dir for image build')
     parser.add_argument('--tdx-repo-ref', default='main', help='canonical/tdx repo ref (default: main)')
@@ -1260,6 +1273,7 @@ if __name__ == '__main__':
                 port=args.port,
                 vm_image_tag=args.vm_image_tag,
                 vm_image_sha256=args.vm_image_sha256,
+                base_image=args.base_image or None,
             )
         print(json.dumps(result, indent=2))
         sys.exit(0)
@@ -1268,7 +1282,13 @@ if __name__ == '__main__':
         parser.error('docker_compose is required unless --agent is used')
     docker_compose = args.docker_compose
 
-    result = create_td_vm(docker_compose, name=args.name, port=args.port, enable_ssh=args.enable_ssh)
+    result = create_td_vm(
+        docker_compose,
+        name=args.name,
+        port=args.port,
+        enable_ssh=args.enable_ssh,
+        base_image=args.base_image or None,
+    )
 
     if args.create_release:
         endpoint = args.endpoint or f"http://{result['ip']}:{result['port']}"

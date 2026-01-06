@@ -20,7 +20,11 @@ runcmd:
     bash -euxo pipefail -c '
       mkdir -p /etc/easy-enclave
       apt-get update
-      apt-get install -y docker.io docker-compose-plugin
+      if ! apt-get install -y docker.io docker-compose-plugin; then
+        if ! apt-get install -y docker.io docker-compose-v2; then
+          apt-get install -y docker.io docker-compose
+        fi
+      fi
       systemctl enable --now docker
       systemctl daemon-reload
       systemctl enable --now ee-agent

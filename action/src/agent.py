@@ -19,6 +19,7 @@ import base64
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -31,7 +32,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
-from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from vm import (
     DEPLOYMENTS_DIR,
@@ -235,10 +236,25 @@ def write_bundle_files(bundle_dir: str, extra_files: list[dict[str, str]]) -> st
     return str(compose_path)
 
 
+def resolve_compose_command() -> list[str]:
+    """Return a compose command that exists on this host."""
+    result = subprocess.run(
+        ["docker", "compose", "version"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        return ["docker", "compose"]
+    if shutil.which("docker-compose"):
+        return ["docker-compose"]
+    raise RuntimeError("docker compose is not available in the agent VM")
+
+
 def run_docker_compose(compose_path: str) -> None:
     """Run docker compose to start workload."""
+    compose_cmd = resolve_compose_command()
     result = subprocess.run(
-        ["docker", "compose", "-f", compose_path, "up", "-d", "--remove-orphans"],
+        [*compose_cmd, "-f", compose_path, "up", "-d", "--remove-orphans"],
         capture_output=True,
         text=True,
     )
