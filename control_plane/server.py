@@ -257,6 +257,8 @@ def create_app(control: ControlPlane) -> web.Application:
         if not record:
             return web.json_response({"allowed": False, "reason": "unknown_app"}, status=404)
         payload = control.registry.status_payload(record)
+        if not payload.get("allowed"):
+            return web.json_response(payload, status=403)
         return web.json_response(payload)
 
     app.add_routes(

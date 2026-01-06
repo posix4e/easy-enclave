@@ -15,7 +15,7 @@ It enforces Intel DCAP attestation, allowlist matching per repo/release, and sea
 
 - `GET /health` -> service health
 - `GET /v1/tunnel` -> WebSocket endpoint for agents
-- `GET /v1/resolve/{app_name}` -> public status for proxy (no auth)
+- `GET /v1/resolve/{app_name}` -> public status for proxy (no auth, returns 403 if not allowed)
 - `GET /v1/apps` -> admin list (requires `EE_ADMIN_TOKEN` if set)
 - `GET /v1/apps/{app_name}` -> admin detail (requires `EE_ADMIN_TOKEN` if set)
 
@@ -64,3 +64,8 @@ source .venv/bin/activate
 pip install -r control_plane/requirements.txt
 python control_plane/server.py
 ```
+
+## Proxy example
+
+See `control_plane/examples/nginx.conf` for a basic `app.easyenclave.com` proxy layout that blocks
+unattested or expired backends using the resolve endpoint.

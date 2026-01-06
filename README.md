@@ -69,6 +69,7 @@ A TDX attestation platform using GitHub as the trust anchor. Deploy workloads to
 
 - **GitHub Action** (`action/README.md`) - Bundle-based deploys and inputs
 - **Deployment Agent** (`agent/README.md`) - Host setup, API, and runtime behavior
+- **Control Plane** (`control_plane/README.md`) - WS discovery, DCAP enforcement, TTL and routing policy
 - **Python SDK** (`sdk/README.md`) - Client verification and usage
 - **Examples** (`example/README.md`) - Sample workloads and workflow wiring
 
@@ -107,6 +108,15 @@ print(f"Verified endpoint: {client.endpoint}")
 ## Bundle Deployment
 
 Details and inputs live in `action/README.md`.
+
+## Control Plane + Proxy (Draft)
+
+The control plane accepts outbound WebSocket tunnels from agents, verifies Intel DCAP attestation
+against the repo allowlist, and exposes `/v1/resolve/{app}` for proxy routing decisions. Production
+apps require sealed agents; dev/staging allow unsealed.
+
+See `control_plane/README.md` for the protocol and `control_plane/examples/nginx.conf` for a proxy
+layout that routes `appname.app.easyenclave.com` only when attestation and health checks are valid.
 
 ## Agent API
 
