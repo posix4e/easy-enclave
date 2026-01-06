@@ -932,6 +932,20 @@ def setup_port_forward(vm_ip: str, vm_port: int, host_port: int = None) -> int:
     if result.returncode != 0:
         raise RuntimeError(f"Failed to add PREROUTING rule: {result.stderr}")
 
+    # Add OUTPUT rule so localhost traffic can reach the VM (used by SSH attestation)
+    subprocess.run([
+        'sudo', 'iptables', '-t', 'nat', '-D', 'OUTPUT',
+        '-p', 'tcp', '-d', '127.0.0.1', '--dport', str(host_port),
+        '-j', 'DNAT', '--to-destination', f'{vm_ip}:{vm_port}'
+    ], capture_output=True)
+    result = subprocess.run([
+        'sudo', 'iptables', '-t', 'nat', '-A', 'OUTPUT',
+        '-p', 'tcp', '-d', '127.0.0.1', '--dport', str(host_port),
+        '-j', 'DNAT', '--to-destination', f'{vm_ip}:{vm_port}'
+    ], capture_output=True, text=True)
+    if result.returncode != 0:
+        log(f"Warning: Failed to add OUTPUT rule: {result.stderr}")
+
     # Add FORWARD rule to allow the traffic
     subprocess.run([
         'sudo', 'iptables', '-D', 'FORWARD',
