@@ -68,11 +68,11 @@ jobs:
 
              sudo mkdir -p /opt/easy-enclave
              if [ ! -d /opt/easy-enclave/.git ]; then
-               sudo git clone https://github.com/${{ github.repository }}.git /opt/easy-enclave
+               sudo git clone https://github.com/${{ github.repository }}.git /opt/easy-enclave 1>&2
              fi
              cd /opt/easy-enclave
-             sudo git fetch --tags origin
-             sudo git checkout \"$REF\"
+             sudo git fetch --tags origin 1>&2
+             sudo git checkout \"$REF\" 1>&2
 
              get_ip() {
                sudo virsh domifaddr \"$VM_NAME\" --source lease | awk '/ipv4/ {print \$4}' | head -n1 | cut -d/ -f1 || true
@@ -98,7 +98,7 @@ jobs:
              python3 agent/scripts/generate_allowlist.py \
                --attestation-url \"http://\$IP:\$VM_PORT/attestation\" \
                --release-tag \"\$RELEASE_TAG\" \
-               --output /tmp/agent-attestation-allowlist.json
+               --output /tmp/agent-attestation-allowlist.json 1>&2
              base64 -w0 /tmp/agent-attestation-allowlist.json" 2>/dev/null)
 
           rm -f "$KEY_FILE"
