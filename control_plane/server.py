@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import secrets
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from aiohttp import web
@@ -39,6 +40,7 @@ class Session:
     pending_sent_at: float = 0.0
     registered: bool = False
     attesting: bool = False
+    pending_proxy: dict[str, asyncio.Future] = field(default_factory=dict)
 
     def info(self) -> dict:
         return {
@@ -58,6 +60,7 @@ class ControlPlane:
         )
         self.allowlist_cache = AllowlistCache()
         self._sessions: dict[web.WebSocketResponse, Session] = {}
+        self._sessions_by_app: dict[str, Session] = {}
 
     async def handle_ws(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse(heartbeat=30)
@@ -90,6 +93,8 @@ class ControlPlane:
             await self._handle_register(session, payload)
         elif msg_type == "attest_response":
             await self._handle_attest_response(session, payload)
+        elif msg_type == "proxy_response":
+            await self._handle_proxy_response(session, payload)
         elif msg_type == "health":
             await self._handle_health(session, payload)
         else:
@@ -152,6 +157,7 @@ class ControlPlane:
         )
         self.registry.mark_attested(session.app_name, result.sealed, "valid")
         self.registry.mark_connection(session.app_name, True, session.tunnel_id)
+        self._sessions_by_app[session.app_name] = session
         session.pending_nonce = None
         session.attesting = False
         session.registered = True
@@ -168,6 +174,14 @@ class ControlPlane:
         if status not in {"pass", "fail"}:
             status = "fail"
         self.registry.mark_health(session.app_name, status)
+
+    async def _handle_proxy_response(self, session: Session, payload: dict) -> None:
+        request_id = payload.get("request_id")
+        if not request_id:
+            return
+        future = session.pending_proxy.pop(request_id, None)
+        if future and not future.done():
+            future.set_result(payload)
 
     async def _send_attest_request(self, session: Session, reason: str) -> None:
         if session.attesting:
@@ -222,6 +236,11 @@ class ControlPlane:
         if not session.app_name:
             return
         self.registry.mark_connection(session.app_name, False, session.tunnel_id)
+        if self._sessions_by_app.get(session.app_name) is session:
+            self._sessions_by_app.pop(session.app_name, None)
+
+    def get_session(self, app_name: str) -> Optional[Session]:
+        return self._sessions_by_app.get(app_name)
 
 
 async def require_admin(request: web.Request) -> None:
@@ -260,6 +279,56 @@ def create_app(control: ControlPlane) -> web.Application:
         if not payload.get("allowed"):
             return web.json_response(payload, status=403)
         return web.json_response(payload)
+
+    async def proxy_app(request: web.Request) -> web.Response:
+        app_name = request.match_info["app_name"]
+        record = control.registry.get(app_name)
+        if not record:
+            return web.json_response({"allowed": False, "reason": "unknown_app"}, status=404)
+        payload = control.registry.status_payload(record)
+        if not payload.get("allowed"):
+            return web.json_response(payload, status=403)
+
+        session = control.get_session(app_name)
+        if not session or session.ws.closed:
+            return web.json_response({"allowed": False, "reason": "no_tunnel"}, status=503)
+
+        try:
+            incoming = await request.json()
+        except Exception:
+            return web.json_response({"allowed": False, "reason": "invalid_proxy_payload"}, status=400)
+        method = incoming.get("method", "GET")
+        path = incoming.get("path", "/")
+        headers = incoming.get("headers") or {}
+        body_b64 = incoming.get("body_b64") or ""
+        body = base64.b64decode(body_b64.encode("ascii")) if body_b64 else b""
+        request_id = secrets.token_hex(12)
+        future = asyncio.get_running_loop().create_future()
+        session.pending_proxy[request_id] = future
+
+        headers = {k: v for k, v in headers.items() if k.lower() != "host"}
+        await session.ws.send_json(
+            {
+                "type": "proxy_request",
+                "request_id": request_id,
+                "method": method,
+                "path": path,
+                "headers": headers,
+                "body_b64": base64.b64encode(body).decode("ascii"),
+            }
+        )
+
+        try:
+            response_payload = await asyncio.wait_for(future, timeout=15)
+        except asyncio.TimeoutError:
+            session.pending_proxy.pop(request_id, None)
+            return web.json_response({"allowed": False, "reason": "proxy_timeout"}, status=504)
+
+        status = int(response_payload.get("status", 502))
+        body_b64 = response_payload.get("body_b64") or ""
+        response_body = base64.b64decode(body_b64.encode("ascii")) if body_b64 else b""
+        response_headers = response_payload.get("headers") or {}
+        return web.Response(status=status, body=response_body, headers=response_headers)
 
     async def dashboard(request: web.Request) -> web.Response:
         await require_admin(request)
@@ -305,6 +374,7 @@ def create_app(control: ControlPlane) -> web.Application:
             web.get("/v1/apps", list_apps),
             web.get("/v1/apps/{app_name}", get_app),
             web.get("/v1/resolve/{app_name}", resolve_app),
+            web.post("/v1/proxy/{app_name}", proxy_app),
             web.get("/v1/tunnel", control.handle_ws),
             web.get("/dashboard", dashboard),
         ]

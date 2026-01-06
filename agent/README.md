@@ -145,3 +145,20 @@ python3 agent/scripts/generate_allowlist.py --release-tag v0.1.0
 ```
 
 Upload `agent-attestation-allowlist.json` to the matching GitHub release.
+
+## Tunnel Client (Control Plane)
+
+For app-level routing through the Easy Enclave control plane, run the tunnel client
+alongside the agent. It connects outbound via WebSocket and forwards proxy requests
+to a local backend.
+
+```bash
+pip install aiohttp
+EE_CONTROL_WS=ws://control-plane:8088/v1/tunnel \
+EE_REPO=owner/repo \
+EE_RELEASE_TAG=v0.1.3 \
+EE_APP_NAME=myapp \
+EE_NETWORK=prod \
+EE_BACKEND_URL=http://127.0.0.1:8080 \
+python agent/tunnel_client.py
+```

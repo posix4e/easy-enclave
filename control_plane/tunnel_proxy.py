@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import os
 from urllib.parse import urljoin
 
@@ -25,14 +26,19 @@ async def handle_proxy(request: web.Request) -> web.Response:
     if not app_name:
         return web.json_response({"error": "missing_app"}, status=400)
 
-    resolve_url = urljoin(CONTROL_URL, f"/v1/resolve/{app_name}")
+    proxy_url = urljoin(CONTROL_URL, f"/v1/proxy/{app_name}")
+    body = await request.read()
+    payload = {
+        "method": request.method,
+        "path": request.rel_url.raw_path_qs,
+        "headers": {k: v for k, v in request.headers.items()},
+        "body_b64": base64.b64encode(body).decode("ascii"),
+    }
     async with ClientSession() as session:
-        async with session.get(resolve_url) as resp:
-            if resp.status != 200:
-                payload = await resp.json()
-                return web.json_response(payload, status=resp.status)
-
-    return web.json_response({"error": "tunnel_not_implemented", "app": app_name}, status=501)
+        async with session.post(proxy_url, json=payload) as resp:
+            response_body = await resp.read()
+            headers = dict(resp.headers)
+            return web.Response(status=resp.status, body=response_body, headers=headers)
 
 
 def create_app() -> web.Application:

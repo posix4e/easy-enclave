@@ -16,6 +16,7 @@ It enforces Intel DCAP attestation, allowlist matching per repo/release, and sea
 - `GET /health` -> service health
 - `GET /v1/tunnel` -> WebSocket endpoint for agents
 - `GET /v1/resolve/{app_name}` -> public status for proxy (no auth, returns 403 if not allowed)
+- `POST /v1/proxy/{app_name}` -> forwards requests over the WS tunnel (proxy use)
 - `GET /v1/apps` -> admin list (requires `EE_ADMIN_TOKEN` if set)
 - `GET /v1/apps/{app_name}` -> admin detail (requires `EE_ADMIN_TOKEN` if set)
 
@@ -71,6 +72,19 @@ Tunnel proxy stub:
 python control_plane/tunnel_proxy.py
 ```
 
+Agent tunnel client:
+
+```bash
+pip install aiohttp
+EE_CONTROL_WS=ws://127.0.0.1:8088/v1/tunnel \
+EE_REPO=owner/repo \
+EE_RELEASE_TAG=v0.1.3 \
+EE_APP_NAME=myapp \
+EE_NETWORK=prod \
+EE_BACKEND_URL=http://127.0.0.1:8080 \
+python agent/tunnel_client.py
+```
+
 ## Proxy example
 
 See `control_plane/examples/nginx.conf` for a basic `app.easyenclave.com` proxy layout that blocks
@@ -78,5 +92,7 @@ unattested or expired backends using the resolve endpoint.
 
 ## Tunnel proxy stub
 
-`control_plane/tunnel_proxy.py` is a minimal HTTP proxy stub that checks `/v1/resolve/{app}` before
-returning a placeholder response. It is a scaffold for wiring a real WebSocket tunnel backend.
+`control_plane/tunnel_proxy.py` forwards incoming requests to `/v1/proxy/{app}` which dispatches
+them over the active WebSocket tunnel.
+
+The agent side uses `agent/tunnel_client.py` to connect and handle proxy requests.
