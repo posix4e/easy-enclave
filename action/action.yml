@@ -192,19 +192,19 @@ runs:
           ssh -o StrictHostKeyChecking=no -p "${{ inputs.agent-ssh-port }}" -i "$KEY_FILE" \
             "${{ inputs.agent-ssh-user }}@${{ inputs.agent-ssh-host }}" "bash -s" -- \
             "${{ inputs.agent-vm-name }}" "${{ inputs.agent-vm-port }}" <<'EOF' > /tmp/agent_attestation.json
-set -euo pipefail
-NAME="$1"
-PORT="$2"
-IP=$(sudo virsh domifaddr "$NAME" --source lease | awk '/ipv4/ {print $4}' | head -n1 | cut -d/ -f1)
-if [ -z "$IP" ]; then
-  IP=$(sudo virsh net-dhcp-leases default | awk -v n="$NAME" '$0 ~ n && $0 ~ /ipv4/ {print $5}' | head -n1 | cut -d/ -f1)
-fi
-if [ -z "$IP" ]; then
-  echo "Could not determine IP for $NAME" >&2
-  exit 1
-fi
-curl -sf "http://$IP:$PORT/attestation"
-EOF
+        set -euo pipefail
+        NAME="$1"
+        PORT="$2"
+        IP=$(sudo virsh domifaddr "$NAME" --source lease | awk '/ipv4/ {print $4}' | head -n1 | cut -d/ -f1)
+        if [ -z "$IP" ]; then
+          IP=$(sudo virsh net-dhcp-leases default | awk -v n="$NAME" '$0 ~ n && $0 ~ /ipv4/ {print $5}' | head -n1 | cut -d/ -f1)
+        fi
+        if [ -z "$IP" ]; then
+          echo "Could not determine IP for $NAME" >&2
+          exit 1
+        fi
+        curl -sf "http://$IP:$PORT/attestation"
+        EOF
           rm -f "$KEY_FILE"
           ATTEST_ARGS=(--attestation-file /tmp/agent_attestation.json)
         fi
@@ -421,19 +421,19 @@ EOF
           ssh -o StrictHostKeyChecking=no -p "${{ inputs.agent-ssh-port }}" -i "$KEY_FILE" \
             "${{ inputs.agent-ssh-user }}@${{ inputs.agent-ssh-host }}" "bash -s" -- \
             "${{ inputs.agent-vm-name }}" "${{ inputs.agent-vm-port }}" <<'EOF' > /tmp/agent_attestation.json
-set -euo pipefail
-NAME="$1"
-PORT="$2"
-IP=$(sudo virsh domifaddr "$NAME" --source lease | awk '/ipv4/ {print $4}' | head -n1 | cut -d/ -f1)
-if [ -z "$IP" ]; then
-  IP=$(sudo virsh net-dhcp-leases default | awk -v n="$NAME" '$0 ~ n && $0 ~ /ipv4/ {print $5}' | head -n1 | cut -d/ -f1)
-fi
-if [ -z "$IP" ]; then
-  echo "Could not determine IP for $NAME" >&2
-  exit 1
-fi
-curl -sf "http://$IP:$PORT/attestation"
-EOF
+        set -euo pipefail
+        NAME="$1"
+        PORT="$2"
+        IP=$(sudo virsh domifaddr "$NAME" --source lease | awk '/ipv4/ {print $4}' | head -n1 | cut -d/ -f1)
+        if [ -z "$IP" ]; then
+          IP=$(sudo virsh net-dhcp-leases default | awk -v n="$NAME" '$0 ~ n && $0 ~ /ipv4/ {print $5}' | head -n1 | cut -d/ -f1)
+        fi
+        if [ -z "$IP" ]; then
+          echo "Could not determine IP for $NAME" >&2
+          exit 1
+        fi
+        curl -sf "http://$IP:$PORT/attestation"
+        EOF
           rm -f "$KEY_FILE"
           ATTEST_ARGS=(--attestation-file /tmp/agent_attestation.json)
         fi
