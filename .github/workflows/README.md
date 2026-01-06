@@ -20,7 +20,7 @@ Creates an agent VM on a bare-metal TDX host over SSH. Requires secrets:
 - `AGENT_SSH_KEY`
 
 Inputs:
-- `ref`: git ref for `vm.py`
+- `ref`: git ref for `installer/host.py`
 - `vm_image_tag`: image tag for allowlist matching
 - `vm_image_sha256`: image hash for allowlist matching
 - `vm_name`: agent VM name

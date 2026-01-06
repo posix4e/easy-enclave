@@ -17,18 +17,18 @@ Register contacts:
 
 ```bash
 curl -X POST http://localhost:8080/register \
-  -H \"Authorization: Bearer local-token\" \
-  -H \"Content-Type: application/json\" \
-  -d '{\"contacts\": [\"+15551234567\", \"+15559876543\"]}'
+  -H "Authorization: Bearer local-token" \
+  -H "Content-Type: application/json" \
+  -d '{"contacts": ["+15551234567", "+15559876543"]}'
 ```
 
 Lookup:
 
 ```bash
 curl -X POST http://localhost:8080/lookup \
-  -H \"Authorization: Bearer local-token\" \
-  -H \"Content-Type: application/json\" \
-  -d '{\"contacts\": [\"+15551234567\", \"+15551112222\"]}'
+  -H "Authorization: Bearer local-token" \
+  -H "Content-Type: application/json" \
+  -d '{"contacts": ["+15551234567", "+15551112222"]}'
 ```
 
 ## Files
