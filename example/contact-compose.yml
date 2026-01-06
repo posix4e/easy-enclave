@@ -1,0 +1,15 @@
+services:
+  contact:
+    build:
+      context: .
+      dockerfile: contact.Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      CONTACT_API_TOKEN: ${CONTACT_API_TOKEN}
+    volumes:
+      - contact-data:/var/lib/easy-enclave/contact-server
+    restart: unless-stopped
+
+volumes:
+  contact-data:
