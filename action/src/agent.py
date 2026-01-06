@@ -30,7 +30,8 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Optional
-from urllib.request import Request, urlopen
+from urllib.parse import urlparse
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 from vm import (
     DEPLOYMENTS_DIR,
@@ -258,8 +259,20 @@ def download_bundle_artifact(repo: str, artifact_id: int, token: Optional[str]) 
         headers["Authorization"] = f"token {token}"
 
     url = f"https://api.github.com/repos/{repo}/actions/artifacts/{artifact_id}/zip"
+    class NoAuthRedirectHandler(HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+            new_req = super().redirect_request(req, fp, code, msg, hdrs, newurl)
+            if new_req is None:
+                return None
+            old_host = urlparse(req.full_url).netloc
+            new_host = urlparse(new_req.full_url).netloc
+            if old_host != new_host:
+                new_req.headers.pop("Authorization", None)
+            return new_req
+
     req = Request(url, headers=headers)
-    with urlopen(req) as response, open(zip_path, "wb") as f:
+    opener = build_opener(NoAuthRedirectHandler())
+    with opener.open(req) as response, open(zip_path, "wb") as f:
         f.write(response.read())
 
     with zipfile.ZipFile(zip_path) as zf:
