@@ -6,6 +6,7 @@ Uses tdvirsh for VM management and trustauthority-cli for quote generation.
 See: https://github.com/canonical/tdx
 """
 
+import hashlib
 import json
 import os
 import subprocess
@@ -39,6 +40,15 @@ TEMPLATES_DIR = next((d for d in _possible_template_dirs if d.exists()), _possib
 def load_template(name: str) -> str:
     """Load a template file from the templates directory."""
     return (TEMPLATES_DIR / name).read_text()
+
+
+def sha256_file(path: str) -> str:
+    """Compute sha256 for a file."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 # Default paths (Canonical TDX layout)
@@ -530,6 +540,9 @@ def build_pristine_agent_image(
         tdx_repo_ref=tdx_repo_ref,
     )
     log(f"Using base image: {base_image}")
+    if not vm_image_sha256:
+        vm_image_sha256 = sha256_file(base_image)
+        log(f"Computed base image sha256: {vm_image_sha256}")
 
     agent_py = (Path(__file__).parent / "agent.py").read_text()
     vm_py = Path(__file__).read_text()

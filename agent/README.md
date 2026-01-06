@@ -62,12 +62,12 @@ agent via cloud-init, then powers off and exports a clean qcow2.
 sudo python3 action/src/vm.py \
   --build-pristine-agent-image \
   --vm-image-tag v0.1.0 \
-  --vm-image-sha256 <base-image-sha256> \
   --tdx-guest-version 24.04 \
   --output-image /var/lib/easy-enclave/agent-pristine-v0.1.0.qcow2
 ```
 
 The repo clone is stored in `/var/lib/easy-enclave/tdx` by default.
+If `--vm-image-sha256` is omitted, the base image sha256 is computed automatically.
 
 ## API
 
