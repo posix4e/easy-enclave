@@ -673,8 +673,8 @@ def start_td_vm(
     # First, try using libvirt directly with TDX support
     vm_xml = generate_tdx_domain_xml(name, workload_image, cidata_iso, memory_mb, vcpus)
 
-    xml_path = f"/tmp/{name}.xml"
-    with open(xml_path, 'w') as f:
+    fd, xml_path = tempfile.mkstemp(prefix=f"{name}-", suffix=".xml")
+    with os.fdopen(fd, 'w') as f:
         f.write(vm_xml)
 
     # Clean up existing VM thoroughly
