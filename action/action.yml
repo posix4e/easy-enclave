@@ -139,11 +139,11 @@ runs:
           printf '%s\n' "${{ inputs.agent-ssh-key }}" > "$KEY_FILE"
           IP=$(ssh -o StrictHostKeyChecking=no -p "${{ inputs.agent-ssh-port }}" -i "$KEY_FILE" \
             "${{ inputs.agent-ssh-user }}@${{ inputs.agent-ssh-host }}" \
-            "sudo virsh domifaddr \"${{ inputs.agent-vm-name }}\" --source lease | awk '/ipv4/ {print \\$4}' | head -n1 | cut -d/ -f1")
+            "sudo virsh domifaddr \"${{ inputs.agent-vm-name }}\" --source lease | awk '/ipv4/ {print \$4}' | head -n1 | cut -d/ -f1")
           if [ -z "$IP" ]; then
             IP=$(ssh -o StrictHostKeyChecking=no -p "${{ inputs.agent-ssh-port }}" -i "$KEY_FILE" \
               "${{ inputs.agent-ssh-user }}@${{ inputs.agent-ssh-host }}" \
-              "sudo virsh net-dhcp-leases default | awk -v n=\"${{ inputs.agent-vm-name }}\" '\\$0 ~ n && /ipv4/ {print \\$5}' | head -n1 | cut -d/ -f1")
+              "sudo virsh net-dhcp-leases default | awk -v n=\"${{ inputs.agent-vm-name }}\" '\\$0 ~ n && /ipv4/ {print \$5}' | head -n1 | cut -d/ -f1")
           fi
           if [ -z "$IP" ]; then
             echo "Could not determine IP for ${{ inputs.agent-vm-name }}" >&2
@@ -222,11 +222,11 @@ runs:
           printf '%s\n' "${{ inputs.agent-ssh-key }}" > "$KEY_FILE"
           IP=$(ssh -o StrictHostKeyChecking=no -p "${{ inputs.agent-ssh-port }}" -i "$KEY_FILE" \
             "${{ inputs.agent-ssh-user }}@${{ inputs.agent-ssh-host }}" \
-            "sudo virsh domifaddr \"${{ inputs.agent-vm-name }}\" --source lease | awk '/ipv4/ {print \\$4}' | head -n1 | cut -d/ -f1")
+            "sudo virsh domifaddr \"${{ inputs.agent-vm-name }}\" --source lease | awk '/ipv4/ {print \$4}' | head -n1 | cut -d/ -f1")
           if [ -z "$IP" ]; then
             IP=$(ssh -o StrictHostKeyChecking=no -p "${{ inputs.agent-ssh-port }}" -i "$KEY_FILE" \
               "${{ inputs.agent-ssh-user }}@${{ inputs.agent-ssh-host }}" \
-              "sudo virsh net-dhcp-leases default | awk -v n=\"${{ inputs.agent-vm-name }}\" '\\$0 ~ n && /ipv4/ {print \\$5}' | head -n1 | cut -d/ -f1")
+              "sudo virsh net-dhcp-leases default | awk -v n=\"${{ inputs.agent-vm-name }}\" '\\$0 ~ n && /ipv4/ {print \$5}' | head -n1 | cut -d/ -f1")
           fi
           if [ -z "$IP" ]; then
             echo "Could not determine IP for ${{ inputs.agent-vm-name }}" >&2
@@ -450,11 +450,11 @@ runs:
           printf '%s\n' "${{ inputs.agent-ssh-key }}" > "$KEY_FILE"
           IP=$(ssh -o StrictHostKeyChecking=no -p "${{ inputs.agent-ssh-port }}" -i "$KEY_FILE" \
             "${{ inputs.agent-ssh-user }}@${{ inputs.agent-ssh-host }}" \
-            "sudo virsh domifaddr \"${{ inputs.agent-vm-name }}\" --source lease | awk '/ipv4/ {print \\$4}' | head -n1 | cut -d/ -f1")
+            "sudo virsh domifaddr \"${{ inputs.agent-vm-name }}\" --source lease | awk '/ipv4/ {print \$4}' | head -n1 | cut -d/ -f1")
           if [ -z "$IP" ]; then
             IP=$(ssh -o StrictHostKeyChecking=no -p "${{ inputs.agent-ssh-port }}" -i "$KEY_FILE" \
               "${{ inputs.agent-ssh-user }}@${{ inputs.agent-ssh-host }}" \
-              "sudo virsh net-dhcp-leases default | awk -v n=\"${{ inputs.agent-vm-name }}\" '\\$0 ~ n && /ipv4/ {print \\$5}' | head -n1 | cut -d/ -f1")
+              "sudo virsh net-dhcp-leases default | awk -v n=\"${{ inputs.agent-vm-name }}\" '\\$0 ~ n && /ipv4/ {print \$5}' | head -n1 | cut -d/ -f1")
           fi
           if [ -z "$IP" ]; then
             echo "Could not determine IP for ${{ inputs.agent-vm-name }}" >&2
