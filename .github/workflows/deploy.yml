@@ -62,7 +62,7 @@ jobs:
           seal-vm: 'false'
           public-files: |
             example/public/banner.txt
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ github.token }}
 
       - name: Verify deployment
         run: |
