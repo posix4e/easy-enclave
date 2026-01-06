@@ -500,6 +500,60 @@ def create_agent_vm(
     }
 
 
+def create_minimal_cidata(workdir: str, hostname: str = "ee-agent") -> str:
+    """Create a minimal cloud-init ISO for networking/metadata."""
+    os.makedirs(workdir, exist_ok=True)
+    user_data_path = os.path.join(workdir, "user-data")
+    meta_data_path = os.path.join(workdir, "meta-data")
+    network_config_path = os.path.join(workdir, "network-config")
+
+    with open(user_data_path, "w") as f:
+        f.write("#cloud-config\n")
+    with open(meta_data_path, "w") as f:
+        f.write(f"instance-id: {hostname}\nlocal-hostname: {hostname}\n")
+    with open(network_config_path, "w") as f:
+        f.write(load_template("network-config.yml"))
+
+    cidata_iso = os.path.join(workdir, "cidata.iso")
+    subprocess.run([
+        "genisoimage", "-output", cidata_iso,
+        "-volid", "cidata", "-joliet", "-rock",
+        user_data_path, meta_data_path, network_config_path
+    ], check=True, capture_output=True)
+    return cidata_iso
+
+
+def start_agent_vm_from_image(
+    image_path: str,
+    name: str = "ee-attestor",
+    port: int = 8000,
+) -> dict:
+    """Start an agent VM from a pre-baked image."""
+    log("Checking requirements...")
+    check_requirements()
+
+    workdir = tempfile.mkdtemp(prefix="ee-agent-boot-")
+    cidata_iso = create_minimal_cidata(workdir, hostname=name)
+
+    log(f"Starting agent VM from image: {image_path}")
+    ip = start_td_vm(image_path, cidata_iso, name)
+    log(f"Agent VM IP: {ip}")
+
+    log("Waiting for agent to be ready...")
+    wait_for_ready(ip, port=port, timeout=300)
+
+    log("Setting up port forwarding...")
+    host_port = setup_port_forward(ip, port)
+
+    return {
+        "name": name,
+        "ip": ip,
+        "port": port,
+        "host_port": host_port,
+        "workdir": workdir,
+    }
+
+
 def wait_for_vm_shutdown(name: str, timeout: int = 1200) -> None:
     """Wait for a VM to reach the shut off state."""
     deadline = time.time() + timeout
@@ -1136,6 +1190,7 @@ if __name__ == '__main__':
     parser.add_argument('--create-release', action='store_true', help='Create GitHub release with attestation')
     parser.add_argument('--endpoint', help='Endpoint URL for release (default: http://{vm_ip}:{port})')
     parser.add_argument('--agent', action='store_true', help='Create agent VM (no workload)')
+    parser.add_argument('--agent-image', default='', help='Start agent VM from a pre-baked image')
     parser.add_argument('--vm-image-tag', default='', help='Agent VM image tag')
     parser.add_argument('--vm-image-sha256', default='', help='Agent VM image sha256')
     parser.add_argument('--build-pristine-agent-image', action='store_true', help='Bake a pristine agent image')
@@ -1163,12 +1218,19 @@ if __name__ == '__main__':
     if args.agent:
         if args.name == 'ee-workload':
             args.name = 'ee-attestor'
-        result = create_agent_vm(
-            name=args.name,
-            port=args.port,
-            vm_image_tag=args.vm_image_tag,
-            vm_image_sha256=args.vm_image_sha256,
-        )
+        if args.agent_image:
+            result = start_agent_vm_from_image(
+                image_path=args.agent_image,
+                name=args.name,
+                port=args.port,
+            )
+        else:
+            result = create_agent_vm(
+                name=args.name,
+                port=args.port,
+                vm_image_tag=args.vm_image_tag,
+                vm_image_sha256=args.vm_image_sha256,
+            )
         print(json.dumps(result, indent=2))
         sys.exit(0)
 

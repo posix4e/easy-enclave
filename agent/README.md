@@ -52,6 +52,12 @@ The agent VM waits for a deploy request and then starts the workload using
 
 By default the agent VM runs sealed (`SEAL_VM=true`).
 
+To boot from a pre-baked pristine image:
+
+```bash
+sudo python3 action/src/vm.py --agent --agent-image /var/lib/easy-enclave/agent-pristine-v0.1.0.qcow2
+```
+
 ## Pristine Agent Image
 
 For releases, you can bake a pristine agent image using Canonical's TDX tooling.
