@@ -13,22 +13,24 @@ import hashlib
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
 import threading
+import time
+import urllib.request
 import uuid
 import zipfile
-import socket
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
-import urllib.request
 
 from aiohttp import ClientSession, WSMsgType, web
+
 # Force unbuffered output
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
@@ -62,15 +64,6 @@ def log(msg: str) -> None:
 def load_template(name: str) -> str:
     """Load a template file from the templates directory."""
     return (TEMPLATES_DIR / name).read_text()
-
-
-def sha256_file(path: str) -> str:
-    """Compute sha256 for a file."""
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def check_requirements() -> None:
