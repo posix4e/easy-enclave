@@ -106,6 +106,8 @@ jobs:
 
       - name: Publish release allowlist
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           TAG="${{ inputs.release_tag }}"
