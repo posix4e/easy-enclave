@@ -128,17 +128,16 @@ python control_plane/server.py
 python control_plane/tunnel_proxy.py
 ```
 
-Agent tunnel client:
+Agent tunnel client (built-in):
 
 ```bash
-pip install aiohttp
 EE_CONTROL_WS=ws://127.0.0.1:8088/v1/tunnel \
 EE_REPO=owner/repo \
 EE_RELEASE_TAG=v0.1.3 \
 EE_APP_NAME=myapp \
 EE_NETWORK=forge-1 \
 EE_BACKEND_URL=http://127.0.0.1:8080 \
-python agent/tunnel_client.py
+python action/src/agent.py --host 0.0.0.0 --port 8000
 ```
 
 ## Agent API
