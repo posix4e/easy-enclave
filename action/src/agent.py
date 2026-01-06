@@ -252,9 +252,10 @@ def download_bundle_artifact(repo: str, artifact_id: int, token: Optional[str]) 
     headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "easy-enclave-agent",
     }
     if token:
-        headers["Authorization"] = f"Bearer {token}"
+        headers["Authorization"] = f"token {token}"
 
     url = f"https://api.github.com/repos/{repo}/actions/artifacts/{artifact_id}/zip"
     req = Request(url, headers=headers)
@@ -450,8 +451,12 @@ class AgentHandler(BaseHTTPRequestHandler):
             # Get auth token from header
             auth_header = self.headers.get('Authorization', '')
             token = None
-            if auth_header.startswith('Bearer '):
+            if auth_header.lower().startswith('bearer '):
                 token = auth_header[7:]
+            elif auth_header.lower().startswith('token '):
+                token = auth_header[6:]
+            elif auth_header:
+                token = auth_header.strip()
 
             # Create deployment
             cleanup_prefixes = data.get('cleanup_prefixes')
