@@ -261,6 +261,44 @@ def create_app(control: ControlPlane) -> web.Application:
             return web.json_response(payload, status=403)
         return web.json_response(payload)
 
+    async def dashboard(request: web.Request) -> web.Response:
+        await require_admin(request)
+        rows = []
+        for record in control.registry.list_apps():
+            payload = control.registry.status_payload(record)
+            rows.append(
+                "<tr>"
+                f"<td>{payload['app_name']}</td>"
+                f"<td>{payload['repo']}</td>"
+                f"<td>{payload['release_tag']}</td>"
+                f"<td>{payload['network']}</td>"
+                f"<td>{payload['registration_state']}</td>"
+                f"<td>{payload['attestation_status']}</td>"
+                f"<td>{payload['health_status']}</td>"
+                f"<td>{'yes' if payload['sealed'] else 'no'}</td>"
+                f"<td>{'yes' if payload['ws_connected'] else 'no'}</td>"
+                f"<td>{payload['registration_expires_at']}</td>"
+                "</tr>"
+            )
+        body = "".join(rows) or "<tr><td colspan='10'>No apps registered</td></tr>"
+        html = (
+            "<!doctype html>"
+            "<html><head><meta charset='utf-8'><title>Easy Enclave Dashboard</title>"
+            "<style>body{font-family:Arial,Helvetica,sans-serif;margin:24px;}"
+            "table{border-collapse:collapse;width:100%;}"
+            "th,td{border:1px solid #ddd;padding:8px;text-align:left;}"
+            "th{background:#f2f2f2;}</style></head><body>"
+            "<h1>Easy Enclave Dashboard</h1>"
+            "<table><thead><tr>"
+            "<th>App</th><th>Repo</th><th>Release</th><th>Network</th>"
+            "<th>TTL</th><th>Attestation</th><th>Health</th><th>Sealed</th>"
+            "<th>Connected</th><th>Expires</th>"
+            "</tr></thead><tbody>"
+            f"{body}"
+            "</tbody></table></body></html>"
+        )
+        return web.Response(text=html, content_type="text/html")
+
     app.add_routes(
         [
             web.get("/health", health),
@@ -268,6 +306,7 @@ def create_app(control: ControlPlane) -> web.Application:
             web.get("/v1/apps/{app_name}", get_app),
             web.get("/v1/resolve/{app_name}", resolve_app),
             web.get("/v1/tunnel", control.handle_ws),
+            web.get("/dashboard", dashboard),
         ]
     )
     return app

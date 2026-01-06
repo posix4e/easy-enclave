@@ -117,6 +117,7 @@ apps require sealed agents; dev/staging allow unsealed.
 
 See `control_plane/README.md` for the protocol and `control_plane/examples/nginx.conf` for a proxy
 layout that routes `appname.app.easyenclave.com` only when attestation and health checks are valid.
+`control_plane/tunnel_proxy.py` is a stub that checks `/v1/resolve/{app}` before routing.
 
 ## Agent API
 

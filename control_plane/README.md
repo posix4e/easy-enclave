@@ -65,7 +65,18 @@ pip install -r control_plane/requirements.txt
 python control_plane/server.py
 ```
 
+Tunnel proxy stub:
+
+```bash
+python control_plane/tunnel_proxy.py
+```
+
 ## Proxy example
 
 See `control_plane/examples/nginx.conf` for a basic `app.easyenclave.com` proxy layout that blocks
 unattested or expired backends using the resolve endpoint.
+
+## Tunnel proxy stub
+
+`control_plane/tunnel_proxy.py` is a minimal HTTP proxy stub that checks `/v1/resolve/{app}` before
+returning a placeholder response. It is a scaffold for wiring a real WebSocket tunnel backend.
