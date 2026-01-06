@@ -54,7 +54,8 @@ jobs:
           VM_SHA="${{ inputs.vm_image_sha256 }}"
           BASE_IMAGE="${{ inputs.base_image }}"
 
-          ALLOWLIST_B64=$(ssh -o StrictHostKeyChecking=no -p "${{ secrets.AGENT_SSH_PORT }}" -i "$KEY_FILE" \
+          ALLOWLIST_B64=$(ssh -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -p "${{ secrets.AGENT_SSH_PORT }}" -i "$KEY_FILE" \
             "${{ secrets.AGENT_SSH_USER }}@${{ secrets.AGENT_SSH_HOST }}" \
             "set -euo pipefail
              RELEASE_TAG=\"$RELEASE_TAG\"
@@ -98,7 +99,7 @@ jobs:
                --attestation-url \"http://\$IP:\$VM_PORT/attestation\" \
                --release-tag \"\$RELEASE_TAG\" \
                --output /tmp/agent-attestation-allowlist.json
-             base64 -w0 /tmp/agent-attestation-allowlist.json")
+             base64 -w0 /tmp/agent-attestation-allowlist.json" 2>/dev/null)
 
           rm -f "$KEY_FILE"
           echo "$ALLOWLIST_B64" | base64 -d > /tmp/agent-attestation-allowlist.json
