@@ -345,7 +345,9 @@ runs:
           --argjson bundle_artifact_id ${{ steps.bundle-upload.outputs.artifact-id }} \
           --argjson private_env "$PRIVATE_ENV_JSON" \
           --argjson seal_vm "$SEAL_VM_JSON" \
-          '{repo:$repo, port:$port, vm_name:$vm_name, bundle_artifact_id:$bundle_artifact_id, seal_vm:$seal_vm} + ( $cleanup_prefixes == null ? {} : {cleanup_prefixes:$cleanup_prefixes} ) + ( $private_env == null ? {} : {private_env:$private_env} )')
+          '{repo:$repo, port:$port, vm_name:$vm_name, bundle_artifact_id:$bundle_artifact_id, seal_vm:$seal_vm}
+           + (if $cleanup_prefixes == null then {} else {cleanup_prefixes:$cleanup_prefixes} end)
+           + (if $private_env == null then {} else {private_env:$private_env} end)')
 
         RESPONSE=$(curl -sf -X POST "${{ steps.agent-url.outputs.url }}/deploy" \
           -H "Authorization: Bearer ${{ inputs.github-token }}" \
