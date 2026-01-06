@@ -1,7 +1,7 @@
 # Easy Enclave Agent
 
 HTTP service that deploys TD VMs and publishes attested releases. The agent runs
-inside the agent VM and exposes an HTTP API for deployments.
+inside a long-lived agent VM and launches a separate workload TD VM per deploy.
 
 Host setup, VM tooling, and allowlist generation live in `installer/README.md`.
 

@@ -13,6 +13,10 @@ A TDX attestation platform using GitHub as the trust anchor. Deploy workloads to
 
 **Model**: 1 TDX host = 1 GitHub repo = 1 attested service
 
+Two-VM design:
+- **Agent VM** (long-lived): runs the ee-agent and waits for deploys.
+- **Workload TD VM** (per-deploy): runs the docker-compose workload and generates the TDX quote.
+
 ## Architecture
 
 ```
