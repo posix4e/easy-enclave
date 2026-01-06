@@ -473,7 +473,7 @@ def create_agent_vm(
         base_image = find_td_image()
     log(f"Using base image: {base_image}")
 
-    agent_py = (Path(__file__).parent / "agent.py").read_text()
+    agent_py = (Path(__file__).resolve().parent.parent / "agent" / "agent.py").read_text()
     log("Creating agent image...")
     agent_image, cidata_iso, workdir = create_agent_image(
         base_image,
@@ -604,7 +604,7 @@ def build_pristine_agent_image(
         vm_image_sha256 = sha256_file(base_image)
         log(f"Computed base image sha256: {vm_image_sha256}")
 
-    agent_py = (Path(__file__).parent / "agent.py").read_text()
+    agent_py = (Path(__file__).resolve().parent.parent / "agent" / "agent.py").read_text()
     log("Creating agent bake image...")
     agent_image, cidata_iso, workdir = create_agent_image(
         base_image,
