@@ -57,6 +57,14 @@ jobs:
           ALLOWLIST_B64=$(ssh -o StrictHostKeyChecking=no -p "${{ secrets.AGENT_SSH_PORT }}" -i "$KEY_FILE" \
             "${{ secrets.AGENT_SSH_USER }}@${{ secrets.AGENT_SSH_HOST }}" \
             "set -euo pipefail
+             RELEASE_TAG=\"$RELEASE_TAG\"
+             REF=\"$REF\"
+             VM_NAME=\"$VM_NAME\"
+             VM_PORT=\"$VM_PORT\"
+             VM_TAG=\"$VM_TAG\"
+             VM_SHA=\"$VM_SHA\"
+             BASE_IMAGE=\"$BASE_IMAGE\"
+
              sudo mkdir -p /opt/easy-enclave
              if [ ! -d /opt/easy-enclave/.git ]; then
                sudo git clone https://github.com/${{ github.repository }}.git /opt/easy-enclave
@@ -71,14 +79,14 @@ jobs:
              IP=\$(get_ip)
              if [ -z \"\$IP\" ]; then
                BASE_ARG=\"\"
-               if [ -n \"$BASE_IMAGE\" ]; then
-                 BASE_ARG=\"--base-image $BASE_IMAGE\"
+               if [ -n \"\$BASE_IMAGE\" ]; then
+                 BASE_ARG=\"--base-image \$BASE_IMAGE\"
                fi
                sudo python3 action/src/vm.py --agent \
-                 --name \"$VM_NAME\" \
-                 --port \"$VM_PORT\" \
-                 --vm-image-tag \"$VM_TAG\" \
-                 --vm-image-sha256 \"$VM_SHA\" \
+                 --name \"\$VM_NAME\" \
+                 --port \"\$VM_PORT\" \
+                 --vm-image-tag \"\$VM_TAG\" \
+                 --vm-image-sha256 \"\$VM_SHA\" \
                  \$BASE_ARG >/tmp/ee-agent-create.json
                IP=\$(get_ip)
              fi
@@ -88,7 +96,7 @@ jobs:
              fi
              python3 agent/scripts/generate_allowlist.py \
                --attestation-url \"http://\$IP:\$VM_PORT/attestation\" \
-               --release-tag \"$RELEASE_TAG\" \
+               --release-tag \"\$RELEASE_TAG\" \
                --output /tmp/agent-attestation-allowlist.json
              base64 -w0 /tmp/agent-attestation-allowlist.json")
 
