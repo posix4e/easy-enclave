@@ -69,7 +69,7 @@ A TDX attestation platform using GitHub as the trust anchor. Deploy workloads to
 
 - **GitHub Action** (`action/README.md`) - Bundle-based deploys and inputs
 - **Deployment Agent** (`agent/README.md`) - Runtime API and behavior
-- **Host Tooling** (`host/README.md`) - Host setup, VM tooling, and allowlist generation
+- **Installer** (`installer/README.md`) - Host setup, VM tooling, and allowlist generation
 - **Control Plane** (`control_plane/README.md`) - WS discovery, DCAP enforcement, TTL and routing policy
 - **Python SDK** (`sdk/README.md`) - Client verification and usage
 - **Examples** (`example/README.md`) - Sample workloads and workflow wiring
@@ -78,7 +78,11 @@ A TDX attestation platform using GitHub as the trust anchor. Deploy workloads to
 
 ### 1. Set Up TDX Agent
 
-See `host/README.md` for host setup and prerequisites.
+See `installer/README.md` for host setup and prerequisites. From the repo root:
+
+```bash
+sudo ./install-agent.sh
+```
 
 ### 2. Configure Repository
 
@@ -163,7 +167,7 @@ curl http://agent:8000/health
 
 ## Host Setup
 
-Host requirements and setup steps live in `host/README.md`.
+Host requirements and setup steps live in `installer/README.md`.
 
 ## Roadmap
 

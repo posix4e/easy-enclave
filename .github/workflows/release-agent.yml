@@ -86,7 +86,7 @@ jobs:
              IP=\$(get_ip)
              if [ -z \"\$IP\" ]; then
                if [ -n \"\$AGENT_IMAGE\" ]; then
-                 sudo python3 host/vm.py --agent \
+                 sudo python3 installer/host.py --agent \
                    --name \"\$VM_NAME\" \
                    --port \"\$VM_PORT\" \
                    --agent-image \"\$AGENT_IMAGE\" >/tmp/ee-agent-create.json
@@ -95,7 +95,7 @@ jobs:
                  if [ -n \"\$BASE_IMAGE\" ]; then
                    BASE_ARG=\"--base-image \$BASE_IMAGE\"
                  fi
-                 sudo python3 host/vm.py --agent \
+                 sudo python3 installer/host.py --agent \
                    --name \"\$VM_NAME\" \
                    --port \"\$VM_PORT\" \
                    --vm-image-tag \"\$VM_TAG\" \
@@ -108,7 +108,7 @@ jobs:
                echo \"Failed to determine agent VM IP\" >&2
                exit 1
              fi
-             python3 host/scripts/generate_allowlist.py \
+             python3 installer/scripts/generate_allowlist.py \
                --attestation-url \"http://\$IP:\$VM_PORT/attestation\" \
                --release-tag \"\$RELEASE_TAG\" \
                --output /tmp/agent-attestation-allowlist.json 1>&2

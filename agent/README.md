@@ -3,7 +3,7 @@
 HTTP service that deploys TD VMs and publishes attested releases. The agent runs
 inside the agent VM and exposes an HTTP API for deployments.
 
-Host setup, VM tooling, and allowlist generation live in `host/README.md`.
+Host setup, VM tooling, and allowlist generation live in `installer/README.md`.
 
 ## API
 

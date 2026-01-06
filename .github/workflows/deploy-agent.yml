@@ -42,7 +42,7 @@ jobs:
             cd /opt/easy-enclave
             sudo git fetch --tags origin
             sudo git checkout ${{ inputs.ref }}
-            sudo python3 host/vm.py --agent \
+            sudo python3 installer/host.py --agent \
               --name "${{ inputs.vm_name }}" \
               --port "${{ inputs.vm_port }}" \
               --vm-image-tag "${{ inputs.vm_image_tag }}" \

@@ -37,14 +37,22 @@ sudo chmod 666 /dev/vhost-vsock /dev/vsock
 
 ## Install
 
+From the repo root, run the turnkey installer:
+
 ```bash
-sudo ./host/install.sh
+sudo ./install-agent.sh
 sudo systemctl status ee-agent
+```
+
+`installer/install.sh` accepts flags for non-interactive installs and VM mode:
+
+```bash
+sudo ./installer/install.sh --mode vm --non-interactive --vm-name ee-agent
 ```
 
 ## Agent VM
 
-To run the agent inside a dedicated VM, use `host/vm.py --agent` on a TDX host.
+To run the agent inside a dedicated VM, use `installer/host.py --agent` on a TDX host.
 This bootstraps the agent via cloud-init and starts the service in the VM.
 
 The agent VM waits for a deploy request and then starts the workload using
@@ -55,7 +63,7 @@ By default the agent VM runs sealed (`SEAL_VM=true`).
 To boot from a pre-baked pristine image:
 
 ```bash
-sudo python3 host/vm.py --agent --agent-image /var/lib/easy-enclave/agent-pristine-v0.1.0.qcow2
+sudo python3 installer/host.py --agent --agent-image /var/lib/easy-enclave/agent-pristine-v0.1.0.qcow2
 ```
 
 ## Pristine Agent Image
@@ -65,7 +73,7 @@ This clones `canonical/tdx`, builds a TD guest image, boots once to install the
 agent via cloud-init, then powers off and exports a clean qcow2.
 
 ```bash
-sudo python3 host/vm.py \
+sudo python3 installer/host.py \
   --build-pristine-agent-image \
   --vm-image-tag v0.1.0 \
   --tdx-guest-version 24.04 \
@@ -80,7 +88,7 @@ If `--vm-image-sha256` is omitted, the base image sha256 is computed automatical
 Generate a release allowlist on the TDX test node:
 
 ```bash
-python3 host/scripts/generate_allowlist.py --release-tag v0.1.0
+python3 installer/scripts/generate_allowlist.py --release-tag v0.1.0
 ```
 
 Upload `agent-attestation-allowlist.json` to the matching GitHub release.

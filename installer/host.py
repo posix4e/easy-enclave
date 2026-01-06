@@ -31,7 +31,7 @@ def log(msg):
 # Templates directory - check multiple locations
 _script_dir = Path(__file__).parent
 _possible_template_dirs = [
-    _script_dir / "templates",             # host/vm.py -> host/templates
+    _script_dir / "templates",             # installer/host.py -> installer/templates
     _script_dir.parent / "templates",      # legacy layout
 ]
 TEMPLATES_DIR = next((d for d in _possible_template_dirs if d.exists()), _possible_template_dirs[0])

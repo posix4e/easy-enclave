@@ -19,28 +19,748 @@ import tempfile
 import threading
 import uuid
 import zipfile
+import socket
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+import urllib.request
 
 from aiohttp import ClientSession, WSMsgType, web
-from vm import (
-    DEPLOYMENTS_DIR,
-    check_requirements,
-    cleanup_td_vms,
-    create_release,
-    create_td_vm,
-    get_public_ip,
-    log,
-    setup_port_forward,
-)
-
 # Force unbuffered output
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
+
+# VM + host utilities (embedded to avoid separate vm.py dependency).
+DEPLOYMENTS_DIR = Path("/var/lib/easy-enclave/deployments")
+
+_script_dir = Path(__file__).parent
+_possible_template_dirs = [
+    _script_dir / "templates",
+    _script_dir.parent / "installer" / "templates",
+]
+TEMPLATES_DIR = next((d for d in _possible_template_dirs if d.exists()), _possible_template_dirs[0])
+
+TDX_REPO_URL = "https://github.com/canonical/tdx.git"
+DEFAULT_TDX_REPO_DIR = "/var/lib/easy-enclave/tdx"
+DEFAULT_TDX_GUEST_VERSION = "24.04"
+IMAGE_DIR = "/var/lib/easy-enclave"
+DEFAULT_TD_IMAGE = f"{IMAGE_DIR}/td-guest.qcow2"
+UBUNTU_CLOUD_IMAGES = {
+    "24.04": "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img",
+    "24.10": "https://cloud-images.ubuntu.com/oracular/current/oracular-server-cloudimg-amd64.img",
+}
+
+
+def log(msg: str) -> None:
+    """Print to stderr for logging (keeps stdout clean for JSON output)."""
+    print(msg, file=sys.stderr)
+
+
+def load_template(name: str) -> str:
+    """Load a template file from the templates directory."""
+    return (TEMPLATES_DIR / name).read_text()
+
+
+def sha256_file(path: str) -> str:
+    """Compute sha256 for a file."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def check_requirements() -> None:
+    """Check that TDX and libvirt are available. Fails fast if not."""
+    result = subprocess.run(["uname", "-r"], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError("Cannot get kernel version")
+    kernel = result.stdout.strip()
+    log(f"Kernel: {kernel}")
+
+    tdx_enabled = False
+    tdx_path = "/sys/module/kvm_intel/parameters/tdx"
+    if os.path.exists(tdx_path):
+        with open(tdx_path) as f:
+            if f.read().strip() in ("Y", "1"):
+                tdx_enabled = True
+    if not tdx_enabled:
+        raise RuntimeError(f"TDX not enabled (check {tdx_path})")
+    log("TDX: enabled")
+
+    result = subprocess.run(["virsh", "version"], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError("libvirt not available (virsh not found)")
+    log("libvirt: available")
+
+    result = subprocess.run(["virsh", "domcapabilities", "--machine", "q35"], capture_output=True, text=True)
+    if "tdx" not in result.stdout.lower():
+        raise RuntimeError("libvirt does not support TDX (check QEMU/libvirt versions)")
+    log("libvirt TDX: supported")
+
+
+def find_existing_images() -> list:
+    """Find existing TD/cloud images on the system."""
+    images = []
+    search_paths = [
+        "/var/lib/libvirt/images",
+        "/var/lib/easy-enclave",
+        os.path.expanduser("~/tdx/guest-tools/image"),
+        "/opt/tdx/guest-tools/image",
+        "/home/ubuntu/tdx/guest-tools/image",
+    ]
+    patterns = ["*.qcow2", "*.img"]
+    for search_path in search_paths:
+        if os.path.isdir(search_path):
+            for pattern in patterns:
+                import glob
+                for img in glob.glob(os.path.join(search_path, pattern)):
+                    try:
+                        size = os.path.getsize(img)
+                        images.append({
+                            "path": img,
+                            "size_gb": round(size / (1024**3), 2),
+                            "name": os.path.basename(img),
+                        })
+                    except Exception:
+                        pass
+    return images
+
+
+def ensure_tdx_repo(repo_dir: str, ref: str = "main") -> Path:
+    """Ensure the canonical/tdx repo is available locally."""
+    repo_path = Path(repo_dir)
+    guest_tools = repo_path / "guest-tools" / "image" / "create-td-image.sh"
+    if guest_tools.exists():
+        return repo_path
+    if repo_path.exists() and not (repo_path / ".git").exists():
+        raise RuntimeError(f"TDX repo path exists but is not a git repo: {repo_path}")
+    repo_path.parent.mkdir(parents=True, exist_ok=True)
+    log(f"Cloning canonical/tdx into {repo_path}...")
+    subprocess.run(
+        ["git", "clone", "--depth", "1", "--branch", ref, TDX_REPO_URL, str(repo_path)],
+        check=True,
+        capture_output=True,
+    )
+    return repo_path
+
+
+def find_latest_td_image(image_dir: Path, version: str) -> str:
+    """Find the most recent TD image in the given directory."""
+    candidates = sorted(
+        image_dir.glob(f"tdx-guest-ubuntu-{version}-*.qcow2"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if not candidates:
+        raise RuntimeError(f"No TD image found in {image_dir} for Ubuntu {version}")
+    return str(candidates[0])
+
+
+def build_td_image_from_repo(
+    repo_dir: str,
+    version: str = DEFAULT_TDX_GUEST_VERSION,
+    ref: str = "main",
+) -> str:
+    """Build a TD guest image using canonical/tdx tooling."""
+    repo_path = ensure_tdx_repo(repo_dir, ref=ref)
+    image_dir = repo_path / "guest-tools" / "image"
+    cmd = ["./create-td-image.sh", "-v", version]
+    if os.geteuid() != 0:
+        cmd = ["sudo"] + cmd
+    log(f"Building TD image via {image_dir} ({version})...")
+    subprocess.run(cmd, check=True, cwd=image_dir, capture_output=True)
+    return find_latest_td_image(image_dir, version)
+
+
+def download_ubuntu_image(version: str = "24.04", dest_dir: str = IMAGE_DIR) -> str:
+    """Download Ubuntu cloud image if not present."""
+    os.makedirs(dest_dir, exist_ok=True)
+    url = UBUNTU_CLOUD_IMAGES.get(version)
+    if not url:
+        raise ValueError(f"Unknown Ubuntu version: {version}. Available: {list(UBUNTU_CLOUD_IMAGES.keys())}")
+    filename = f"ubuntu-{version}-cloudimg-amd64.img"
+    dest_path = os.path.join(dest_dir, filename)
+    if os.path.exists(dest_path):
+        log(f"Image already exists: {dest_path}")
+        return dest_path
+    log(f"Downloading Ubuntu {version} cloud image...")
+    log(f"URL: {url}")
+    log(f"Destination: {dest_path}")
+
+    def reporthook(count, block_size, total_size):
+        percent = int(count * block_size * 100 / total_size)
+        print(f"\rProgress: {percent}%", end="", flush=True, file=sys.stderr)
+
+    urllib.request.urlretrieve(url, dest_path, reporthook)
+    log("\nDownload complete!")
+    if dest_path.endswith(".img"):
+        qcow2_path = dest_path.replace(".img", ".qcow2")
+        log(f"Converting to qcow2: {qcow2_path}")
+        subprocess.run(
+            ["qemu-img", "convert", "-f", "qcow2", "-O", "qcow2", dest_path, qcow2_path],
+            check=True,
+        )
+        return qcow2_path
+    return dest_path
+
+
+def find_or_download_td_image(
+    prefer_version: str = "24.04",
+    *,
+    build_from_tdx_repo: bool = False,
+    tdx_repo_dir: str | None = None,
+    tdx_repo_ref: str = "main",
+) -> str:
+    """Find existing TD image or download one."""
+    if build_from_tdx_repo:
+        repo_dir = tdx_repo_dir or DEFAULT_TDX_REPO_DIR
+        return build_td_image_from_repo(repo_dir, prefer_version, ref=tdx_repo_ref)
+    existing = find_existing_images()
+    for img in existing:
+        if "tdx" in img["name"].lower() or "td-guest" in img["name"].lower():
+            log(f"Found TD image: {img['path']} ({img['size_gb']} GB)")
+            return img["path"]
+    for img in existing:
+        if "cloud" in img["name"].lower() or "ubuntu" in img["name"].lower():
+            log(f"Found cloud image: {img['path']} ({img['size_gb']} GB)")
+            return img["path"]
+    if existing:
+        largest = max(existing, key=lambda x: x["size_gb"])
+        log(f"Using existing image: {largest['path']} ({largest['size_gb']} GB)")
+        return largest["path"]
+    log("No existing images found. Downloading Ubuntu cloud image...")
+    return download_ubuntu_image(prefer_version)
+
+
+def find_td_image() -> str:
+    """Find the TD guest image."""
+    return find_or_download_td_image()
+
+
+def indent_yaml(content: str, spaces: int) -> str:
+    """Indent YAML content."""
+    indent = " " * spaces
+    return "\n".join(indent + line for line in content.split("\n"))
+
+
+def build_extra_files_yaml(extra_files: list[dict[str, str]] | None) -> str:
+    """Build cloud-init write_files YAML entries for extra files."""
+    if not extra_files:
+        return ""
+    blocks = []
+    for entry in extra_files:
+        rel_path = entry.get("path")
+        if not rel_path:
+            continue
+        rel_path = rel_path.lstrip("/")
+        content = entry.get("content", "")
+        permissions = entry.get("permissions", "0644")
+        block = (
+            f"  - path: /opt/workload/{rel_path}\n"
+            f"    permissions: '{permissions}'\n"
+            f"    content: |\n"
+            f"{indent_yaml(content, 6)}\n"
+        )
+        blocks.append(block)
+    return "\n".join(blocks)
+
+
+def create_workload_image(
+    base_image: str,
+    docker_compose_content: str,
+    port: int = 8080,
+    enable_ssh: bool = False,
+    extra_files: list[dict[str, str]] | None = None,
+) -> tuple[str, str, str]:
+    """Create a workload-specific image with docker-compose baked in."""
+    workdir = tempfile.mkdtemp(prefix="ee-workload-")
+    os.chmod(workdir, 0o755)
+    workload_image = os.path.join(workdir, "workload.qcow2")
+    subprocess.run(
+        ["qemu-img", "create", "-f", "qcow2", "-b", base_image, "-F", "qcow2", workload_image],
+        check=True,
+        capture_output=True,
+    )
+
+    start_sh = load_template("start.sh").replace("{port}", str(port))
+    get_quote = load_template("get-quote.py")
+    network_config = load_template("network-config.yml")
+
+    ssh_config = ""
+    if enable_ssh:
+        ssh_config = """
+ssh_pwauth: false
+"""
+
+    extra_files_yaml = build_extra_files_yaml(extra_files)
+    user_data = load_template("user-data.yml").format(
+        ssh_config=ssh_config,
+        docker_compose=indent_yaml(docker_compose_content, 6),
+        start_sh=indent_yaml(start_sh, 6),
+        get_quote=indent_yaml(get_quote, 6),
+        extra_files=extra_files_yaml,
+    )
+
+    user_data_path = os.path.join(workdir, "user-data")
+    meta_data_path = os.path.join(workdir, "meta-data")
+    network_config_path = os.path.join(workdir, "network-config")
+
+    with open(user_data_path, "w") as f:
+        f.write(user_data)
+    with open(meta_data_path, "w") as f:
+        f.write("instance-id: ee-workload\nlocal-hostname: ee-workload\n")
+    with open(network_config_path, "w") as f:
+        f.write(network_config)
+
+    cidata_iso = os.path.join(workdir, "cidata.iso")
+    subprocess.run(
+        ["genisoimage", "-output", cidata_iso, "-volid", "cidata", "-joliet", "-rock", user_data_path, meta_data_path, network_config_path],
+        check=True,
+        capture_output=True,
+    )
+
+    for fname in os.listdir(workdir):
+        filepath = os.path.join(workdir, fname)
+        if fname.endswith(".qcow2"):
+            os.chmod(filepath, 0o666)
+        else:
+            os.chmod(filepath, 0o644)
+
+    return workload_image, cidata_iso, workdir
+
+
+def generate_tdx_domain_xml(name: str, disk_path: str, cidata_iso: str, memory_mb: int, vcpus: int) -> str:
+    """Generate libvirt domain XML for TDX."""
+    return f"""<domain type='kvm'>
+  <name>{name}</name>
+  <memory unit='MiB'>{memory_mb}</memory>
+  <vcpu>{vcpus}</vcpu>
+  <os>
+    <type arch='x86_64' machine='q35'>hvm</type>
+    <loader readonly='yes' type='pflash'>/usr/share/ovmf/OVMF.tdx.fd</loader>
+  </os>
+  <features>
+    <acpi/>
+    <apic/>
+  </features>
+  <cpu mode='host-passthrough'/>
+  <clock offset='utc'/>
+  <devices>
+    <emulator>/usr/bin/qemu-system-x86_64</emulator>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2'/>
+      <source file='{disk_path}'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+    <disk type='file' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <source file='{cidata_iso}'/>
+      <target dev='sda' bus='sata'/>
+      <readonly/>
+    </disk>
+    <interface type='network'>
+      <source network='default'/>
+      <model type='virtio'/>
+    </interface>
+    <serial type='file'>
+      <source path='/var/log/libvirt/qemu/{name}-serial.log'/>
+      <target port='0'/>
+    </serial>
+    <console type='file'>
+      <source path='/var/log/libvirt/qemu/{name}-serial.log'/>
+      <target type='serial' port='0'/>
+    </console>
+  </devices>
+  <launchSecurity type='tdx'>
+    <policy>0x0000</policy>
+  </launchSecurity>
+</domain>"""
+
+
+def start_td_vm(
+    workload_image: str,
+    cidata_iso: str,
+    name: str = "ee-workload",
+    memory_mb: int = 4096,
+    vcpus: int = 2,
+) -> str:
+    """Start a TD VM and return the VM IP address."""
+    vm_xml = generate_tdx_domain_xml(name, workload_image, cidata_iso, memory_mb, vcpus)
+    fd, xml_path = tempfile.mkstemp(prefix=f"{name}-", suffix=".xml")
+    with os.fdopen(fd, "w") as f:
+        f.write(vm_xml)
+
+    log(f"Cleaning up existing VM {name}...")
+    subprocess.run(["sudo", "virsh", "destroy", name], capture_output=True)
+    subprocess.run(["sudo", "virsh", "undefine", name, "--nvram"], capture_output=True)
+    time.sleep(1)
+
+    check = subprocess.run(["sudo", "virsh", "domstate", name], capture_output=True, text=True)
+    if check.returncode == 0:
+        log(f"Warning: VM {name} still exists, forcing undefine...")
+        subprocess.run(["sudo", "virsh", "undefine", name, "--nvram", "--remove-all-storage"], capture_output=True)
+        time.sleep(1)
+
+    result = subprocess.run(["sudo", "virsh", "define", xml_path], capture_output=True, text=True)
+    if result.returncode != 0:
+        log(f"virsh define failed: {result.stderr}")
+        raise RuntimeError(f"Failed to define VM: {result.stderr}")
+
+    result = subprocess.run(["sudo", "virsh", "start", name], capture_output=True, text=True)
+    if result.returncode != 0:
+        log(f"virsh start failed: {result.stderr}")
+        raise RuntimeError(f"Failed to start VM: {result.stderr}")
+
+    log(f"VM {name} started successfully")
+    time.sleep(10)
+
+    result = subprocess.run(["sudo", "virsh", "domstate", name], capture_output=True, text=True)
+    log(f"VM state: {result.stdout.strip()}")
+
+    ip = None
+    for _ in range(60):
+        result = subprocess.run(["sudo", "virsh", "domifaddr", name, "--source", "lease"], capture_output=True, text=True)
+        for line in result.stdout.splitlines():
+            if "ipv4" in line:
+                ip = line.split()[3].split("/")[0]
+                break
+        if ip:
+            break
+        time.sleep(5)
+    if not ip:
+        raise RuntimeError(f"Failed to determine IP for {name}")
+    return ip
+
+
+def get_public_ip() -> str:
+    """Get the host's public IP address."""
+    methods = [
+        lambda: subprocess.run(
+            ["hostname", "-I"],
+            capture_output=True, text=True, timeout=5
+        ).stdout.split()[0] if not subprocess.run(
+            ["hostname", "-I"], capture_output=True, text=True, timeout=5
+        ).stdout.split()[0].startswith(("192.168.", "10.", "172.")) else None,
+        lambda: urllib.request.urlopen("https://ifconfig.me", timeout=5).read().decode().strip(),
+        lambda: urllib.request.urlopen("https://api.ipify.org", timeout=5).read().decode().strip(),
+    ]
+    for method in methods:
+        try:
+            ip = method()
+            if ip and not ip.startswith(("192.168.", "10.", "172.16.", "172.17.", "172.18.")):
+                return ip
+        except Exception:
+            continue
+    try:
+        result = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=5)
+        for ip in result.stdout.split():
+            if not ip.startswith(("192.168.", "10.", "172.", "127.")):
+                return ip
+    except Exception:
+        pass
+    raise RuntimeError("Could not determine public IP address")
+
+
+def setup_port_forward(vm_ip: str, vm_port: int, host_port: int | None = None) -> int:
+    """Set up iptables port forwarding from host to VM."""
+    host_port = host_port or vm_port
+
+    def remove_nat_rules(chain: str) -> None:
+        result = subprocess.run(
+            ["sudo", "iptables", "-t", "nat", "-L", chain, "--line-numbers"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return
+        rule_numbers = []
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if not parts or not parts[0].isdigit():
+                continue
+            if f"dpt:{host_port}" in line and "DNAT" in line:
+                rule_numbers.append(int(parts[0]))
+        for number in reversed(rule_numbers):
+            subprocess.run(["sudo", "iptables", "-t", "nat", "-D", chain, str(number)], capture_output=True)
+
+    def remove_forward_rules() -> None:
+        result = subprocess.run(["sudo", "iptables", "-L", "FORWARD", "--line-numbers"], capture_output=True, text=True)
+        if result.returncode != 0:
+            return
+        rule_numbers = []
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if not parts or not parts[0].isdigit():
+                continue
+            if f"dpt:{vm_port}" in line and "ACCEPT" in line:
+                rule_numbers.append(int(parts[0]))
+        for number in reversed(rule_numbers):
+            subprocess.run(["sudo", "iptables", "-D", "FORWARD", str(number)], capture_output=True)
+
+    remove_nat_rules("PREROUTING")
+    remove_nat_rules("OUTPUT")
+    remove_forward_rules()
+
+    result = subprocess.run(
+        ["sudo", "iptables", "-t", "nat", "-A", "PREROUTING", "-p", "tcp", "--dport", str(host_port),
+         "-j", "DNAT", "--to-destination", f"{vm_ip}:{vm_port}"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to add PREROUTING rule: {result.stderr}")
+
+    result = subprocess.run(
+        ["sudo", "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "-d", "127.0.0.1",
+         "--dport", str(host_port), "-j", "DNAT", "--to-destination", f"{vm_ip}:{vm_port}"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        log(f"Warning: Failed to add OUTPUT rule: {result.stderr}")
+
+    result = subprocess.run(
+        ["sudo", "iptables", "-A", "FORWARD", "-p", "tcp", "-d", vm_ip, "--dport", str(vm_port), "-j", "ACCEPT"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        log(f"Warning: Failed to add FORWARD rule: {result.stderr}")
+
+    log(f"Port forwarding configured: *:{host_port} -> {vm_ip}:{vm_port}")
+    return host_port
+
+
+def wait_for_ready(ip: str, port: int = 8080, timeout: int = 300) -> None:
+    """Wait for workload to be ready by checking port."""
+    start = time.time()
+    last_print = 0
+    while time.time() - start < timeout:
+        elapsed = int(time.time() - start)
+        if elapsed - last_print >= 30:
+            last_print = elapsed
+            log(f"Waiting for port {port}... ({elapsed}s elapsed)")
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(5)
+            result = sock.connect_ex((ip, port))
+            sock.close()
+            if result == 0:
+                log(f"Port {port} is open on {ip}")
+                time.sleep(2)
+                return
+        except Exception:
+            pass
+        time.sleep(5)
+    raise TimeoutError(f"Port {port} not ready within {timeout}s")
+
+
+def get_quote_from_vm(ip: str, port: int = 8080) -> str:
+    """Retrieve quote from VM via HTTP. Returns base64-encoded quote."""
+    url = f"http://{ip}:{port}/quote.json"
+    log(f"Fetching quote from {url}")
+    response = urllib.request.urlopen(url, timeout=30)
+    data = json.loads(response.read().decode())
+    if not data.get("success"):
+        raise RuntimeError(f"Quote generation failed in VM: {data.get('error', 'unknown')}")
+    if not data.get("quote"):
+        raise RuntimeError("No quote in VM response")
+    return data["quote"]
+
+
+def create_td_vm(
+    docker_compose_path: str,
+    name: str = "ee-workload",
+    port: int = 8080,
+    enable_ssh: bool = False,
+    extra_files: list[dict[str, str]] | None = None,
+    base_image: str | None = None,
+) -> dict:
+    """Create a TD VM with the given workload."""
+    log("Checking requirements...")
+    check_requirements()
+
+    log("Finding TD base image...")
+    if base_image:
+        base_image = os.path.expanduser(base_image)
+        if not os.path.exists(base_image):
+            raise FileNotFoundError(f"Base image not found: {base_image}")
+    else:
+        base_image = find_td_image()
+    log(f"Using base image: {base_image}")
+
+    log(f"Reading docker-compose from {docker_compose_path}...")
+    with open(docker_compose_path) as f:
+        docker_compose_content = f.read()
+
+    log("Creating workload image...")
+    workload_image, cidata_iso, workdir = create_workload_image(
+        base_image,
+        docker_compose_content,
+        port=port,
+        enable_ssh=enable_ssh,
+        extra_files=extra_files,
+    )
+
+    log("Starting TD VM...")
+    ip = start_td_vm(workload_image, cidata_iso, name)
+    log(f"VM IP: {ip}")
+
+    log("Waiting for workload...")
+    wait_for_ready(ip, port=port, timeout=300)
+
+    log("Retrieving quote...")
+    quote = get_quote_from_vm(ip, port=port)
+
+    return {
+        "name": name,
+        "ip": ip,
+        "port": port,
+        "quote": quote,
+        "workdir": workdir,
+    }
+
+
+def cleanup_td_vms(prefixes: Sequence[str] | None = None) -> None:
+    """Destroy any TD VMs whose names match the provided prefixes."""
+    if prefixes is None:
+        prefixes = ("ee-deploy-", "ee-workload", "ee-")
+    elif isinstance(prefixes, str):
+        prefixes = (prefixes,)
+    else:
+        prefixes = tuple(prefixes)
+    result = subprocess.run(["sudo", "virsh", "list", "--all", "--name"], capture_output=True, text=True)
+    if result.returncode != 0:
+        log(f"Warning: failed to list VMs: {result.stderr.strip()}")
+        return
+    for name in [line.strip() for line in result.stdout.splitlines() if line.strip()]:
+        if not name.startswith(prefixes):
+            continue
+        log(f"Cleaning up existing VM {name}...")
+        subprocess.run(["sudo", "virsh", "destroy", name], capture_output=True)
+        subprocess.run(["sudo", "virsh", "undefine", name, "--nvram", "--remove-all-storage"], capture_output=True)
+
+
+def cleanup_deploy_releases(repo: str, token: str, prefix: str = "deploy-") -> None:
+    """Delete existing deploy releases so only one remains."""
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    try:
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{repo}/releases?per_page=100",
+            headers=headers,
+        )
+        with urllib.request.urlopen(req) as response:
+            releases = json.loads(response.read().decode())
+        for release in releases:
+            tag = release.get("tag_name", "")
+            release_id = release.get("id")
+            if not tag.startswith(prefix) or not release_id:
+                continue
+            delete_req = urllib.request.Request(
+                f"https://api.github.com/repos/{repo}/releases/{release_id}",
+                headers=headers,
+                method="DELETE",
+            )
+            try:
+                with urllib.request.urlopen(delete_req):
+                    pass
+            except Exception as exc:
+                log(f"Warning: failed to delete release {tag}: {exc}")
+    except Exception as exc:
+        log(f"Warning: release cleanup failed: {exc}")
+
+
+def create_release(
+    quote: str,
+    endpoint: str,
+    repo: str | None = None,
+    token: str | None = None,
+    seal_vm: bool = False,
+) -> str:
+    """Create a GitHub release with attestation data."""
+    repo = repo or os.environ.get("GITHUB_REPOSITORY")
+    token = token or os.environ.get("GITHUB_TOKEN")
+
+    if not repo or not token:
+        raise ValueError("GITHUB_REPOSITORY and GITHUB_TOKEN must be set")
+
+    cleanup_deploy_releases(repo, token)
+
+    now = datetime.now(timezone.utc)
+    timestamp = now.strftime("%Y%m%d-%H%M%S")
+    tag = f"deploy-{timestamp}"
+
+    attestation = {
+        "version": "1.0",
+        "quote": quote,
+        "endpoint": endpoint,
+        "timestamp": now.isoformat().replace("+00:00", "Z"),
+        "repo": repo,
+        "seal_vm": seal_vm,
+    }
+
+    body = f"""# Easy Enclave Deployment
+
+**Endpoint**: {endpoint}
+**Sealed**: {str(seal_vm).lower()}
+
+## Attestation
+
+```json
+{json.dumps(attestation, indent=2)}
+```
+
+## Usage
+
+```python
+from easyenclave import connect
+client = connect("{repo}")
+```
+"""
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    payload = {
+        "tag_name": tag,
+        "name": f"Deployment {timestamp}",
+        "body": body,
+        "draft": False,
+        "prerelease": False,
+    }
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/releases",
+        data=json.dumps(payload).encode(),
+        headers={**headers, "Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req) as response:
+        release_data = json.loads(response.read().decode())
+    upload_url = release_data.get("upload_url", "").split("{", 1)[0]
+    if not upload_url:
+        raise RuntimeError("Release upload URL missing")
+
+    attestation_bytes = json.dumps(attestation, indent=2).encode()
+    upload_req = urllib.request.Request(
+        f"{upload_url}?name=attestation.json",
+        data=attestation_bytes,
+        headers={**headers, "Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(upload_req):
+        log("Uploaded attestation.json")
+
+    return release_data.get("html_url") or f"https://github.com/{repo}/releases/tag/{tag}"
 
 EE_CONTROL_WS = os.getenv("EE_CONTROL_WS", "")
 EE_REPO = os.getenv("EE_REPO", "")
