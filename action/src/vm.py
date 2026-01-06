@@ -1093,35 +1093,33 @@ def cleanup_td_vms(prefixes: Sequence[str] | None = None) -> None:
 
 def cleanup_deploy_releases(repo: str, token: str, prefix: str = "deploy-") -> None:
     """Delete existing deploy releases so only one remains."""
-    env = {**os.environ, 'GITHUB_TOKEN': token}
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
     try:
-        list_result = subprocess.run(
-            [
-                'gh', 'release', 'list',
-                '--repo', repo,
-                '--limit', '100',
-                '--json', 'tagName',
-                '--jq', '.[].tagName',
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{repo}/releases?per_page=100",
+            headers=headers,
         )
-        if list_result.returncode != 0:
-            log(f"Warning: failed to list releases: {list_result.stderr.strip()}")
-            return
-        tags = [line.strip() for line in list_result.stdout.splitlines() if line.strip()]
-        for tag in tags:
-            if not tag.startswith(prefix):
+        with urllib.request.urlopen(req) as response:
+            releases = json.loads(response.read().decode())
+        for release in releases:
+            tag = release.get("tag_name", "")
+            release_id = release.get("id")
+            if not tag.startswith(prefix) or not release_id:
                 continue
-            delete_result = subprocess.run(
-                ['gh', 'release', 'delete', tag, '--repo', repo, '--yes'],
-                capture_output=True,
-                text=True,
-                env=env,
+            delete_req = urllib.request.Request(
+                f"https://api.github.com/repos/{repo}/releases/{release_id}",
+                headers=headers,
+                method="DELETE",
             )
-            if delete_result.returncode != 0:
-                log(f"Warning: failed to delete release {tag}: {delete_result.stderr.strip()}")
+            try:
+                with urllib.request.urlopen(delete_req):
+                    pass
+            except Exception as exc:
+                log(f"Warning: failed to delete release {tag}: {exc}")
     except Exception as e:
         log(f"Warning: release cleanup failed: {e}")
 
@@ -1175,28 +1173,41 @@ client = connect("{repo}")
 ```
 """
 
-    subprocess.run(
-        ['gh', 'release', 'create', tag, '--repo', repo, '--title', f'Deployment {timestamp}', '--notes', body],
-        check=True, capture_output=True, env={**os.environ, 'GITHUB_TOKEN': token}
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    payload = {
+        "tag_name": tag,
+        "name": f"Deployment {timestamp}",
+        "body": body,
+        "draft": False,
+        "prerelease": False,
+    }
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/releases",
+        data=json.dumps(payload).encode(),
+        headers={**headers, "Content-Type": "application/json"},
+        method="POST",
     )
-    log(f"Created release: {tag}")
+    with urllib.request.urlopen(req) as response:
+        release_data = json.loads(response.read().decode())
+    upload_url = release_data.get("upload_url", "").split("{", 1)[0]
+    if not upload_url:
+        raise RuntimeError("Release upload URL missing")
 
-    # Use temp directory with properly named file for upload
-    tmpdir = tempfile.mkdtemp(prefix='ee-release-')
-    attestation_file = os.path.join(tmpdir, 'attestation.json')
-    try:
-        with open(attestation_file, 'w') as f:
-            json.dump(attestation, f, indent=2)
-        subprocess.run(
-            ['gh', 'release', 'upload', tag, attestation_file, '--repo', repo, '--clobber'],
-            check=True, capture_output=True, env={**os.environ, 'GITHUB_TOKEN': token}
-        )
+    attestation_bytes = json.dumps(attestation, indent=2).encode()
+    upload_req = urllib.request.Request(
+        f"{upload_url}?name=attestation.json",
+        data=attestation_bytes,
+        headers={**headers, "Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(upload_req):
         log("Uploaded attestation.json")
-    finally:
-        os.unlink(attestation_file)
-        os.rmdir(tmpdir)
 
-    return f"https://github.com/{repo}/releases/tag/{tag}"
+    return release_data.get("html_url") or f"https://github.com/{repo}/releases/tag/{tag}"
 
 
 if __name__ == '__main__':
