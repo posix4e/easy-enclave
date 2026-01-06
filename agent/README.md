@@ -52,6 +52,23 @@ The agent VM waits for a deploy request and then starts the workload using
 
 By default the agent VM runs sealed (`SEAL_VM=true`).
 
+## Pristine Agent Image
+
+For releases, you can bake a pristine agent image using Canonical's TDX tooling.
+This clones `canonical/tdx`, builds a TD guest image, boots once to install the
+agent via cloud-init, then powers off and exports a clean qcow2.
+
+```bash
+sudo python3 action/src/vm.py \
+  --build-pristine-agent-image \
+  --vm-image-tag v0.1.0 \
+  --vm-image-sha256 <base-image-sha256> \
+  --tdx-guest-version 24.04 \
+  --output-image /var/lib/easy-enclave/agent-pristine-v0.1.0.qcow2
+```
+
+The repo clone is stored in `/var/lib/easy-enclave/tdx` by default.
+
 ## API
 
 ### POST /deploy

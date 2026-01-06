@@ -42,7 +42,10 @@ def load_template(name: str) -> str:
 
 
 # Default paths (Canonical TDX layout)
+TDX_REPO_URL = "https://github.com/canonical/tdx.git"
 TDX_TOOLS_DIR = "/opt/tdx"
+DEFAULT_TDX_REPO_DIR = "/var/lib/easy-enclave/tdx"
+DEFAULT_TDX_GUEST_VERSION = "24.04"
 IMAGE_DIR = "/var/lib/easy-enclave"
 DEFAULT_TD_IMAGE = f"{IMAGE_DIR}/td-guest.qcow2"
 
@@ -121,6 +124,54 @@ def find_existing_images() -> list:
     return images
 
 
+def ensure_tdx_repo(repo_dir: str, ref: str = "main") -> Path:
+    """Ensure the canonical/tdx repo is available locally."""
+    repo_path = Path(repo_dir)
+    guest_tools = repo_path / "guest-tools" / "image" / "create-td-image.sh"
+    if guest_tools.exists():
+        return repo_path
+
+    if repo_path.exists() and not (repo_path / ".git").exists():
+        raise RuntimeError(f"TDX repo path exists but is not a git repo: {repo_path}")
+
+    repo_path.parent.mkdir(parents=True, exist_ok=True)
+    log(f"Cloning canonical/tdx into {repo_path}...")
+    subprocess.run(
+        ["git", "clone", "--depth", "1", "--branch", ref, TDX_REPO_URL, str(repo_path)],
+        check=True,
+        capture_output=True,
+    )
+    return repo_path
+
+
+def find_latest_td_image(image_dir: Path, version: str) -> str:
+    """Find the most recent TD image in the given directory."""
+    candidates = sorted(
+        image_dir.glob(f"tdx-guest-ubuntu-{version}-*.qcow2"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if not candidates:
+        raise RuntimeError(f"No TD image found in {image_dir} for Ubuntu {version}")
+    return str(candidates[0])
+
+
+def build_td_image_from_repo(
+    repo_dir: str,
+    version: str = DEFAULT_TDX_GUEST_VERSION,
+    ref: str = "main",
+) -> str:
+    """Build a TD guest image using canonical/tdx tooling."""
+    repo_path = ensure_tdx_repo(repo_dir, ref=ref)
+    image_dir = repo_path / "guest-tools" / "image"
+    cmd = ["./create-td-image.sh", "-v", version]
+    if os.geteuid() != 0:
+        cmd = ["sudo"] + cmd
+    log(f"Building TD image via {image_dir} ({version})...")
+    subprocess.run(cmd, check=True, cwd=image_dir, capture_output=True)
+    return find_latest_td_image(image_dir, version)
+
+
 def download_ubuntu_image(version: str = "24.04", dest_dir: str = IMAGE_DIR) -> str:
     """
     Download Ubuntu cloud image if not present.
@@ -165,12 +216,23 @@ def download_ubuntu_image(version: str = "24.04", dest_dir: str = IMAGE_DIR) -> 
     return dest_path
 
 
-def find_or_download_td_image(prefer_version: str = "24.04") -> str:
+def find_or_download_td_image(
+    prefer_version: str = "24.04",
+    *,
+    build_from_tdx_repo: bool = False,
+    tdx_repo_dir: str | None = None,
+    tdx_repo_ref: str = "main",
+) -> str:
     """
     Find existing TD image or download one.
 
     Returns path to usable image.
     """
+    # Optionally build via canonical/tdx.
+    if build_from_tdx_repo:
+        repo_dir = tdx_repo_dir or DEFAULT_TDX_REPO_DIR
+        return build_td_image_from_repo(repo_dir, prefer_version, ref=tdx_repo_ref)
+
     # First, look for existing images
     existing = find_existing_images()
 
@@ -331,6 +393,7 @@ def create_agent_image(
     vm_py: str,
     vm_image_tag: str,
     vm_image_sha256: str,
+    user_data_template: str = "agent-user-data.yml",
 ) -> str:
     """Create an agent VM image with agent service installed."""
     workdir = tempfile.mkdtemp(prefix="ee-agent-")
@@ -347,7 +410,7 @@ def create_agent_image(
     network_config = load_template("network-config.yml")
     vm_image_id = build_vm_image_id_yaml(vm_image_tag, vm_image_sha256)
 
-    user_data = load_template("agent-user-data.yml").format(
+    user_data = load_template(user_data_template).format(
         agent_py=indent_yaml(agent_py, 6),
         vm_py=indent_yaml(vm_py, 6),
         agent_service=indent_yaml(agent_service, 6),
@@ -423,6 +486,86 @@ def create_agent_vm(
         "ip": ip,
         "port": port,
         "host_port": host_port,
+        "workdir": workdir,
+    }
+
+
+def wait_for_vm_shutdown(name: str, timeout: int = 1200) -> None:
+    """Wait for a VM to reach the shut off state."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        result = subprocess.run(['sudo', 'virsh', 'domstate', name], capture_output=True, text=True)
+        state = result.stdout.strip().lower()
+        if "shut off" in state or "shutoff" in state:
+            return
+        time.sleep(5)
+    raise TimeoutError(f"Timed out waiting for {name} to shut down")
+
+
+def cleanup_vm_definition(name: str) -> None:
+    """Remove VM definition without deleting disk."""
+    subprocess.run(['sudo', 'virsh', 'destroy', name], capture_output=True)
+    subprocess.run(['sudo', 'virsh', 'undefine', name, '--nvram'], capture_output=True)
+
+
+def build_pristine_agent_image(
+    name: str = "ee-agent-bake",
+    vm_image_tag: str = "",
+    vm_image_sha256: str = "",
+    tdx_repo_dir: str | None = None,
+    tdx_repo_ref: str = "main",
+    tdx_guest_version: str = DEFAULT_TDX_GUEST_VERSION,
+    output_path: str | None = None,
+    timeout: int = 1200,
+) -> dict:
+    """Build a pristine agent image by baking cloud-init into a base TD image."""
+    log("Checking requirements...")
+    check_requirements()
+
+    log("Building TD base image via canonical/tdx...")
+    base_image = find_or_download_td_image(
+        prefer_version=tdx_guest_version,
+        build_from_tdx_repo=True,
+        tdx_repo_dir=tdx_repo_dir,
+        tdx_repo_ref=tdx_repo_ref,
+    )
+    log(f"Using base image: {base_image}")
+
+    agent_py = (Path(__file__).parent / "agent.py").read_text()
+    vm_py = Path(__file__).read_text()
+
+    log("Creating agent bake image...")
+    agent_image, cidata_iso, workdir = create_agent_image(
+        base_image,
+        agent_py,
+        vm_py,
+        vm_image_tag,
+        vm_image_sha256,
+        user_data_template="agent-bake-user-data.yml",
+    )
+
+    log("Starting bake VM...")
+    ip = start_td_vm(agent_image, cidata_iso, name)
+    log(f"Bake VM IP: {ip}")
+
+    log("Waiting for bake VM to shut down...")
+    wait_for_vm_shutdown(name, timeout=timeout)
+    cleanup_vm_definition(name)
+
+    os.makedirs(IMAGE_DIR, exist_ok=True)
+    if output_path:
+        dest_path = output_path
+    else:
+        tag = vm_image_tag or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        dest_path = os.path.join(IMAGE_DIR, f"agent-pristine-{tag}.qcow2")
+
+    log(f"Exporting pristine image to {dest_path}...")
+    subprocess.run(['qemu-img', 'convert', '-O', 'qcow2', agent_image, dest_path], check=True)
+
+    return {
+        "name": name,
+        "base_image": base_image,
+        "agent_image": dest_path,
         "workdir": workdir,
     }
 
@@ -982,7 +1125,27 @@ if __name__ == '__main__':
     parser.add_argument('--agent', action='store_true', help='Create agent VM (no workload)')
     parser.add_argument('--vm-image-tag', default='', help='Agent VM image tag')
     parser.add_argument('--vm-image-sha256', default='', help='Agent VM image sha256')
+    parser.add_argument('--build-pristine-agent-image', action='store_true', help='Bake a pristine agent image')
+    parser.add_argument('--tdx-repo-dir', default='', help='canonical/tdx repo dir for image build')
+    parser.add_argument('--tdx-repo-ref', default='main', help='canonical/tdx repo ref (default: main)')
+    parser.add_argument('--tdx-guest-version', default=DEFAULT_TDX_GUEST_VERSION, help='TD guest Ubuntu version')
+    parser.add_argument('--output-image', default='', help='Output path for pristine agent image')
+    parser.add_argument('--bake-timeout', type=int, default=1200, help='Bake timeout seconds (default: 1200)')
     args = parser.parse_args()
+
+    if args.build_pristine_agent_image:
+        result = build_pristine_agent_image(
+            name=args.name if args.name != 'ee-workload' else 'ee-agent-bake',
+            vm_image_tag=args.vm_image_tag,
+            vm_image_sha256=args.vm_image_sha256,
+            tdx_repo_dir=args.tdx_repo_dir or None,
+            tdx_repo_ref=args.tdx_repo_ref,
+            tdx_guest_version=args.tdx_guest_version,
+            output_path=args.output_image or None,
+            timeout=args.bake_timeout,
+        )
+        print(json.dumps(result, indent=2))
+        sys.exit(0)
 
     if args.agent:
         if args.name == 'ee-workload':
