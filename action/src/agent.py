@@ -17,9 +17,11 @@ API:
 
 import base64
 import hashlib
+import hmac
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -78,7 +80,53 @@ class Deployment:
 
 def ensure_deployments_dir():
     """Ensure deployments directory exists."""
-    DEPLOYMENTS_DIR.mkdir(parents=True, exist_ok=True)
+DEPLOYMENTS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+CONTACT_DATA_DIR = Path(os.getenv("CONTACT_DATA_DIR", "/var/lib/easy-enclave/contact-server"))
+CONTACT_DB_PATH = Path(os.getenv("CONTACT_DB_PATH", str(CONTACT_DATA_DIR / "contacts.db")))
+CONTACT_KEY_PATH = Path(os.getenv("CONTACT_KEY_PATH", str(CONTACT_DATA_DIR / "hmac.key")))
+CONTACT_API_TOKEN = os.getenv("CONTACT_API_TOKEN", "")
+
+EE_CONTROL_WS = os.getenv("EE_CONTROL_WS", "")
+EE_REPO = os.getenv("EE_REPO", "")
+EE_RELEASE_TAG = os.getenv("EE_RELEASE_TAG", "")
+EE_APP_NAME = os.getenv("EE_APP_NAME", "")
+EE_NETWORK = os.getenv("EE_NETWORK", "forge-1")
+EE_AGENT_ID = os.getenv("EE_AGENT_ID", str(uuid.uuid4()))
+EE_BACKEND_PORT = int(os.getenv("EE_BACKEND_PORT", "8000"))
+EE_HEALTH_INTERVAL_SEC = int(os.getenv("EE_HEALTH_INTERVAL_SEC", "60"))
+EE_RECONNECT_DELAY_SEC = int(os.getenv("EE_RECONNECT_DELAY_SEC", "5"))
+
+CONTACT_DB_LOCK = threading.Lock()
+CONTACT_DB: sqlite3.Connection | None = None
+CONTACT_KEY: bytes | None = None
+
+
+def ensure_contact_storage() -> None:
+    CONTACT_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def load_contact_key() -> bytes:
+    if CONTACT_KEY_PATH.exists():
+        return CONTACT_KEY_PATH.read_bytes()
+    key = os.urandom(32)
+    CONTACT_KEY_PATH.write_bytes(key)
+    os.chmod(CONTACT_KEY_PATH, 0o600)
+    return key
+
+
+def connect_contact_db() -> sqlite3.Connection:
+    conn = sqlite3.connect(CONTACT_DB_PATH, check_same_thread=False)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS contacts (id INTEGER PRIMARY KEY AUTOINCREMENT, hmac TEXT UNIQUE)"
+    )
+    return conn
+
+
+def compute_contact_hmac(key: bytes, contact: str) -> str:
+    digest = hmac.new(key, contact.encode("utf-8"), hashlib.sha256).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
 
 def save_deployment(deployment: Deployment):
