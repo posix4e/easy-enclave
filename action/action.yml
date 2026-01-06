@@ -126,12 +126,43 @@ runs:
   using: 'composite'
   steps:
     # Agent mode: call remote agent API
+    - name: Resolve agent URL
+      id: agent-url
+      if: ${{ inputs.agent-url != '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        URL="${{ inputs.agent-url }}"
+        if [ "${{ inputs.agent-attestation-via-ssh }}" = "true" ] && [ -n "${{ inputs.agent-ssh-host }}" ] && [ -n "${{ inputs.agent-ssh-key }}" ]; then
+          KEY_FILE=$(mktemp)
+          chmod 600 "$KEY_FILE"
+          printf '%s\n' "${{ inputs.agent-ssh-key }}" > "$KEY_FILE"
+          IP=$(ssh -o StrictHostKeyChecking=no -p "${{ inputs.agent-ssh-port }}" -i "$KEY_FILE" \
+            "${{ inputs.agent-ssh-user }}@${{ inputs.agent-ssh-host }}" \
+            "sudo virsh domifaddr \"${{ inputs.agent-vm-name }}\" --source lease | awk '/ipv4/ {print \\$4}' | head -n1 | cut -d/ -f1")
+          if [ -z "$IP" ]; then
+            IP=$(ssh -o StrictHostKeyChecking=no -p "${{ inputs.agent-ssh-port }}" -i "$KEY_FILE" \
+              "${{ inputs.agent-ssh-user }}@${{ inputs.agent-ssh-host }}" \
+              "sudo virsh net-dhcp-leases default | awk -v n=\"${{ inputs.agent-vm-name }}\" '\\$0 ~ n && /ipv4/ {print \\$5}' | head -n1 | cut -d/ -f1")
+          fi
+          if [ -z "$IP" ]; then
+            echo "Could not determine IP for ${{ inputs.agent-vm-name }}" >&2
+            exit 1
+          fi
+          TUNNEL_PORT=18000
+          ssh -o StrictHostKeyChecking=no -o ExitOnForwardFailure=yes -p "${{ inputs.agent-ssh-port }}" -i "$KEY_FILE" \
+            -fN -L "${TUNNEL_PORT}:${IP}:${{ inputs.agent-vm-port }}" \
+            "${{ inputs.agent-ssh-user }}@${{ inputs.agent-ssh-host }}"
+          rm -f "$KEY_FILE"
+          URL="http://127.0.0.1:${TUNNEL_PORT}"
+        fi
+        echo "url=$URL" >> "$GITHUB_OUTPUT"
     - name: Ensure agent VM
       if: ${{ inputs.agent-url != '' && inputs.agent-ssh-host != '' && inputs.agent-ssh-key != '' }}
       shell: bash
       run: |
         set -euo pipefail
-        if curl -sf "${{ inputs.agent-url }}/health" >/dev/null; then
+        if curl -sf "${{ steps.agent-url.outputs.url }}/health" >/dev/null; then
           echo "Agent reachable"
           exit 0
         fi
@@ -184,27 +215,26 @@ runs:
       run: |
         set -euo pipefail
         python3 -m pip install "${{ github.action_path }}/../sdk"
-        ATTEST_ARGS=(--attestation-url "${{ inputs.agent-url }}/attestation")
+        ATTEST_ARGS=(--attestation-url "${{ steps.agent-url.outputs.url }}/attestation")
         if [ "${{ inputs.agent-attestation-via-ssh }}" = "true" ] && [ -n "${{ inputs.agent-ssh-host }}" ] && [ -n "${{ inputs.agent-ssh-key }}" ]; then
           KEY_FILE=$(mktemp)
           chmod 600 "$KEY_FILE"
           printf '%s\n' "${{ inputs.agent-ssh-key }}" > "$KEY_FILE"
+          IP=$(ssh -o StrictHostKeyChecking=no -p "${{ inputs.agent-ssh-port }}" -i "$KEY_FILE" \
+            "${{ inputs.agent-ssh-user }}@${{ inputs.agent-ssh-host }}" \
+            "sudo virsh domifaddr \"${{ inputs.agent-vm-name }}\" --source lease | awk '/ipv4/ {print \\$4}' | head -n1 | cut -d/ -f1")
+          if [ -z "$IP" ]; then
+            IP=$(ssh -o StrictHostKeyChecking=no -p "${{ inputs.agent-ssh-port }}" -i "$KEY_FILE" \
+              "${{ inputs.agent-ssh-user }}@${{ inputs.agent-ssh-host }}" \
+              "sudo virsh net-dhcp-leases default | awk -v n=\"${{ inputs.agent-vm-name }}\" '\\$0 ~ n && /ipv4/ {print \\$5}' | head -n1 | cut -d/ -f1")
+          fi
+          if [ -z "$IP" ]; then
+            echo "Could not determine IP for ${{ inputs.agent-vm-name }}" >&2
+            exit 1
+          fi
           ssh -o StrictHostKeyChecking=no -p "${{ inputs.agent-ssh-port }}" -i "$KEY_FILE" \
-            "${{ inputs.agent-ssh-user }}@${{ inputs.agent-ssh-host }}" "bash -s" -- \
-            "${{ inputs.agent-vm-name }}" "${{ inputs.agent-vm-port }}" <<'EOF' > /tmp/agent_attestation.json
-        set -euo pipefail
-        NAME="$1"
-        PORT="$2"
-        IP=$(sudo virsh domifaddr "$NAME" --source lease | awk '/ipv4/ {print $4}' | head -n1 | cut -d/ -f1)
-        if [ -z "$IP" ]; then
-          IP=$(sudo virsh net-dhcp-leases default | awk -v n="$NAME" '$0 ~ n && $0 ~ /ipv4/ {print $5}' | head -n1 | cut -d/ -f1)
-        fi
-        if [ -z "$IP" ]; then
-          echo "Could not determine IP for $NAME" >&2
-          exit 1
-        fi
-        curl -sf "http://$IP:$PORT/attestation"
-        EOF
+            "${{ inputs.agent-ssh-user }}@${{ inputs.agent-ssh-host }}" \
+            "curl -sf \"http://$IP:${{ inputs.agent-vm-port }}/attestation\"" > /tmp/agent_attestation.json
           rm -f "$KEY_FILE"
           ATTEST_ARGS=(--attestation-file /tmp/agent_attestation.json)
         fi
@@ -261,7 +291,7 @@ runs:
       if: ${{ inputs.agent-url != '' }}
       shell: bash
       run: |
-        echo "Deploying via agent at ${{ inputs.agent-url }}"
+        echo "Deploying via agent at ${{ steps.agent-url.outputs.url }}"
 
         CLEANUP_PREFIXES_JSON="null"
         if [ -n "${{ inputs.cleanup-prefixes }}" ]; then
@@ -317,7 +347,7 @@ runs:
           --argjson seal_vm "$SEAL_VM_JSON" \
           '{repo:$repo, port:$port, vm_name:$vm_name, bundle_artifact_id:$bundle_artifact_id, seal_vm:$seal_vm} + ( $cleanup_prefixes == null ? {} : {cleanup_prefixes:$cleanup_prefixes} ) + ( $private_env == null ? {} : {private_env:$private_env} )')
 
-        RESPONSE=$(curl -sf -X POST "${{ inputs.agent-url }}/deploy" \
+        RESPONSE=$(curl -sf -X POST "${{ steps.agent-url.outputs.url }}/deploy" \
           -H "Authorization: Bearer ${{ inputs.github-token }}" \
           -H "Content-Type: application/json" \
           -d "$PAYLOAD")
@@ -329,7 +359,7 @@ runs:
         MAX_WAIT=600
         WAITED=0
         while [ $WAITED -lt $MAX_WAIT ]; do
-          STATUS_RESPONSE=$(curl -sf "${{ inputs.agent-url }}/status/$DEPLOY_ID")
+          STATUS_RESPONSE=$(curl -sf "${{ steps.agent-url.outputs.url }}/status/$DEPLOY_ID")
           STATUS=$(echo "$STATUS_RESPONSE" | jq -r .status)
           echo "Status: $STATUS (waited ${WAITED}s)"
           SERIAL_LOG=$(echo "$STATUS_RESPONSE" | jq -r '.host_logs.serial // empty')
@@ -413,27 +443,26 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        ATTEST_ARGS=(--attestation-url "${{ inputs.agent-url }}/attestation")
+        ATTEST_ARGS=(--attestation-url "${{ steps.agent-url.outputs.url }}/attestation")
         if [ "${{ inputs.agent-attestation-via-ssh }}" = "true" ] && [ -n "${{ inputs.agent-ssh-host }}" ] && [ -n "${{ inputs.agent-ssh-key }}" ]; then
           KEY_FILE=$(mktemp)
           chmod 600 "$KEY_FILE"
           printf '%s\n' "${{ inputs.agent-ssh-key }}" > "$KEY_FILE"
+          IP=$(ssh -o StrictHostKeyChecking=no -p "${{ inputs.agent-ssh-port }}" -i "$KEY_FILE" \
+            "${{ inputs.agent-ssh-user }}@${{ inputs.agent-ssh-host }}" \
+            "sudo virsh domifaddr \"${{ inputs.agent-vm-name }}\" --source lease | awk '/ipv4/ {print \\$4}' | head -n1 | cut -d/ -f1")
+          if [ -z "$IP" ]; then
+            IP=$(ssh -o StrictHostKeyChecking=no -p "${{ inputs.agent-ssh-port }}" -i "$KEY_FILE" \
+              "${{ inputs.agent-ssh-user }}@${{ inputs.agent-ssh-host }}" \
+              "sudo virsh net-dhcp-leases default | awk -v n=\"${{ inputs.agent-vm-name }}\" '\\$0 ~ n && /ipv4/ {print \\$5}' | head -n1 | cut -d/ -f1")
+          fi
+          if [ -z "$IP" ]; then
+            echo "Could not determine IP for ${{ inputs.agent-vm-name }}" >&2
+            exit 1
+          fi
           ssh -o StrictHostKeyChecking=no -p "${{ inputs.agent-ssh-port }}" -i "$KEY_FILE" \
-            "${{ inputs.agent-ssh-user }}@${{ inputs.agent-ssh-host }}" "bash -s" -- \
-            "${{ inputs.agent-vm-name }}" "${{ inputs.agent-vm-port }}" <<'EOF' > /tmp/agent_attestation.json
-        set -euo pipefail
-        NAME="$1"
-        PORT="$2"
-        IP=$(sudo virsh domifaddr "$NAME" --source lease | awk '/ipv4/ {print $4}' | head -n1 | cut -d/ -f1)
-        if [ -z "$IP" ]; then
-          IP=$(sudo virsh net-dhcp-leases default | awk -v n="$NAME" '$0 ~ n && $0 ~ /ipv4/ {print $5}' | head -n1 | cut -d/ -f1)
-        fi
-        if [ -z "$IP" ]; then
-          echo "Could not determine IP for $NAME" >&2
-          exit 1
-        fi
-        curl -sf "http://$IP:$PORT/attestation"
-        EOF
+            "${{ inputs.agent-ssh-user }}@${{ inputs.agent-ssh-host }}" \
+            "curl -sf \"http://$IP:${{ inputs.agent-vm-port }}/attestation\"" > /tmp/agent_attestation.json
           rm -f "$KEY_FILE"
           ATTEST_ARGS=(--attestation-file /tmp/agent_attestation.json)
         fi
