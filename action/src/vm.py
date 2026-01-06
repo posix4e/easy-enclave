@@ -415,10 +415,14 @@ def create_agent_vm(
     log("Waiting for agent to be ready...")
     wait_for_ready(ip, port=port, timeout=300)
 
+    log("Setting up port forwarding...")
+    host_port = setup_port_forward(ip, port)
+
     return {
         "name": name,
         "ip": ip,
         "port": port,
+        "host_port": host_port,
         "workdir": workdir,
     }
 
