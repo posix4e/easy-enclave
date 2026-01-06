@@ -9,6 +9,7 @@ Deploy workloads to a remote Easy Enclave agent and publish an attested release.
 - `agent-allowlist-asset`: allowlist asset name (default: agent-attestation-allowlist.json)
 - `agent-attestation-skip-pccs`: skip PCCS verification (default: false)
 - `agent-skip-attestation`: skip agent attestation checks (default: false)
+- `agent-attestation-via-ssh`: fetch attestation via SSH to the host (default: false)
 - `agent-ssh-host`: SSH host for agent VM provisioning
 - `agent-ssh-user`: SSH user (default: ubuntu)
 - `agent-ssh-key`: SSH private key for agent VM provisioning

@@ -52,6 +52,10 @@ inputs:
     description: 'Skip agent attestation checks (development only)'
     required: false
     default: 'false'
+  agent-attestation-via-ssh:
+    description: 'Fetch attestation via SSH to the host (uses agent-ssh-*)'
+    required: false
+    default: 'false'
   agent-ssh-host:
     description: 'SSH host for agent VM provisioning'
     required: false
@@ -180,9 +184,20 @@ runs:
       run: |
         set -euo pipefail
         python3 -m pip install "${{ github.action_path }}/../sdk"
+        ATTEST_ARGS=(--attestation-url "${{ inputs.agent-url }}/attestation")
+        if [ "${{ inputs.agent-attestation-via-ssh }}" = "true" ] && [ -n "${{ inputs.agent-ssh-host }}" ] && [ -n "${{ inputs.agent-ssh-key }}" ]; then
+          KEY_FILE=$(mktemp)
+          chmod 600 "$KEY_FILE"
+          printf '%s\n' "${{ inputs.agent-ssh-key }}" > "$KEY_FILE"
+          ssh -o StrictHostKeyChecking=no -p "${{ inputs.agent-ssh-port }}" -i "$KEY_FILE" \
+            "${{ inputs.agent-ssh-user }}@${{ inputs.agent-ssh-host }}" \
+            "curl -sf http://127.0.0.1:${{ inputs.agent-vm-port }}/attestation" > /tmp/agent_attestation.json
+          rm -f "$KEY_FILE"
+          ATTEST_ARGS=(--attestation-file /tmp/agent_attestation.json)
+        fi
         python3 "${{ github.action_path }}/src/verify_agent_attestation.py" \
           --allowlist /tmp/agent_allowlist.json \
-          --attestation-url "${{ inputs.agent-url }}/attestation" \
+          "${ATTEST_ARGS[@]}" \
           ${{ inputs.agent-attestation-skip-pccs == 'true' && '--skip-pccs' || '' }}
     - name: Build public bundle
       id: bundle
@@ -385,7 +400,18 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        ATTEST_ARGS=(--attestation-url "${{ inputs.agent-url }}/attestation")
+        if [ "${{ inputs.agent-attestation-via-ssh }}" = "true" ] && [ -n "${{ inputs.agent-ssh-host }}" ] && [ -n "${{ inputs.agent-ssh-key }}" ]; then
+          KEY_FILE=$(mktemp)
+          chmod 600 "$KEY_FILE"
+          printf '%s\n' "${{ inputs.agent-ssh-key }}" > "$KEY_FILE"
+          ssh -o StrictHostKeyChecking=no -p "${{ inputs.agent-ssh-port }}" -i "$KEY_FILE" \
+            "${{ inputs.agent-ssh-user }}@${{ inputs.agent-ssh-host }}" \
+            "curl -sf http://127.0.0.1:${{ inputs.agent-vm-port }}/attestation" > /tmp/agent_attestation.json
+          rm -f "$KEY_FILE"
+          ATTEST_ARGS=(--attestation-file /tmp/agent_attestation.json)
+        fi
         python3 "${{ github.action_path }}/src/verify_agent_attestation.py" \
           --allowlist /tmp/agent_allowlist.json \
-          --attestation-url "${{ inputs.agent-url }}/attestation" \
+          "${ATTEST_ARGS[@]}" \
           ${{ inputs.agent-attestation-skip-pccs == 'true' && '--skip-pccs' || '' }}

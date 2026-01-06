@@ -21,7 +21,8 @@ def fetch_attestation(url: str) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verify agent attestation")
     parser.add_argument("--allowlist", required=True, help="Path to allowlist JSON")
-    parser.add_argument("--attestation-url", required=True, help="Agent attestation URL")
+    parser.add_argument("--attestation-url", help="Agent attestation URL")
+    parser.add_argument("--attestation-file", help="Path to attestation JSON")
     parser.add_argument("--skip-pccs", action="store_true", help="Skip PCCS verification")
     args = parser.parse_args()
 
@@ -31,7 +32,13 @@ def main() -> int:
         print("Allowlist missing vm_image_id", file=sys.stderr)
         return 2
 
-    attestation = fetch_attestation(args.attestation_url)
+    if args.attestation_file:
+        attestation = load_json(args.attestation_file)
+    elif args.attestation_url:
+        attestation = fetch_attestation(args.attestation_url)
+    else:
+        print("Must provide --attestation-url or --attestation-file", file=sys.stderr)
+        return 2
     quote = attestation.get("quote")
     if not quote:
         print("Attestation missing quote", file=sys.stderr)
