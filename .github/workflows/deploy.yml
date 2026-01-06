@@ -32,7 +32,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG=$(gh api repos/${{ github.repository }}/releases --paginate \
-            --jq 'first(.[] | select(any(.assets[]?; .name=="agent-attestation-allowlist.json")) | .tag_name)')
+            --jq '([.[] | select(any(.assets[]?; .name=="agent-attestation-allowlist.json"))] | sort_by(.created_at) | last | .tag_name)')
           if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
             echo "::error::No release found with agent-attestation-allowlist.json"
             exit 1
