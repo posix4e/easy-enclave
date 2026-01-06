@@ -120,6 +120,27 @@ layout that routes `appname.app.easyenclave.com` only when attestation and healt
 `control_plane/tunnel_proxy.py` forwards traffic to `/v1/proxy/{app}` which dispatches requests
 over the active WebSocket tunnel handled by `agent/tunnel_client.py`.
 
+Minimal run:
+
+```bash
+pip install -r control_plane/requirements.txt
+python control_plane/server.py
+python control_plane/tunnel_proxy.py
+```
+
+Agent tunnel client:
+
+```bash
+pip install aiohttp
+EE_CONTROL_WS=ws://127.0.0.1:8088/v1/tunnel \
+EE_REPO=owner/repo \
+EE_RELEASE_TAG=v0.1.3 \
+EE_APP_NAME=myapp \
+EE_NETWORK=forge-1 \
+EE_BACKEND_URL=http://127.0.0.1:8080 \
+python agent/tunnel_client.py
+```
+
 ## Agent API
 
 The agent exposes a simple HTTP API:
