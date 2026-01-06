@@ -3,7 +3,10 @@
 set -e
 
 INSTALL_DIR="/opt/easy-enclave"
-AGENT_SRC="$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+AGENT_SRC="$REPO_ROOT/agent"
+HOST_SRC="$REPO_ROOT/host"
 
 echo "Installing Easy Enclave Agent..."
 
@@ -40,13 +43,13 @@ mkdir -p /var/lib/easy-enclave/deployments
 
 # Copy agent files
 echo "Copying agent files..."
-cp "$AGENT_SRC/vm.py" "$INSTALL_DIR/"
+cp "$HOST_SRC/vm.py" "$INSTALL_DIR/"
 cp "$AGENT_SRC/agent.py" "$INSTALL_DIR/"
-cp -r "$AGENT_SRC/templates" "$INSTALL_DIR/"
+cp -r "$HOST_SRC/templates" "$INSTALL_DIR/"
 
 # Install systemd service
 echo "Installing systemd service..."
-cp "$(dirname "$0")/systemd/ee-agent.service" /etc/systemd/system/
+cp "$HOST_SRC/systemd/ee-agent.service" /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable ee-agent
 

@@ -5,11 +5,6 @@ write_files:
     content: |
 {agent_py}
 
-  - path: /opt/ee-agent/vm.py
-    permissions: '0644'
-    content: |
-{vm_py}
-
   - path: /etc/systemd/system/ee-agent.service
     content: |
 {agent_service}

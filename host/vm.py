@@ -31,7 +31,7 @@ def log(msg):
 # Templates directory - check multiple locations
 _script_dir = Path(__file__).parent
 _possible_template_dirs = [
-    _script_dir / "templates",             # agent/vm.py -> agent/templates
+    _script_dir / "templates",             # host/vm.py -> host/templates
     _script_dir.parent / "templates",      # legacy layout
 ]
 TEMPLATES_DIR = next((d for d in _possible_template_dirs if d.exists()), _possible_template_dirs[0])
@@ -400,7 +400,6 @@ def build_vm_image_id_yaml(tag: str, sha256: str) -> str:
 def create_agent_image(
     base_image: str,
     agent_py: str,
-    vm_py: str,
     vm_image_tag: str,
     vm_image_sha256: str,
     user_data_template: str = "agent-user-data.yml",
@@ -422,7 +421,6 @@ def create_agent_image(
 
     user_data = load_template(user_data_template).format(
         agent_py=indent_yaml(agent_py, 6),
-        vm_py=indent_yaml(vm_py, 6),
         agent_service=indent_yaml(agent_service, 6),
         vm_image_id=vm_image_id,
     )
@@ -476,13 +474,10 @@ def create_agent_vm(
     log(f"Using base image: {base_image}")
 
     agent_py = (Path(__file__).parent / "agent.py").read_text()
-    vm_py = Path(__file__).read_text()
-
     log("Creating agent image...")
     agent_image, cidata_iso, workdir = create_agent_image(
         base_image,
         agent_py,
-        vm_py,
         vm_image_tag,
         vm_image_sha256,
     )
@@ -610,13 +605,10 @@ def build_pristine_agent_image(
         log(f"Computed base image sha256: {vm_image_sha256}")
 
     agent_py = (Path(__file__).parent / "agent.py").read_text()
-    vm_py = Path(__file__).read_text()
-
     log("Creating agent bake image...")
     agent_image, cidata_iso, workdir = create_agent_image(
         base_image,
         agent_py,
-        vm_py,
         vm_image_tag,
         vm_image_sha256,
         user_data_template="agent-bake-user-data.yml",
