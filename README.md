@@ -13,9 +13,9 @@ A TDX attestation platform using GitHub as the trust anchor. Deploy workloads to
 
 **Model**: 1 TDX host = 1 GitHub repo = 1 attested service
 
-Two-VM design:
-- **Agent VM** (long-lived): runs the ee-agent and waits for deploys.
-- **Workload TD VM** (per-deploy): runs the docker-compose workload and generates the TDX quote.
+Single-VM design (current):
+- The agent runs inside the TD VM and launches `docker compose` in that same VM.
+- The TD VM generates the TDX quote used for attestation.
 
 ## Architecture
 
@@ -34,25 +34,18 @@ Two-VM design:
 │                         TDX Host                                     │
 │                                                                      │
 │  ┌───────────────────────────────────────────────────────────────┐  │
-│  │  ee-agent (HTTP API on port 8000)                              │  │
+│  │            TD VM (TDX-protected, runs ee-agent)               │  │
 │  │                                                                │  │
 │  │  POST /deploy ──► Download bundle artifact                     │  │
 │  │                      │                                         │  │
 │  │                      ▼                                         │  │
-│  │  ┌─────────────────────────────────────────────────────────┐  │  │
-│  │  │            TD VM (TDX-protected)                         │  │  │
-│  │  │                                                          │  │  │
-│  │  │  ┌────────────────┐    ┌─────────────────────────────┐  │  │  │
-│  │  │  │ docker-compose │    │ TDX Quote Generation        │  │  │  │
-│  │  │  │   workload     │    │ via configfs-tsm            │  │  │  │
-│  │  │  └────────────────┘    └─────────────────────────────┘  │  │  │
-│  │  │                                                          │  │  │
-│  │  └──────────────────────────────────────────────────────────┘  │  │
-│  │                      │                                         │  │
-│  │                      ▼                                         │  │
-│  │  GET /status ◄── Create GitHub Release with attestation.json  │  │
+│  │  ┌────────────────┐    ┌─────────────────────────────┐         │  │
+│  │  │ docker-compose │    │ TDX Quote Generation        │         │  │
+│  │  │   workload     │    │ via configfs-tsm            │         │  │
+│  │  └────────────────┘    └─────────────────────────────┘         │  │
 │  │                                                                │  │
-│  └────────────────────────────────────────────────────────────────┘  │
+│  │  GET /status ◄── Create GitHub Release with attestation.json   │  │
+│  └───────────────────────────────────────────────────────────────┘  │
 │                                                                      │
 └─────────────────────────────────────────────────────────────────────┘
                     │

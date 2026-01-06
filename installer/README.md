@@ -53,10 +53,10 @@ sudo ./installer/install.sh --mode vm --non-interactive --vm-name ee-agent
 ## Agent VM
 
 To run the agent inside a dedicated VM, use `installer/host.py --agent` on a TDX host.
-This bootstraps the agent via cloud-init and starts the service in the agent VM.
+This bootstraps the agent via cloud-init and starts the service inside the TD VM.
 
-The agent VM waits for a deploy request and then starts a separate workload TD VM
-that runs `docker compose` inside the TD.
+The agent VM waits for a deploy request and then starts `docker compose` inside
+the same VM.
 
 By default the agent VM runs sealed (`SEAL_VM=true`).
 

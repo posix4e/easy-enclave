@@ -1,7 +1,7 @@
 # Easy Enclave Agent
 
-HTTP service that deploys TD VMs and publishes attested releases. The agent runs
-inside a long-lived agent VM and launches a separate workload TD VM per deploy.
+HTTP service that deploys docker-compose workloads and publishes attested
+releases. The agent runs inside the TD VM and launches workloads in that same VM.
 
 Host setup, VM tooling, and allowlist generation live in `installer/README.md`.
 
