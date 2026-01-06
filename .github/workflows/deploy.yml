@@ -43,6 +43,13 @@ jobs:
         with:
           agent-url: ${{ secrets.AGENT_URL }}
           agent-release-tag: ${{ steps.latest-release.outputs.tag }}
+          agent-attestation-via-ssh: 'true'
+          agent-ssh-host: ${{ secrets.AGENT_SSH_HOST }}
+          agent-ssh-user: ${{ secrets.AGENT_SSH_USER }}
+          agent-ssh-port: ${{ secrets.AGENT_SSH_PORT }}
+          agent-ssh-key: ${{ secrets.AGENT_SSH_KEY }}
+          agent-vm-name: ${{ secrets.AGENT_VM_NAME }}
+          agent-vm-port: ${{ secrets.AGENT_VM_PORT }}
           docker-compose: ./example/docker-compose.yml
           public-env: |
             PUBLIC_GREETING=Hello from Easy Enclave
