@@ -148,17 +148,17 @@ Upload `agent-attestation-allowlist.json` to the matching GitHub release.
 
 ## Tunnel Client (Control Plane)
 
-For app-level routing through the Easy Enclave control plane, run the tunnel client
-alongside the agent. It connects outbound via WebSocket and forwards proxy requests
-to a local backend.
+The agent now runs the tunnel client inside the same process. Set the environment
+variables below to enable the WebSocket tunnel and proxy forwarding.
 
-```bash
-pip install aiohttp
-EE_CONTROL_WS=ws://control-plane:8088/v1/tunnel \
-EE_REPO=owner/repo \
-EE_RELEASE_TAG=v0.1.3 \
-EE_APP_NAME=myapp \
-EE_NETWORK=forge-1 \
-EE_BACKEND_URL=http://127.0.0.1:8080 \
-python agent/tunnel_client.py
-```
+Required:
+- `EE_CONTROL_WS` (e.g. `ws://control-plane:8088/v1/tunnel`)
+- `EE_REPO`
+- `EE_RELEASE_TAG`
+- `EE_APP_NAME`
+
+Optional:
+- `EE_NETWORK` (default `forge-1`)
+- `EE_BACKEND_URL` (default `http://127.0.0.1:8080`)
+- `EE_HEALTH_INTERVAL_SEC` (default `60`)
+- `EE_RECONNECT_DELAY_SEC` (default `5`)

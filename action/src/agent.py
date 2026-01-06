@@ -1,27 +1,18 @@
 #!/usr/bin/env python3
 """
-Easy Enclave Deployment Agent
+Easy Enclave Agent (single process)
 
-HTTP server that receives deployment requests and runs them asynchronously.
-Deployments are tracked in /var/lib/easy-enclave/deployments/.
-
-Usage:
-    python agent.py [--port 8000] [--host 0.0.0.0]
-
-API:
-    POST /deploy - Start a new deployment
-    GET /status/{id} - Get deployment status
-    GET /health - Health check
-    GET /attestation - TDX quote + measurements for agent verification
+HTTP API + attestation + WS tunnel client in one process.
 """
 
+from __future__ import annotations
+
+import asyncio
 import base64
 import hashlib
-import hmac
 import json
 import os
 import shutil
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -30,12 +21,12 @@ import uuid
 import zipfile
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from aiohttp import ClientSession, WSMsgType, web
 from vm import (
     DEPLOYMENTS_DIR,
     check_requirements,
@@ -51,10 +42,21 @@ from vm import (
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
+EE_CONTROL_WS = os.getenv("EE_CONTROL_WS", "")
+EE_REPO = os.getenv("EE_REPO", "")
+EE_RELEASE_TAG = os.getenv("EE_RELEASE_TAG", "")
+EE_APP_NAME = os.getenv("EE_APP_NAME", "")
+EE_NETWORK = os.getenv("EE_NETWORK", "forge-1")
+EE_AGENT_ID = os.getenv("EE_AGENT_ID", str(uuid.uuid4()))
+EE_BACKEND_URL = os.getenv("EE_BACKEND_URL", "http://127.0.0.1:8080")
+EE_HEALTH_INTERVAL_SEC = int(os.getenv("EE_HEALTH_INTERVAL_SEC", "60"))
+EE_RECONNECT_DELAY_SEC = int(os.getenv("EE_RECONNECT_DELAY_SEC", "5"))
+
 
 @dataclass
 class Deployment:
     """Deployment state."""
+
     id: str
     repo: str
     port: int
@@ -71,70 +73,26 @@ class Deployment:
     created_at: str = None
     updated_at: str = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         now = datetime.now(timezone.utc).isoformat()
         if not self.created_at:
             self.created_at = now
         self.updated_at = now
 
 
-def ensure_deployments_dir():
+def ensure_deployments_dir() -> None:
     """Ensure deployments directory exists."""
-DEPLOYMENTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    DEPLOYMENTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-CONTACT_DATA_DIR = Path(os.getenv("CONTACT_DATA_DIR", "/var/lib/easy-enclave/contact-server"))
-CONTACT_DB_PATH = Path(os.getenv("CONTACT_DB_PATH", str(CONTACT_DATA_DIR / "contacts.db")))
-CONTACT_KEY_PATH = Path(os.getenv("CONTACT_KEY_PATH", str(CONTACT_DATA_DIR / "hmac.key")))
-CONTACT_API_TOKEN = os.getenv("CONTACT_API_TOKEN", "")
-
-EE_CONTROL_WS = os.getenv("EE_CONTROL_WS", "")
-EE_REPO = os.getenv("EE_REPO", "")
-EE_RELEASE_TAG = os.getenv("EE_RELEASE_TAG", "")
-EE_APP_NAME = os.getenv("EE_APP_NAME", "")
-EE_NETWORK = os.getenv("EE_NETWORK", "forge-1")
-EE_AGENT_ID = os.getenv("EE_AGENT_ID", str(uuid.uuid4()))
-EE_BACKEND_PORT = int(os.getenv("EE_BACKEND_PORT", "8000"))
-EE_HEALTH_INTERVAL_SEC = int(os.getenv("EE_HEALTH_INTERVAL_SEC", "60"))
-EE_RECONNECT_DELAY_SEC = int(os.getenv("EE_RECONNECT_DELAY_SEC", "5"))
-
-CONTACT_DB_LOCK = threading.Lock()
-CONTACT_DB: sqlite3.Connection | None = None
-CONTACT_KEY: bytes | None = None
-
-
-def ensure_contact_storage() -> None:
-    CONTACT_DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def load_contact_key() -> bytes:
-    if CONTACT_KEY_PATH.exists():
-        return CONTACT_KEY_PATH.read_bytes()
-    key = os.urandom(32)
-    CONTACT_KEY_PATH.write_bytes(key)
-    os.chmod(CONTACT_KEY_PATH, 0o600)
-    return key
-
-
-def connect_contact_db() -> sqlite3.Connection:
-    conn = sqlite3.connect(CONTACT_DB_PATH, check_same_thread=False)
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS contacts (id INTEGER PRIMARY KEY AUTOINCREMENT, hmac TEXT UNIQUE)"
-    )
-    return conn
-
-
-def compute_contact_hmac(key: bytes, contact: str) -> str:
-    digest = hmac.new(key, contact.encode("utf-8"), hashlib.sha256).digest()
-    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
-
-
-def save_deployment(deployment: Deployment):
+def save_deployment(deployment: Deployment) -> None:
     """Save deployment state to file."""
+
     ensure_deployments_dir()
     deployment.updated_at = datetime.now(timezone.utc).isoformat()
     path = DEPLOYMENTS_DIR / f"{deployment.id}.json"
-    with open(path, 'w') as f:
+    with open(path, "w") as f:
         data = asdict(deployment)
         data.pop("private_env", None)
         json.dump(data, f, indent=2)
@@ -142,6 +100,7 @@ def save_deployment(deployment: Deployment):
 
 def load_deployment(deployment_id: str) -> Optional[Deployment]:
     """Load deployment state from file."""
+
     path = DEPLOYMENTS_DIR / f"{deployment_id}.json"
     if not path.exists():
         return None
@@ -154,6 +113,7 @@ def load_deployment(deployment_id: str) -> Optional[Deployment]:
 
 def read_tail(path: str, max_bytes: int = 20000) -> str:
     """Read the tail of a log file."""
+
     try:
         with open(path, "rb") as f:
             f.seek(0, os.SEEK_END)
@@ -170,6 +130,7 @@ def read_tail(path: str, max_bytes: int = 20000) -> str:
 
 def sha256_file(path: Path) -> str:
     """Hash a file using SHA256."""
+
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
@@ -179,6 +140,7 @@ def sha256_file(path: Path) -> str:
 
 def sha256_dir(root: Path) -> str:
     """Hash a directory tree deterministically."""
+
     h = hashlib.sha256()
     skip_names = {"__pycache__", ".git", "deployments", "tmp"}
     for path in sorted(p for p in root.rglob("*") if p.is_file()):
@@ -194,6 +156,7 @@ def sha256_dir(root: Path) -> str:
 
 def get_vm_image_id() -> str:
     """Get the VM image identifier used for attestation."""
+
     env_id = os.environ.get("VM_IMAGE_ID")
     if env_id:
         return env_id
@@ -205,12 +168,14 @@ def get_vm_image_id() -> str:
 
 def get_sealed_state() -> bool:
     """Return sealed state based on environment."""
+
     value = os.environ.get("SEAL_VM", "").lower()
     return value in ("1", "true", "yes")
 
 
 def build_report_data(measurements: dict) -> bytes:
     """Build 64-byte report data from measurements."""
+
     material = (
         f"agent_dir={measurements['agent_dir_sha256']}\n"
         f"agent_py={measurements['agent_py_sha256']}\n"
@@ -223,6 +188,7 @@ def build_report_data(measurements: dict) -> bytes:
 
 def get_tdx_quote(report_data: bytes) -> bytes:
     """Get a TDX quote from configfs-tsm."""
+
     tsm_path = Path("/sys/kernel/config/tsm/report")
     if not tsm_path.exists():
         raise RuntimeError(f"configfs-tsm not available at {tsm_path}")
@@ -240,6 +206,7 @@ def get_tdx_quote(report_data: bytes) -> bytes:
 
 def build_attestation() -> dict:
     """Build attestation payload for the agent."""
+
     agent_path = Path(__file__).resolve()
     agent_dir = Path(os.environ.get("EE_AGENT_DIR", agent_path.parent))
     measurements = {
@@ -259,11 +226,13 @@ def build_attestation() -> dict:
 
 def is_vm_mode() -> bool:
     """Return true if agent is running inside the agent VM."""
+
     return os.environ.get("EE_AGENT_MODE", "").lower() == "vm"
 
 
 def write_bundle_files(bundle_dir: str, extra_files: list[dict[str, str]]) -> str:
     """Write bundle files to /opt/workload and return compose path."""
+
     target_root = Path("/opt/workload")
     target_root.mkdir(parents=True, exist_ok=True)
     compose_path = target_root / "docker-compose.yml"
@@ -286,6 +255,7 @@ def write_bundle_files(bundle_dir: str, extra_files: list[dict[str, str]]) -> st
 
 def resolve_compose_command() -> list[str]:
     """Return a compose command that exists on this host."""
+
     result = subprocess.run(
         ["docker", "compose", "version"],
         capture_output=True,
@@ -300,6 +270,7 @@ def resolve_compose_command() -> list[str]:
 
 def run_docker_compose(compose_path: str) -> None:
     """Run docker compose to start workload."""
+
     compose_cmd = resolve_compose_command()
     result = subprocess.run(
         [*compose_cmd, "-f", compose_path, "up", "-d", "--remove-orphans"],
@@ -312,6 +283,7 @@ def run_docker_compose(compose_path: str) -> None:
 
 def download_bundle_artifact(repo: str, artifact_id: int, token: Optional[str]) -> str:
     """Download and extract a bundle artifact, returning the extract directory."""
+
     tmpdir = tempfile.mkdtemp(prefix="ee-bundle-")
     zip_path = os.path.join(tmpdir, "bundle.zip")
     headers = {
@@ -323,6 +295,7 @@ def download_bundle_artifact(repo: str, artifact_id: int, token: Optional[str]) 
         headers["Authorization"] = f"token {token}"
 
     url = f"https://api.github.com/repos/{repo}/actions/artifacts/{artifact_id}/zip"
+
     class NoAuthRedirectHandler(HTTPRedirectHandler):
         def redirect_request(self, req, fp, code, msg, hdrs, newurl):
             new_req = super().redirect_request(req, fp, code, msg, hdrs, newurl)
@@ -345,8 +318,9 @@ def download_bundle_artifact(repo: str, artifact_id: int, token: Optional[str]) 
     return tmpdir
 
 
-def load_bundle(bundle_dir: str, private_env: Optional[str]) -> tuple[str, list[dict[str, str]]]:
+def load_bundle(bundle_dir: str) -> tuple[str, list[dict[str, str]], dict]:
     """Load docker-compose and extra files from the bundle."""
+
     root = Path(bundle_dir)
     compose_paths = list(root.rglob("docker-compose.yml")) + list(root.rglob("docker-compose.yaml"))
     if not compose_paths:
@@ -354,241 +328,305 @@ def load_bundle(bundle_dir: str, private_env: Optional[str]) -> tuple[str, list[
     if len(compose_paths) > 1:
         raise ValueError("Bundle has multiple docker-compose files")
     compose_path = compose_paths[0]
-    docker_compose_content = compose_path.read_text(encoding="utf-8")
 
-    public_env = None
+    env_public = None
+    if (root / ".env.public").exists():
+        env_public = (root / ".env.public").read_text(encoding="utf-8")
+
+    authorized_keys = None
+    if (root / "authorized_keys").exists():
+        authorized_keys = (root / "authorized_keys").read_text(encoding="utf-8")
+
     extra_files = []
     for path in root.rglob("*"):
-        if not path.is_file():
+        if path.is_dir():
             continue
-        if path.name == "bundle.zip":
+        if path.name in {"docker-compose.yml", "docker-compose.yaml", ".env.public", "authorized_keys", "bundle.zip"}:
             continue
-        if path == compose_path:
-            continue
-        if path.name in (".env.public", ".env"):
-            public_env = path.read_text(encoding="utf-8")
-            continue
-        rel_path = path.relative_to(root)
-        extra_files.append({
-            "path": str(rel_path),
-            "content": path.read_text(encoding="utf-8"),
-        })
+        rel = path.relative_to(root).as_posix()
+        extra_files.append({"path": rel, "content": path.read_text(encoding="utf-8")})
 
-    env_parts = []
-    if public_env:
-        env_parts.append(public_env.rstrip())
-    if private_env:
-        env_parts.append(private_env.rstrip())
-    if env_parts:
-        combined = "\n".join(part for part in env_parts if part) + "\n"
-        extra_files.append({
-            "path": ".env",
-            "content": combined,
-            "permissions": "0600",
-        })
-
-    return docker_compose_content, extra_files
+    return str(compose_path), extra_files, {
+        "env_public": env_public,
+        "authorized_keys": authorized_keys,
+    }
 
 
-def run_deployment(deployment: Deployment, token: str):
-    """Run deployment in background thread."""
+def run_deployment(deployment: Deployment, token: Optional[str]) -> None:
+    """Background worker to execute deployment."""
+
     try:
-        if not deployment.bundle_artifact_id:
-            raise ValueError("bundle_artifact_id is required")
-
-        deployment.status = "cloning"
-        save_deployment(deployment)
-        bundle_dir = download_bundle_artifact(deployment.repo, deployment.bundle_artifact_id, token)
-        docker_compose_content, extra_files = load_bundle(bundle_dir, deployment.private_env)
-        docker_compose_path = os.path.join(bundle_dir, "docker-compose.yml")
-        with open(docker_compose_path, "w", encoding="utf-8") as f:
-            f.write(docker_compose_content)
-
         deployment.status = "deploying"
         save_deployment(deployment)
 
+        log(f"Downloading bundle artifact {deployment.bundle_artifact_id} for {deployment.repo}...")
+        bundle_dir = download_bundle_artifact(deployment.repo, deployment.bundle_artifact_id, token)
+
+        compose_path, extra_files, bundle_meta = load_bundle(bundle_dir)
+
+        if deployment.cleanup_prefixes:
+            cleanup_td_vms(deployment.cleanup_prefixes)
+
         if is_vm_mode():
             compose_path = write_bundle_files(bundle_dir, extra_files)
+            if bundle_meta.get("env_public"):
+                with open("/opt/workload/.env.public", "w") as f:
+                    f.write(bundle_meta["env_public"])
+            if deployment.private_env:
+                with open("/opt/workload/.env.private", "w") as f:
+                    f.write(deployment.private_env)
+                os.chmod("/opt/workload/.env.private", 0o600)
+            env_path = "/opt/workload/.env"
+            parts = []
+            if bundle_meta.get("env_public"):
+                parts.append("/opt/workload/.env.public")
+            if deployment.private_env:
+                parts.append("/opt/workload/.env.private")
+            if parts:
+                with open(env_path, "w") as f:
+                    for idx, part in enumerate(parts):
+                        if idx:
+                            f.write("\n")
+                        f.write(Path(part).read_text(encoding="utf-8"))
+
+            if bundle_meta.get("authorized_keys"):
+                os.makedirs("/home/ubuntu/.ssh", exist_ok=True)
+                with open("/home/ubuntu/.ssh/authorized_keys", "w") as f:
+                    f.write(bundle_meta["authorized_keys"])
+                os.chmod("/home/ubuntu/.ssh/authorized_keys", 0o600)
+
             run_docker_compose(compose_path)
-            attestation = build_attestation()
-            deployment.quote = attestation.get("quote")
-            public_ip = get_public_ip()
+            deployment.status = "complete"
+            save_deployment(deployment)
+            return
+
+        log(f"Creating TD VM with docker-compose from {compose_path}...")
+        result = create_td_vm(
+            compose_path,
+            name=deployment.vm_name or f"ee-deploy-{deployment.id}",
+            port=deployment.port,
+            enable_ssh=False,
+            extra_files=extra_files,
+        )
+
+        deployment.vm_name = result.get("name")
+        deployment.vm_ip = result.get("ip")
+        deployment.quote = result.get("quote")
+
+        endpoint = f"http://{deployment.vm_ip}:{deployment.port}"
+        public_ip = get_public_ip()
+        if public_ip:
+            setup_port_forward(deployment.vm_ip, deployment.port, deployment.port)
             endpoint = f"http://{public_ip}:{deployment.port}"
-            deployment.vm_ip = public_ip
-            os.environ['GITHUB_REPOSITORY'] = deployment.repo
-            if token:
-                os.environ['GITHUB_TOKEN'] = token
-            release_url = create_release(deployment.quote, endpoint, seal_vm=deployment.seal_vm)
-            deployment.release_url = release_url
-        else:
-            cleanup_td_vms(deployment.cleanup_prefixes)
-            result = create_td_vm(
-                docker_compose_path,
-                name=deployment.vm_name or f"ee-deploy-{deployment.id[:8]}",
-                port=deployment.port,
-                enable_ssh=False,
-                extra_files=extra_files,
-            )
 
-            deployment.vm_name = result.get('name')
-            deployment.vm_ip = result.get('ip')
-            deployment.quote = result.get('quote')
-
-            log("Setting up port forwarding...")
-            setup_port_forward(deployment.vm_ip, deployment.port)
-
-            public_ip = get_public_ip()
-            log(f"Public IP: {public_ip}")
-
-            endpoint = f"http://{public_ip}:{deployment.port}"
-            os.environ['GITHUB_REPOSITORY'] = deployment.repo
-            if token:
-                os.environ['GITHUB_TOKEN'] = token
-            release_url = create_release(deployment.quote, endpoint, seal_vm=deployment.seal_vm)
-            deployment.release_url = release_url
-
+        release_url = create_release(deployment.quote, endpoint, repo=deployment.repo, token=token, seal_vm=deployment.seal_vm)
+        deployment.release_url = release_url
         deployment.status = "complete"
         save_deployment(deployment)
-        log(f"Deployment {deployment.id} complete: {deployment.release_url}")
 
-    except Exception as e:
+    except Exception as exc:
         deployment.status = "failed"
-        deployment.error = str(e)
+        deployment.error = str(exc)
         save_deployment(deployment)
-        log(f"Deployment {deployment.id} failed: {e}")
+        log(f"Deployment failed: {exc}")
 
 
-class AgentHandler(BaseHTTPRequestHandler):
-    """HTTP request handler for the agent."""
+def require_bearer_token(request: web.Request) -> Optional[str]:
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        return auth_header[7:]
+    if auth_header.lower().startswith("token "):
+        return auth_header[6:]
+    if auth_header:
+        return auth_header.strip()
+    return None
 
-    def log_message(self, format, *args):
-        """Log to stderr instead of stdout."""
-        log(f"{self.address_string()} - {format % args}")
 
-    def send_json(self, data: dict, status: int = 200):
-        """Send JSON response."""
-        body = json.dumps(data, indent=2).encode()
-        self.send_response(status)
-        self.send_header('Content-Type', 'application/json')
-        self.send_header('Content-Length', len(body))
-        self.end_headers()
-        self.wfile.write(body)
+async def handle_health(_: web.Request) -> web.Response:
+    return web.json_response({"status": "ok"})
 
-    def do_GET(self):
-        """Handle GET requests."""
-        if self.path == '/health':
-            self.send_json({"status": "ok"})
+
+async def handle_attestation(_: web.Request) -> web.Response:
+    try:
+        payload = build_attestation()
+        return web.json_response(payload)
+    except Exception as exc:
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def handle_status(request: web.Request) -> web.Response:
+    deployment_id = request.match_info["deployment_id"]
+    deployment = load_deployment(deployment_id)
+    if not deployment:
+        return web.json_response({"error": "Deployment not found"}, status=404)
+    payload = asdict(deployment)
+    if deployment.vm_name:
+        qemu_log = f"/var/log/libvirt/qemu/{deployment.vm_name}.log"
+        serial_log = f"/var/log/libvirt/qemu/{deployment.vm_name}-serial.log"
+        payload["host_logs"] = {
+            "qemu": read_tail(qemu_log),
+            "serial": read_tail(serial_log),
+        }
+    return web.json_response(payload)
+
+
+async def handle_deploy(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    repo = data.get("repo")
+    if not repo:
+        return web.json_response({"error": "Missing required field: repo"}, status=400)
+
+    cleanup_prefixes = data.get("cleanup_prefixes")
+    if cleanup_prefixes is not None:
+        if not isinstance(cleanup_prefixes, list) or not all(isinstance(p, str) for p in cleanup_prefixes):
+            return web.json_response({"error": "cleanup_prefixes must be a list of strings"}, status=400)
+
+    bundle_artifact_id = data.get("bundle_artifact_id")
+    if not isinstance(bundle_artifact_id, int):
+        return web.json_response({"error": "bundle_artifact_id must be an integer"}, status=400)
+
+    private_env = data.get("private_env")
+    if private_env is not None and not isinstance(private_env, str):
+        return web.json_response({"error": "private_env must be a string"}, status=400)
+
+    seal_vm = data.get("seal_vm", False)
+    if not isinstance(seal_vm, bool):
+        return web.json_response({"error": "seal_vm must be a boolean"}, status=400)
+
+    deployment = Deployment(
+        id=str(uuid.uuid4()),
+        repo=repo,
+        port=data.get("port", 8080),
+        status="pending",
+        vm_name=data.get("vm_name"),
+        cleanup_prefixes=cleanup_prefixes,
+        bundle_artifact_id=bundle_artifact_id,
+        private_env=private_env,
+        seal_vm=seal_vm,
+    )
+    save_deployment(deployment)
+
+    token = require_bearer_token(request)
+    thread = threading.Thread(
+        target=run_deployment,
+        args=(deployment, token),
+        daemon=True,
+    )
+    thread.start()
+
+    return web.json_response({"deployment_id": deployment.id, "status": deployment.status}, status=202)
+
+
+async def proxy_request(session: ClientSession, message: dict) -> dict:
+    request_id = message.get("request_id")
+    method = message.get("method", "GET")
+    path = message.get("path", "/")
+    headers = message.get("headers") or {}
+    body_b64 = message.get("body_b64") or ""
+    body = base64.b64decode(body_b64.encode("ascii")) if body_b64 else b""
+
+    url = urljoin(EE_BACKEND_URL, path.lstrip("/"))
+    async with session.request(method, url, headers=headers, data=body) as resp:
+        response_body = await resp.read()
+        return {
+            "type": "proxy_response",
+            "request_id": request_id,
+            "status": resp.status,
+            "headers": dict(resp.headers),
+            "body_b64": base64.b64encode(response_body).decode("ascii"),
+        }
+
+
+async def health_loop(ws) -> None:
+    while not ws.closed:
+        await asyncio.sleep(EE_HEALTH_INTERVAL_SEC)
+        if ws.closed:
             return
-
-        if self.path == '/attestation':
-            try:
-                payload = build_attestation()
-                self.send_json(payload)
-            except Exception as e:
-                self.send_json({"error": str(e)}, status=500)
-            return
-
-        if self.path.startswith('/status/'):
-            deployment_id = self.path.split('/status/')[-1]
-            deployment = load_deployment(deployment_id)
-            if not deployment:
-                self.send_json({"error": "Deployment not found"}, status=404)
-                return
-            payload = asdict(deployment)
-            if deployment.vm_name:
-                qemu_log = f"/var/log/libvirt/qemu/{deployment.vm_name}.log"
-                serial_log = f"/var/log/libvirt/qemu/{deployment.vm_name}-serial.log"
-                payload["host_logs"] = {
-                    "qemu": read_tail(qemu_log),
-                    "serial": read_tail(serial_log),
-                }
-            self.send_json(payload)
-            return
-
-        self.send_json({"error": "Not found"}, status=404)
-
-    def do_POST(self):
-        """Handle POST requests."""
-        if self.path == '/deploy':
-            # Read request body
-            content_length = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(content_length).decode()
-            try:
-                data = json.loads(body) if body else {}
-            except json.JSONDecodeError:
-                self.send_json({"error": "Invalid JSON"}, status=400)
-                return
-
-            # Validate required fields
-            repo = data.get('repo')
-            if not repo:
-                self.send_json({"error": "Missing required field: repo"}, status=400)
-                return
-
-            # Get auth token from header
-            auth_header = self.headers.get('Authorization', '')
-            token = None
-            if auth_header.lower().startswith('bearer '):
-                token = auth_header[7:]
-            elif auth_header.lower().startswith('token '):
-                token = auth_header[6:]
-            elif auth_header:
-                token = auth_header.strip()
-
-            # Create deployment
-            cleanup_prefixes = data.get('cleanup_prefixes')
-            if cleanup_prefixes is not None:
-                if not isinstance(cleanup_prefixes, list) or not all(isinstance(p, str) for p in cleanup_prefixes):
-                    self.send_json({"error": "cleanup_prefixes must be a list of strings"}, status=400)
-                    return
-            bundle_artifact_id = data.get('bundle_artifact_id')
-            if not isinstance(bundle_artifact_id, int):
-                self.send_json({"error": "bundle_artifact_id must be an integer"}, status=400)
-                return
-            private_env = data.get('private_env')
-            if private_env is not None and not isinstance(private_env, str):
-                self.send_json({"error": "private_env must be a string"}, status=400)
-                return
-            seal_vm = data.get('seal_vm', False)
-            if not isinstance(seal_vm, bool):
-                self.send_json({"error": "seal_vm must be a boolean"}, status=400)
-                return
-            deployment = Deployment(
-                id=str(uuid.uuid4()),
-                repo=repo,
-                port=data.get('port', 8080),
-                status='pending',
-                vm_name=data.get('vm_name'),
-                cleanup_prefixes=cleanup_prefixes,
-                bundle_artifact_id=bundle_artifact_id,
-                private_env=private_env,
-                seal_vm=seal_vm,
-            )
-            save_deployment(deployment)
-
-            # Start deployment in background
-            thread = threading.Thread(
-                target=run_deployment,
-                args=(deployment, token),
-                daemon=True,
-            )
-            thread.start()
-
-            self.send_json({
-                "deployment_id": deployment.id,
-                "status": deployment.status,
-            }, status=202)
-            return
-
-        self.send_json({"error": "Not found"}, status=404)
+        await ws.send_json({"type": "health", "status": "pass"})
 
 
-def main():
+async def tunnel_client_loop(app: web.Application) -> None:
+    if not EE_CONTROL_WS:
+        log("EE_CONTROL_WS not set; tunnel client disabled")
+        return
+    if not EE_REPO or not EE_RELEASE_TAG or not EE_APP_NAME:
+        log("EE_REPO, EE_RELEASE_TAG, EE_APP_NAME required for tunnel client")
+        return
+
+    while True:
+        try:
+            async with ClientSession() as session:
+                async with session.ws_connect(EE_CONTROL_WS) as ws:
+                    await ws.send_json(
+                        {
+                            "type": "register",
+                            "repo": EE_REPO,
+                            "release_tag": EE_RELEASE_TAG,
+                            "app_name": EE_APP_NAME,
+                            "network": EE_NETWORK,
+                            "agent_id": EE_AGENT_ID,
+                            "tunnel_version": "1",
+                        }
+                    )
+                    health_task = asyncio.create_task(health_loop(ws))
+                    async for msg in ws:
+                        if msg.type == WSMsgType.TEXT:
+                            payload = msg.json()
+                            msg_type = payload.get("type")
+                            if msg_type == "attest_request":
+                                attestation = build_attestation()
+                                await ws.send_json(
+                                    {
+                                        "type": "attest_response",
+                                        "nonce": payload.get("nonce"),
+                                        "quote": attestation.get("quote"),
+                                        "report_data": attestation.get("report_data"),
+                                        "measurements": attestation.get("measurements"),
+                                    }
+                                )
+                            elif msg_type == "proxy_request":
+                                response = await proxy_request(session, payload)
+                                await ws.send_json(response)
+                                await ws.send_json({"type": "health", "status": "pass"})
+                            elif msg_type == "status":
+                                log(f"tunnel status: {payload.get('state')} {payload.get('reason')}")
+                        elif msg.type == WSMsgType.ERROR:
+                            break
+                    health_task.cancel()
+        except Exception as exc:
+            log(f"tunnel_error={exc}")
+        await asyncio.sleep(EE_RECONNECT_DELAY_SEC)
+
+
+def build_app() -> web.Application:
+    app = web.Application()
+    app.add_routes(
+        [
+            web.get("/health", handle_health),
+            web.get("/attestation", handle_attestation),
+            web.get("/status/{deployment_id}", handle_status),
+            web.post("/deploy", handle_deploy),
+        ]
+    )
+
+    async def start_tunnel(_: web.Application) -> None:
+        asyncio.create_task(tunnel_client_loop(app))
+
+    app.on_startup.append(start_tunnel)
+    return app
+
+
+def main() -> None:
     import argparse
-    parser = argparse.ArgumentParser(description='Easy Enclave Deployment Agent')
-    parser.add_argument('--host', default='0.0.0.0', help='Host to bind to')
-    parser.add_argument('--port', type=int, default=8000, help='Port to listen on')
-    parser.add_argument('--check', action='store_true', help='Check TDX requirements and exit')
+
+    parser = argparse.ArgumentParser(description="Easy Enclave Deployment Agent")
+    parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
+    parser.add_argument("--port", type=int, default=8000, help="Port to listen on")
+    parser.add_argument("--check", action="store_true", help="Check TDX requirements and exit")
     args = parser.parse_args()
 
     if args.check:
@@ -604,13 +642,9 @@ def main():
     log(f"Starting agent on {args.host}:{args.port}")
     log(f"Deployments directory: {DEPLOYMENTS_DIR}")
 
-    server = HTTPServer((args.host, args.port), AgentHandler)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        log("Shutting down...")
-        server.shutdown()
+    app = build_app()
+    web.run_app(app, host=args.host, port=args.port)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

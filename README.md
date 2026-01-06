@@ -118,7 +118,7 @@ is sealed-only for production, while `sandbox-1` allows unsealed testing.
 See `control_plane/README.md` for the protocol and `control_plane/examples/nginx.conf` for a proxy
 layout that routes `appname.app.easyenclave.com` only when attestation and health checks are valid.
 `control_plane/tunnel_proxy.py` forwards traffic to `/v1/proxy/{app}` which dispatches requests
-over the active WebSocket tunnel handled by `agent/tunnel_client.py`.
+over the active WebSocket tunnel handled by the agent process.
 
 Minimal run:
 

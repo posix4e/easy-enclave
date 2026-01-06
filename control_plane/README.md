@@ -74,17 +74,16 @@ Tunnel proxy stub:
 python control_plane/tunnel_proxy.py
 ```
 
-Agent tunnel client:
+Agent tunnel (built into the agent process):
 
 ```bash
-pip install aiohttp
 EE_CONTROL_WS=ws://127.0.0.1:8088/v1/tunnel \
 EE_REPO=owner/repo \
 EE_RELEASE_TAG=v0.1.3 \
 EE_APP_NAME=myapp \
 EE_NETWORK=forge-1 \
 EE_BACKEND_URL=http://127.0.0.1:8080 \
-python agent/tunnel_client.py
+python action/src/agent.py
 ```
 
 ## Proxy example
@@ -97,7 +96,7 @@ unattested or expired backends using the resolve endpoint.
 `control_plane/tunnel_proxy.py` forwards incoming requests to `/v1/proxy/{app}` which dispatches
 them over the active WebSocket tunnel.
 
-The agent side uses `agent/tunnel_client.py` to connect and handle proxy requests.
+The agent handles the tunnel client inside its main process (no separate sidecar).
 ## Networks
 
 - `forge-1` (sealed-only, production)
