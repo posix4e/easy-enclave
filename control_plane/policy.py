@@ -1,16 +1,9 @@
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional
 
-try:
-    from easyenclave.verify import DCAPError, verify_quote
-except ImportError:  # pragma: no cover - fallback for repo execution
-    repo_root = Path(__file__).resolve().parents[1]
-    sys.path.insert(0, str(repo_root / "sdk"))
-    from easyenclave.verify import DCAPError, verify_quote
+from easyenclave.verify import DCAPError, verify_quote
 
 
 @dataclass
