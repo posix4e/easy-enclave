@@ -12,7 +12,7 @@ from .exceptions import AttestationNotFoundError
 
 def get_latest_attestation(repo: str, token: Optional[str] = None) -> dict[str, Any]:
     """
-    Fetch the latest attestation from a GitHub repository's releases.
+    Fetch the newest attestation from a GitHub repository's releases.
 
     Args:
         repo: Repository in "owner/repo" format
@@ -31,49 +31,42 @@ def get_latest_attestation(repo: str, token: Optional[str] = None) -> dict[str, 
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
-    # Get latest release
-    url = f"https://api.github.com/repos/{repo}/releases/latest"
-    response = requests.get(url, headers=headers)
+    url = f"https://api.github.com/repos/{repo}/releases"
+    response = requests.get(url, headers=headers, params={"per_page": 30})
 
     if response.status_code == 404:
         raise AttestationNotFoundError(f"No releases found for {repo}")
 
     response.raise_for_status()
-    release = response.json()
+    releases = response.json()
 
-    # Look for attestation.json asset
-    attestation = None
-    for asset in release.get("assets", []):
-        if asset["name"] == "attestation.json":
-            asset_url = asset["url"]
-            asset_response = requests.get(
-                asset_url,
-                headers={**headers, "Accept": "application/octet-stream"}
-            )
-            asset_response.raise_for_status()
-            attestation = asset_response.json()
-            break
+    for release in releases:
+        # Look for attestation.json asset
+        for asset in release.get("assets", []):
+            if asset["name"] == "attestation.json":
+                asset_url = asset["url"]
+                asset_response = requests.get(
+                    asset_url,
+                    headers={**headers, "Accept": "application/octet-stream"}
+                )
+                asset_response.raise_for_status()
+                return cast(dict[str, Any], asset_response.json())
 
-    if attestation is None:
         # Try to parse from release body
         body = release.get("body", "")
         try:
-            # Look for JSON block in body
             start = body.find("```json\n{")
             if start != -1:
                 start += 8  # Skip ```json\n
                 end = body.find("\n```", start)
                 if end != -1:
-                    attestation = json.loads(body[start:end])
+                    return cast(dict[str, Any], json.loads(body[start:end]))
         except json.JSONDecodeError:
             pass
 
-    if attestation is None:
-        raise AttestationNotFoundError(
-            f"Release {release['tag_name']} has no attestation data"
-        )
-
-    return cast(dict[str, Any], attestation)
+    raise AttestationNotFoundError(
+        f"No releases with attestation data found for {repo}"
+    )
 
 
 def list_attestations(repo: str, token: Optional[str] = None, limit: int = 10) -> list:
