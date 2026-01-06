@@ -9,7 +9,7 @@ Environment=EE_AGENT_MODE=vm
 Environment=EE_AGENT_DIR=/opt/ee-agent
 Environment=SEAL_VM=true
 WorkingDirectory=/opt/ee-agent
-ExecStart=/usr/bin/python3 /opt/ee-agent/agent.py --host 0.0.0.0 --port 8000
+ExecStart=/opt/ee-agent/venv/bin/python /opt/ee-agent/agent.py --host 0.0.0.0 --port 8000
 Restart=always
 
 [Install]

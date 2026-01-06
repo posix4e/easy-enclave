@@ -20,8 +20,9 @@ runcmd:
     bash -euxo pipefail -c '
       mkdir -p /etc/easy-enclave
       apt-get update
-      apt-get install -y python3-pip
-      python3 -m pip install --no-cache-dir aiohttp
+      apt-get install -y python3-venv
+      python3 -m venv /opt/ee-agent/venv
+      /opt/ee-agent/venv/bin/pip install --no-cache-dir aiohttp
       if ! apt-get install -y docker.io docker-compose-plugin; then
         if ! apt-get install -y docker.io docker-compose-v2; then
           apt-get install -y docker.io docker-compose

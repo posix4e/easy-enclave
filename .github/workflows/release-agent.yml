@@ -16,6 +16,10 @@ on:
       vm_image_sha256:
         description: 'VM image SHA256 for /etc/easy-enclave/vm_image_id'
         required: true
+      agent_image:
+        description: 'Path to pristine agent image on host (optional)'
+        required: false
+        default: ''
       vm_name:
         description: 'Agent VM name'
         required: false
@@ -52,6 +56,7 @@ jobs:
           VM_PORT="${{ inputs.vm_port }}"
           VM_TAG="${{ inputs.vm_image_tag }}"
           VM_SHA="${{ inputs.vm_image_sha256 }}"
+          AGENT_IMAGE="${{ inputs.agent_image }}"
           BASE_IMAGE="${{ inputs.base_image }}"
 
           ALLOWLIST_B64=$(ssh -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
@@ -64,6 +69,7 @@ jobs:
              VM_PORT=\"$VM_PORT\"
              VM_TAG=\"$VM_TAG\"
              VM_SHA=\"$VM_SHA\"
+             AGENT_IMAGE=\"$AGENT_IMAGE\"
              BASE_IMAGE=\"$BASE_IMAGE\"
 
              sudo mkdir -p /opt/easy-enclave
@@ -79,16 +85,23 @@ jobs:
              }
              IP=\$(get_ip)
              if [ -z \"\$IP\" ]; then
-               BASE_ARG=\"\"
-               if [ -n \"\$BASE_IMAGE\" ]; then
-                 BASE_ARG=\"--base-image \$BASE_IMAGE\"
+               if [ -n \"\$AGENT_IMAGE\" ]; then
+                 sudo python3 action/src/vm.py --agent \
+                   --name \"\$VM_NAME\" \
+                   --port \"\$VM_PORT\" \
+                   --agent-image \"\$AGENT_IMAGE\" >/tmp/ee-agent-create.json
+               else
+                 BASE_ARG=\"\"
+                 if [ -n \"\$BASE_IMAGE\" ]; then
+                   BASE_ARG=\"--base-image \$BASE_IMAGE\"
+                 fi
+                 sudo python3 action/src/vm.py --agent \
+                   --name \"\$VM_NAME\" \
+                   --port \"\$VM_PORT\" \
+                   --vm-image-tag \"\$VM_TAG\" \
+                   --vm-image-sha256 \"\$VM_SHA\" \
+                   \$BASE_ARG >/tmp/ee-agent-create.json
                fi
-               sudo python3 action/src/vm.py --agent \
-                 --name \"\$VM_NAME\" \
-                 --port \"\$VM_PORT\" \
-                 --vm-image-tag \"\$VM_TAG\" \
-                 --vm-image-sha256 \"\$VM_SHA\" \
-                 \$BASE_ARG >/tmp/ee-agent-create.json
                IP=\$(get_ip)
              fi
              if [ -z \"\$IP\" ]; then
