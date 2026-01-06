@@ -29,9 +29,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG=$(gh api repos/${{ github.repository }}/releases/latest --jq .tag_name)
+          TAG=$(gh api repos/${{ github.repository }}/releases --paginate \
+            --jq 'first(.[] | select(any(.assets[]?; .name=="agent-attestation-allowlist.json")) | .tag_name)')
           if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
-            echo "::error::No latest release tag found"
+            echo "::error::No release found with agent-attestation-allowlist.json"
             exit 1
           fi
           echo "tag=$TAG" >> $GITHUB_OUTPUT
