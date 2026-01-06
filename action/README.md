@@ -23,14 +23,14 @@ Deploy workloads to a remote Easy Enclave agent and publish an attested release.
 - `endpoint`: public endpoint URL (use `auto` for `http://{vm_ip}:8080`)
 - `endpoint-port`: port for auto endpoint
 - `github-token`: GitHub token used by the agent for release creation
-- `vm-name`: VM name on the host
+- `vm-name`: VM name for local-mode runs (ignored when deploying via agent)
 - `enable-ssh`: enable SSH access (default: false)
 - `github-developer`: GitHub username to fetch public SSH keys from
 - `unseal-password`: password for `ubuntu` when SSH is enabled
 - `public-env`: newline-separated public env vars (bundled)
 - `private-env`: newline-separated private env vars (sent inline)
 - `public-files`: file paths to bundle (comma or newline separated)
-- `cleanup-prefixes`: VM name prefixes to cleanup before deploy
+- `cleanup-prefixes`: ignored in single-VM agent deployments
 - `seal-vm`: seal VM access after deployment (default: true unless SSH enabled)
 
 ## Outputs

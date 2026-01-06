@@ -937,12 +937,6 @@ def build_attestation() -> dict:
     }
 
 
-def is_vm_mode() -> bool:
-    """Return true if agent is running inside the agent VM."""
-
-    return os.environ.get("EE_AGENT_MODE", "").lower() == "vm"
-
-
 def write_bundle_files(bundle_dir: str, extra_files: list[dict[str, str]]) -> str:
     """Write bundle files to /opt/workload and return compose path."""
 
@@ -1078,60 +1072,46 @@ def run_deployment(deployment: Deployment, token: Optional[str]) -> None:
         compose_path, extra_files, bundle_meta = load_bundle(bundle_dir)
 
         if deployment.cleanup_prefixes:
-            cleanup_td_vms(deployment.cleanup_prefixes)
+            log("cleanup_prefixes ignored in single-VM mode")
+        if deployment.vm_name:
+            log("vm_name ignored in single-VM mode")
 
-        if is_vm_mode():
-            compose_path = write_bundle_files(bundle_dir, extra_files)
-            if bundle_meta.get("env_public"):
-                with open("/opt/workload/.env.public", "w") as f:
-                    f.write(bundle_meta["env_public"])
-            if deployment.private_env:
-                with open("/opt/workload/.env.private", "w") as f:
-                    f.write(deployment.private_env)
-                os.chmod("/opt/workload/.env.private", 0o600)
-            env_path = "/opt/workload/.env"
-            parts = []
-            if bundle_meta.get("env_public"):
-                parts.append("/opt/workload/.env.public")
-            if deployment.private_env:
-                parts.append("/opt/workload/.env.private")
-            if parts:
-                with open(env_path, "w") as f:
-                    for idx, part in enumerate(parts):
-                        if idx:
-                            f.write("\n")
-                        f.write(Path(part).read_text(encoding="utf-8"))
+        compose_path = write_bundle_files(bundle_dir, extra_files)
+        if bundle_meta.get("env_public"):
+            with open("/opt/workload/.env.public", "w") as f:
+                f.write(bundle_meta["env_public"])
+        if deployment.private_env:
+            with open("/opt/workload/.env.private", "w") as f:
+                f.write(deployment.private_env)
+            os.chmod("/opt/workload/.env.private", 0o600)
+        env_path = "/opt/workload/.env"
+        parts = []
+        if bundle_meta.get("env_public"):
+            parts.append("/opt/workload/.env.public")
+        if deployment.private_env:
+            parts.append("/opt/workload/.env.private")
+        if parts:
+            with open(env_path, "w") as f:
+                for idx, part in enumerate(parts):
+                    if idx:
+                        f.write("\n")
+                    f.write(Path(part).read_text(encoding="utf-8"))
 
-            if bundle_meta.get("authorized_keys"):
-                os.makedirs("/home/ubuntu/.ssh", exist_ok=True)
-                with open("/home/ubuntu/.ssh/authorized_keys", "w") as f:
-                    f.write(bundle_meta["authorized_keys"])
-                os.chmod("/home/ubuntu/.ssh/authorized_keys", 0o600)
+        if bundle_meta.get("authorized_keys"):
+            os.makedirs("/home/ubuntu/.ssh", exist_ok=True)
+            with open("/home/ubuntu/.ssh/authorized_keys", "w") as f:
+                f.write(bundle_meta["authorized_keys"])
+            os.chmod("/home/ubuntu/.ssh/authorized_keys", 0o600)
 
-            run_docker_compose(compose_path)
-            deployment.status = "complete"
-            save_deployment(deployment)
-            return
+        run_docker_compose(compose_path)
 
-        log(f"Creating TD VM with docker-compose from {compose_path}...")
-        result = create_td_vm(
-            compose_path,
-            name=deployment.vm_name or f"ee-deploy-{deployment.id}",
-            port=deployment.port,
-            enable_ssh=False,
-            extra_files=extra_files,
-        )
-
-        deployment.vm_name = result.get("name")
-        deployment.vm_ip = result.get("ip")
-        deployment.quote = result.get("quote")
-
-        endpoint = f"http://{deployment.vm_ip}:{deployment.port}"
+        attestation = build_attestation()
+        deployment.quote = attestation["quote"]
         public_ip = get_public_ip()
-        if public_ip:
-            setup_port_forward(deployment.vm_ip, deployment.port, deployment.port)
-            endpoint = f"http://{public_ip}:{deployment.port}"
-
+        if not public_ip:
+            log("Warning: unable to determine public IP; using localhost endpoint")
+        deployment.vm_ip = public_ip
+        endpoint = f"http://{public_ip or '127.0.0.1'}:{deployment.port}"
         release_url = create_release(deployment.quote, endpoint, repo=deployment.repo, token=token, seal_vm=deployment.seal_vm)
         deployment.release_url = release_url
         deployment.status = "complete"

@@ -17,10 +17,11 @@ Required:
 
 Optional:
 - `private_env`: newline-separated env vars (not stored on disk)
-- `cleanup_prefixes`: list of VM name prefixes to clean before deploy
-- `vm_name`: VM name override
 - `port`: service port (default 8080)
 - `seal_vm`: seal access after deploy
+
+Notes:
+- `cleanup_prefixes` and `vm_name` are ignored in single-VM mode.
 
 ### GET /status/{id}
 
