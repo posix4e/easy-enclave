@@ -1,13 +1,13 @@
 # Easy Enclave Control Plane (Draft)
 
 This component is a control-plane + discovery service that accepts outbound WebSocket tunnels from agents.
-It enforces Intel DCAP attestation, allowlist matching per repo/release, and sealed-only policy for prod.
+It enforces Intel DCAP attestation, allowlist matching per repo/release, and sealed-only policy for sealed networks.
 
 ## What it does
 
 - **Registers apps** via WebSocket with `repo`, `release_tag`, and `app_name`.
 - **Attests agents** on connect and every 60 minutes by default.
-- **Rejects non-sealed** nodes in prod.
+- **Rejects non-sealed** nodes in sealed networks.
 - **Tracks TTL** (30 days) with a 3-day warning window.
 - **Serves status** for proxy/dashboard via `GET /v1/resolve/{app_name}`.
 
@@ -24,7 +24,7 @@ It enforces Intel DCAP attestation, allowlist matching per repo/release, and sea
 
 Register:
 ```json
-{"type":"register","repo":"org/repo","release_tag":"v0.1.3","app_name":"myapp","network":"prod","agent_id":"uuid"}
+{"type":"register","repo":"org/repo","release_tag":"v0.1.3","app_name":"myapp","network":"forge-1","agent_id":"uuid"}
 ```
 
 Attestation challenge:
@@ -80,7 +80,7 @@ EE_CONTROL_WS=ws://127.0.0.1:8088/v1/tunnel \
 EE_REPO=owner/repo \
 EE_RELEASE_TAG=v0.1.3 \
 EE_APP_NAME=myapp \
-EE_NETWORK=prod \
+EE_NETWORK=forge-1 \
 EE_BACKEND_URL=http://127.0.0.1:8080 \
 python agent/tunnel_client.py
 ```
@@ -96,3 +96,7 @@ unattested or expired backends using the resolve endpoint.
 them over the active WebSocket tunnel.
 
 The agent side uses `agent/tunnel_client.py` to connect and handle proxy requests.
+## Networks
+
+- `forge-1` (sealed-only, production)
+- `sandbox-1` (unsealed allowed, testing)

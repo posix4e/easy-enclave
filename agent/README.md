@@ -158,7 +158,7 @@ EE_CONTROL_WS=ws://control-plane:8088/v1/tunnel \
 EE_REPO=owner/repo \
 EE_RELEASE_TAG=v0.1.3 \
 EE_APP_NAME=myapp \
-EE_NETWORK=prod \
+EE_NETWORK=forge-1 \
 EE_BACKEND_URL=http://127.0.0.1:8080 \
 python agent/tunnel_client.py
 ```

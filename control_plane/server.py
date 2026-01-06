@@ -61,6 +61,8 @@ class ControlPlane:
         self.allowlist_cache = AllowlistCache()
         self._sessions: dict[web.WebSocketResponse, Session] = {}
         self._sessions_by_app: dict[str, Session] = {}
+        self._sealed_networks = {"forge-1"}
+        self._allowed_networks = {"forge-1", "sandbox-1"}
 
     async def handle_ws(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse(heartbeat=30)
@@ -107,7 +109,7 @@ class ControlPlane:
         agent_id = payload.get("agent_id")
         network = payload.get("network") or "prod"
 
-        if network not in {"prod", "staging", "dev"}:
+        if network not in self._allowed_networks:
             await session.ws.send_json({"type": "status", "state": "invalid", "reason": "invalid_network"})
             return
         if not all([repo, release_tag, app_name, agent_id]):
@@ -217,7 +219,7 @@ class ControlPlane:
                 return AttestationResult(False, f"allowlist_fetch_failed:{exc}", False)
             self.allowlist_cache.put(session.repo, session.release_tag, allowlist)
 
-        require_sealed = session.network == "prod"
+        require_sealed = session.network in self._sealed_networks
         result = verify_attestation(attestation, allowlist, require_sealed, PCCS_URL)
         if result.verified:
             return result
