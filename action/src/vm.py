@@ -922,12 +922,52 @@ def setup_port_forward(vm_ip: str, vm_port: int, host_port: int = None) -> int:
     """
     host_port = host_port or vm_port
 
-    # Remove any existing rule for this port first
-    subprocess.run([
-        'sudo', 'iptables', '-t', 'nat', '-D', 'PREROUTING',
-        '-p', 'tcp', '--dport', str(host_port),
-        '-j', 'DNAT', '--to-destination', f'{vm_ip}:{vm_port}'
-    ], capture_output=True)
+    def remove_nat_rules(chain: str) -> None:
+        result = subprocess.run(
+            ['sudo', 'iptables', '-t', 'nat', '-L', chain, '--line-numbers'],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return
+        rule_numbers = []
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if not parts or not parts[0].isdigit():
+                continue
+            if f"dpt:{host_port}" in line and "DNAT" in line:
+                rule_numbers.append(int(parts[0]))
+        for number in reversed(rule_numbers):
+            subprocess.run(
+                ['sudo', 'iptables', '-t', 'nat', '-D', chain, str(number)],
+                capture_output=True,
+            )
+
+    def remove_forward_rules() -> None:
+        result = subprocess.run(
+            ['sudo', 'iptables', '-L', 'FORWARD', '--line-numbers'],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return
+        rule_numbers = []
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if not parts or not parts[0].isdigit():
+                continue
+            if f"dpt:{vm_port}" in line and "ACCEPT" in line:
+                rule_numbers.append(int(parts[0]))
+        for number in reversed(rule_numbers):
+            subprocess.run(
+                ['sudo', 'iptables', '-D', 'FORWARD', str(number)],
+                capture_output=True,
+            )
+
+    # Remove any existing rules for this port first
+    remove_nat_rules('PREROUTING')
+    remove_nat_rules('OUTPUT')
+    remove_forward_rules()
 
     # Add PREROUTING rule for incoming traffic
     result = subprocess.run([
@@ -939,11 +979,6 @@ def setup_port_forward(vm_ip: str, vm_port: int, host_port: int = None) -> int:
         raise RuntimeError(f"Failed to add PREROUTING rule: {result.stderr}")
 
     # Add OUTPUT rule so localhost traffic can reach the VM (used by SSH attestation)
-    subprocess.run([
-        'sudo', 'iptables', '-t', 'nat', '-D', 'OUTPUT',
-        '-p', 'tcp', '-d', '127.0.0.1', '--dport', str(host_port),
-        '-j', 'DNAT', '--to-destination', f'{vm_ip}:{vm_port}'
-    ], capture_output=True)
     result = subprocess.run([
         'sudo', 'iptables', '-t', 'nat', '-A', 'OUTPUT',
         '-p', 'tcp', '-d', '127.0.0.1', '--dport', str(host_port),
@@ -953,12 +988,6 @@ def setup_port_forward(vm_ip: str, vm_port: int, host_port: int = None) -> int:
         log(f"Warning: Failed to add OUTPUT rule: {result.stderr}")
 
     # Add FORWARD rule to allow the traffic
-    subprocess.run([
-        'sudo', 'iptables', '-D', 'FORWARD',
-        '-p', 'tcp', '-d', vm_ip, '--dport', str(vm_port),
-        '-j', 'ACCEPT'
-    ], capture_output=True)
-
     result = subprocess.run([
         'sudo', 'iptables', '-A', 'FORWARD',
         '-p', 'tcp', '-d', vm_ip, '--dport', str(vm_port),
