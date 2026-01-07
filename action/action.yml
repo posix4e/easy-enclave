@@ -48,6 +48,10 @@ inputs:
     description: 'Skip PCCS verification for agent attestation'
     required: false
     default: 'false'
+  agent-attestation-timeout:
+    description: 'Timeout in seconds for agent attestation fetch'
+    required: false
+    default: '10'
   agent-skip-attestation:
     description: 'Skip agent attestation checks (development only)'
     required: false
@@ -157,6 +161,14 @@ runs:
           URL="http://127.0.0.1:${TUNNEL_PORT}"
         fi
         echo "url=$URL" >> "$GITHUB_OUTPUT"
+    - name: Check agent URL
+      if: ${{ inputs.agent-url != '' && inputs.agent-attestation-via-ssh != 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        URL="${{ steps.agent-url.outputs.url }}"
+        curl -sf --connect-timeout 5 --max-time 10 "$URL/health" >/dev/null
+        curl -sf --connect-timeout 5 --max-time 10 "$URL/attestation" >/dev/null
     - name: Ensure agent VM
       if: ${{ inputs.agent-url != '' && inputs.agent-ssh-host != '' && inputs.agent-ssh-key != '' }}
       shell: bash
@@ -241,6 +253,7 @@ runs:
         python3 "${{ github.action_path }}/src/verify_agent_attestation.py" \
           --allowlist /tmp/agent_allowlist.json \
           "${ATTEST_ARGS[@]}" \
+          --timeout "${{ inputs.agent-attestation-timeout }}" \
           ${{ inputs.agent-attestation-skip-pccs == 'true' && '--skip-pccs' || '' }}
     - name: Build public bundle
       id: bundle
@@ -471,4 +484,5 @@ runs:
         python3 "${{ github.action_path }}/src/verify_agent_attestation.py" \
           --allowlist /tmp/agent_allowlist.json \
           "${ATTEST_ARGS[@]}" \
+          --timeout "${{ inputs.agent-attestation-timeout }}" \
           ${{ inputs.agent-attestation-skip-pccs == 'true' && '--skip-pccs' || '' }}

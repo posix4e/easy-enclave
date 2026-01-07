@@ -12,9 +12,9 @@ def load_json(path: str) -> dict:
         return json.load(f)
 
 
-def fetch_attestation(url: str) -> dict:
+def fetch_attestation(url: str, timeout: float) -> dict:
     req = Request(url)
-    with urlopen(req) as response:
+    with urlopen(req, timeout=timeout) as response:
         return json.loads(response.read().decode())
 
 
@@ -24,6 +24,7 @@ def main() -> int:
     parser.add_argument("--attestation-url", help="Agent attestation URL")
     parser.add_argument("--attestation-file", help="Path to attestation JSON")
     parser.add_argument("--skip-pccs", action="store_true", help="Skip PCCS verification")
+    parser.add_argument("--timeout", type=float, default=10.0, help="HTTP timeout seconds for attestation fetch")
     args = parser.parse_args()
 
     allowlist = load_json(args.allowlist)
@@ -35,7 +36,10 @@ def main() -> int:
     if args.attestation_file:
         attestation = load_json(args.attestation_file)
     elif args.attestation_url:
-        attestation = fetch_attestation(args.attestation_url)
+        if args.timeout <= 0:
+            print("Timeout must be > 0", file=sys.stderr)
+            return 2
+        attestation = fetch_attestation(args.attestation_url, args.timeout)
     else:
         print("Must provide --attestation-url or --attestation-file", file=sys.stderr)
         return 2

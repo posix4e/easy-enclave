@@ -9,6 +9,10 @@ permissions:
   contents: write
   actions: read
 
+concurrency:
+  group: pipeline-dev
+  cancel-in-progress: true
+
 jobs:
   lint-test:
     runs-on: ubuntu-latest
@@ -31,7 +35,7 @@ jobs:
 
   dev-agent-release:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     needs: lint-test
     outputs:
       agent_release_tag: ${{ steps.tag.outputs.tag }}
@@ -111,7 +115,7 @@ jobs:
 
   deploy-control-plane:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     needs: dev-agent-release
     steps:
       - uses: actions/checkout@v4
@@ -129,7 +133,7 @@ jobs:
 
   deploy-contacts:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     needs: [dev-agent-release, deploy-control-plane]
     steps:
       - uses: actions/checkout@v4
