@@ -5,16 +5,16 @@ title: whitepaper
 
 # whitepaper
 
-## EasyEnclave: Attestation-Based Compute Network
+## EasyEnclave: Compute Commitments as Currency
 
-*A blockchain replacement using hardware trust instead of consensus.*
+*Hardware-attested compute that trades like money.*
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                                                             │
-│   TRUST = TDX ATTESTATION, NOT CRYPTOGRAPHIC CONSENSUS      │
-│   CURRENCY = DOLLAR POINTS, NOT TOKENS                      │
-│   STAKE = MONTHS OF WORK, NOT GAS                           │
+│   THE CURRENCY = MACHINE-MONTHS OF COMPUTE                  │
+│   TRUST = TDX ATTESTATION                                   │
+│   PRICE = WHATEVER THE MARKET DECIDES                       │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -23,375 +23,350 @@ title: whitepaper
 
 ## abstract
 
-Blockchains solve trust with redundant computation and cryptographic consensus. This is wasteful. Intel TDX provides hardware-attested trust with zero redundancy.
+Blockchains are expensive. Tokens are speculative. Cloud providers say "just trust us."
 
-EasyEnclave replaces blockchain economics with:
+EasyEnclave creates a compute currency:
+- **machine-months** are the unit of value
+- **TDX attestation** provides hardware trust
+- **pre-signed commitments** work offline
+- **dynamic pricing** - the market decides
 
-- **attestation over consensus** - TDX quotes prove execution, no need for 1000 nodes to agree
-- **dollar points over tokens** - no speculation, no volatility, just compute credits
-- **work-months over gas** - stake commitment measured in time, not abstract units
-- **slashing over proof-of-work** - misbehave and lose your stake
-
----
-
-## the problem with blockchains
-
-| blockchain | easyenclave |
-|------------|-------------|
-| 1000 nodes run same code | 1 node runs, hardware attests |
-| consensus = slow + expensive | attestation = instant + cheap |
-| tokens = speculation | dollar points = stable value |
-| gas = unpredictable pricing | machine-hours = predictable |
-| trust the math | trust the silicon |
-
-blockchains are an expensive solution to "how do we trust remote code execution?"
-
-TDX answers that question directly: the CPU signs what's running.
+No tokens. No gas. No speculation. Just compute that trades like money.
 
 ---
 
-## architecture
+## the problem
+
+### blockchains
+
+1000 nodes run the same code to agree on state. Wasteful.
+
+### tokens
+
+Volatile. Speculative. Price disconnected from utility.
+
+### cloud providers
+
+"Trust us." No proof of execution. No transparency.
+
+---
+
+## the solution
+
+### compute commitments
+
+Nodes issue **signed promises** to provide compute:
+
+```json
+{
+  "node_id": "node-abc",
+  "capacity": "1 vCPU-month",
+  "valid_from": "2024-02-01",
+  "valid_until": "2024-03-01",
+  "price_usd": 50.00,
+  "signature": "<TDX-attested signature>"
+}
+```
+
+These commitments:
+- can be verified **offline** (signature check)
+- are **tradeable** (user A sells to user B)
+- are **redeemable** for actual compute
+- are **backed by stake** (slashable)
+
+### why this works
+
+```
+┌────────────────┐
+│ MACHINE-MONTH  │
+│                │
+│ 1. Verifiable  │ ← TDX quote proves node is real
+│ 2. Tradeable   │ ← transfer to anyone
+│ 3. Redeemable  │ ← use for actual compute
+│ 4. Backed      │ ← node stakes collateral
+└────────────────┘
+```
+
+---
+
+## supply architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     CONTROL PLANE                           │
+│                    COMPUTE SUPPLY                           │
+├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
-│  │   LEDGER    │  │  REGISTRY   │  │   ROUTER    │         │
-│  │             │  │             │  │             │         │
-│  │ balances    │  │ node stakes │  │ job routing │         │
-│  │ transactions│  │ attestations│  │ load balance│         │
-│  │ slashing    │  │ reputation  │  │ failover    │         │
-│  └─────────────┘  └─────────────┘  └─────────────┘         │
+│  EasyEnclave Direct (Backstop)                              │
+│  - Always available                                         │
+│  - VERY expensive (priced to rarely be used)                │
+│  - Emergency capacity only                                  │
 │                                                             │
-└───────────────────────────┬─────────────────────────────────┘
-                            │
-            ┌───────────────┼───────────────┐
-            │               │               │
-            ▼               ▼               ▼
-     ┌──────────┐    ┌──────────┐    ┌──────────┐
-     │  NODE A  │    │  NODE B  │    │  NODE C  │
-     │  TDX VM  │    │  TDX VM  │    │  TDX VM  │
-     │          │    │          │    │          │
-     │ staked:  │    │ staked:  │    │ staked:  │
-     │ 6 months │    │ 12 months│    │ 3 months │
-     └──────────┘    └──────────┘    └──────────┘
+│  Network Nodes (Dynamic Market)                             │
+│  - Third-party TDX hosts                                    │
+│  - Nodes set their own prices                               │
+│  - Users choose based on price + reputation                 │
+│  - Staked + slashable                                       │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
 ```
+
+**No hardcoded prices.** The market decides everything.
+
+### supply constraint
+
+never issue more capacity than real demand:
+
+```
+if (network_capacity_issued > real_demand):
+    STOP issuing new commitments
+```
+
+prevents:
+- over-promising compute that doesn't exist
+- bank runs
+- price collapse from oversupply
 
 ---
 
 ## economics
 
-### dollar points
+### trading machine-months
 
-no tokens. no speculation. just credits.
-
-```
-1 dollar point = $1 USD worth of compute
-```
-
-users deposit USD, get dollar points. spend dollar points on compute. simple.
-
-### pricing
-
-machine-hours, not gas.
+**peer-to-peer trades have ZERO overhead.**
 
 ```
-1 vCPU-hour    = $0.05
-1 GB-hour      = $0.01
-1 GPU-hour     = $0.50
-1 TB egress    = $0.10
+Alice has: 2 machine-months
+Bob wants: compute
+
+Alice → 2 machine-months → Bob
+Bob → $95 → Alice
+
+EasyEnclave cut: $0
 ```
 
-prices set by network governance. adjusted quarterly. predictable.
+trade freely. no fees. no middleman.
 
-### revenue split
+### running a node
+
+**providing compute has ZERO overhead.**
 
 ```
-┌────────────────────────────────────────┐
-│           USER PAYS $1.00              │
-├────────────────────────────────────────┤
-│  85% → node operator                   │
-│  10% → network treasury                │
-│   5% → protocol development            │
-└────────────────────────────────────────┘
+Node provides: 1 month of compute
+User pays: $50 (market rate)
+Node receives: $50
+
+EasyEnclave cut: $0
 ```
+
+you keep everything you earn.
+
+### cashing out to USD
+
+**only the official exchange takes a cut.**
+
+```
+Node has: 2 machine-months (worth $100)
+Node wants: USD
+
+Exchange rate: 2:1
+Node gives: 2 machine-months
+Node receives: $50 USD
+
+EasyEnclave receives: $50 (the other half)
+```
+
+the 2:1 rate means:
+- EasyEnclave gets 50% when you cash out
+- discourages frivolous withdrawals
+- incentivizes keeping value in the network
+- or finding peer-to-peer buyers instead
 
 ---
 
-## staking
+## liquidity: three exit paths
 
-### work-months
+### path 1: use it
 
-nodes stake commitment, not tokens.
-
-```
-stake = mass of commitment to serve workloads
-unit = work-months (1 node × 1 month of availability)
-```
-
-example:
-- node A stakes 6 work-months
-- node A must serve workloads for 6 months
-- if node A disappears, stake is slashed
-
-### stake requirements
-
-| tier | stake | max jobs | priority |
-|------|-------|----------|----------|
-| bronze | 3 months | 10 | low |
-| silver | 6 months | 50 | medium |
-| gold | 12 months | unlimited | high |
-| platinum | 24 months | unlimited | highest |
-
-higher stake = more jobs routed to you = more revenue.
-
-### collateral
-
-work-months are backed by USD collateral:
+redeem for actual compute. full value.
 
 ```
-1 work-month = $500 USD collateral
+1 machine-month → 1 month of compute
 ```
 
-stake 6 months = lock $3,000. this covers potential damages if you fail.
+### path 2: sell to other users
+
+find someone who wants compute. market rate.
+
+```
+seller has: 2 machine-months
+buyer wants: compute
+
+seller gets: ~$95 (market price)
+buyer gets: 2 machine-months
+```
+
+no cut. no fees. peer-to-peer.
+
+### path 3: exchange to USD
+
+**EasyEnclave Official Exchange**
+```
+rate: 2:1 (you get 50% in USD)
+KYC: required
+availability: may close if low on funds
+```
+
+**Third-Party Exchanges**
+```
+rate: better than 2:1 possible
+KYC: optional (operator's choice)
+software: open source, anyone can run
+```
+
+this creates an exchange ecosystem:
+- third parties compete on rates
+- EasyEnclave provides backstop (when open)
+- users choose based on rate vs KYC needs
 
 ---
 
-## slashing
+## staking & slashing
 
-misbehave and lose your stake.
+### stake requirement
 
-### slashing conditions
-
-| violation | slash % | evidence |
-|-----------|---------|----------|
-| downtime > 1 hour | 5% | health check failure |
-| downtime > 24 hours | 25% | health check failure |
-| abandon job | 50% | no attestation renewal |
-| data breach | 100% | audit finding |
-| attestation fraud | 100% + ban | quote mismatch |
-
-### slashing process
+to provide 1 month of compute, stake **1 day of machine time**.
 
 ```
-1. violation detected (automated or reported)
-2. evidence submitted to control plane
-3. 24-hour dispute window
-4. if confirmed: slash executed
-5. slashed funds → affected users + treasury
+provide: 1 month
+stake: 1 day (~3% collateral)
 ```
 
-### slash distribution
+### what happens on downtime
 
 ```
-┌────────────────────────────────────────┐
-│         SLASHED: $1,000                │
-├────────────────────────────────────────┤
-│  70% → affected users (compensation)   │
-│  20% → reporter (bounty)               │
-│  10% → treasury                        │
-└────────────────────────────────────────┘
+1. Node A goes offline
+2. Down too long → workload migrates to Node B
+3. Node A loses entire 1-day stake
+4. Stake covers migration cost
 ```
+
+### slashing table
+
+| event | consequence |
+|-------|-------------|
+| downtime causing migration | lose 1 day stake |
+| attestation fraud | lose all + permanent ban |
+
+simple: stake 1 day, risk 1 day if you cause problems.
+
+---
+
+## offline operation
+
+pre-signed commitments work without network:
+
+```
+┌─────────────────────────────────────────────┐
+│           OFFLINE VERIFICATION              │
+├─────────────────────────────────────────────┤
+│                                             │
+│  1. Check signature → valid?                │
+│  2. Check expiry → still valid?             │
+│  3. Check TDX quote → real hardware?        │
+│                                             │
+│  All verifiable without internet.           │
+│                                             │
+└─────────────────────────────────────────────┘
+```
+
+only redemption requires live network.
+
+use cases:
+- verify commitments on airplane
+- trade peer-to-peer in remote areas
+- cache attestations locally
+- audit without network access
 
 ---
 
 ## attestation flow
 
-no consensus. just hardware.
-
 ```
 ┌──────────┐     ┌──────────┐     ┌──────────┐
-│  CLIENT  │     │  CONTROL │     │   NODE   │
+│   USER   │     │  CONTROL │     │   NODE   │
 │          │     │  PLANE   │     │  (TDX)   │
 └────┬─────┘     └────┬─────┘     └────┬─────┘
      │                │                │
-     │ submit job ───>│                │
-     │                │ route job ────>│
+     │ buy commitment │                │
+     │ ──────────────>│                │
+     │                │ verify node ──>│
+     │                │<── TDX quote ──│
      │                │                │
-     │                │<── attestation │
-     │                │    (TDX quote) │
+     │<── commitment ─│                │
+     │    (signed)    │                │
      │                │                │
-     │                │ verify quote   │
-     │                │ check RTMR     │
-     │                │ log to ledger  │
+     │ redeem ───────>│ route job ───>│
      │                │                │
-     │<── job handle ─│                │
-     │                │                │
-     │ poll status ──>│<── heartbeat ──│
-     │                │    (re-attest) │
-     │                │                │
-     │<── result ─────│<── result ─────│
-     │                │                │
-     │                │ charge user    │
-     │                │ pay node       │
+     │<── compute ────│<── compute ───│
      │                │                │
 ```
 
-### verification
-
-every job execution is attested:
-
-```json
-{
-  "job_id": "abc123",
-  "node_id": "node-xyz",
-  "quote": "<base64 TDX quote>",
-  "rtmrs": {
-    "rtmr0": "firmware...",
-    "rtmr1": "kernel...",
-    "rtmr2": "workload...",
-    "rtmr3": "runtime..."
-  },
-  "sealed": true,
-  "timestamp": "2024-01-15T10:30:00Z"
-}
-```
-
-the CPU signed this. not a committee. not a chain. silicon.
-
----
-
-## ledger
-
-### no blockchain needed
-
-the control plane maintains a simple database:
-
-```sql
--- accounts
-CREATE TABLE accounts (
-  id UUID PRIMARY KEY,
-  balance_cents BIGINT,  -- dollar points in cents
-  created_at TIMESTAMP
-);
-
--- transactions
-CREATE TABLE transactions (
-  id UUID PRIMARY KEY,
-  from_account UUID,
-  to_account UUID,
-  amount_cents BIGINT,
-  type TEXT,  -- deposit, withdraw, job_payment, slash
-  job_id UUID,
-  created_at TIMESTAMP
-);
-
--- stakes
-CREATE TABLE stakes (
-  node_id UUID PRIMARY KEY,
-  collateral_cents BIGINT,
-  work_months INT,
-  start_date DATE,
-  end_date DATE,
-  status TEXT  -- active, slashed, released
-);
-
--- jobs
-CREATE TABLE jobs (
-  id UUID PRIMARY KEY,
-  user_id UUID,
-  node_id UUID,
-  attestation JSONB,
-  started_at TIMESTAMP,
-  ended_at TIMESTAMP,
-  cost_cents BIGINT
-);
-```
-
-### why not blockchain?
-
-| blockchain ledger | easyenclave ledger |
-|-------------------|-------------------|
-| immutable | auditable |
-| trustless | attested |
-| slow (consensus) | fast (postgres) |
-| expensive (gas) | cheap (SQL) |
-| pseudonymous | KYC optional |
-
-we don't need trustlessness. we have attestation.
-
-### audit trail
-
-all transactions logged with attestation references:
-
-```
-2024-01-15 10:30:00 | DEPOSIT    | user_abc | +$100.00
-2024-01-15 10:31:00 | JOB_START  | job_123  | user_abc → escrow
-2024-01-15 11:45:00 | JOB_END    | job_123  | escrow → node_xyz ($4.25)
-2024-01-15 11:45:00 | JOB_END    | job_123  | escrow → treasury ($0.50)
-2024-01-15 11:45:00 | JOB_END    | job_123  | escrow → user_abc ($0.25 refund)
-```
-
-auditors can verify any transaction against the attestation record.
+the CPU signs what's running. not a committee. silicon.
 
 ---
 
 ## governance
 
-### network treasury
+### initially
 
-funds from:
-- 10% of all job payments
-- slashing penalties
-- node registration fees
-
-spent on:
-- protocol development
-- security audits
-- marketing
+EasyEnclave controls everything:
+- exchange rates
+- when exchange opens/closes
+- protocol upgrades
 - dispute resolution
 
-### decision making
+### later
 
-initially: founding org makes decisions
-later: stake-weighted voting by nodes
-
-```
-voting power = active_stake_months × reputation_score
-```
-
-### reputation
-
-nodes earn reputation over time:
+stake-weighted voting by nodes:
+- governance proposals
+- parameter changes
+- treasury allocation
 
 ```
-reputation = (uptime% × 0.4) + (jobs_completed × 0.3) + (stake_age × 0.3)
+voting power = stake_amount × reputation_score
 ```
-
-high reputation = more job routing = more revenue.
 
 ---
 
 ## comparison
 
-### vs ethereum
+### vs blockchain
 
-| | ethereum | easyenclave |
-|-|----------|-------------|
-| trust | consensus | attestation |
-| cost | $0.50-50 per tx | $0.001 per tx |
-| speed | 12 sec blocks | milliseconds |
-| currency | ETH (volatile) | USD points |
-| staking | 32 ETH (~$80k) | $500/month |
-
-### vs AWS
-
-| | AWS | easyenclave |
-|-|-----|-------------|
-| trust | "trust us" | TDX attestation |
-| transparency | none | full audit trail |
-| vendor lock | high | portable containers |
-| pricing | complex | simple $/hour |
-
-### vs other L2s/rollups
-
-| | rollups | easyenclave |
-|-|---------|-------------|
-| execution | off-chain, verify on-chain | off-chain, verify via TDX |
-| finality | depends on L1 | instant |
-| data availability | L1 or committee | attested storage |
+| | blockchain | easyenclave |
+|-|------------|-------------|
+| trust | 1000 nodes agree | 1 node + TDX |
+| speed | seconds/minutes | milliseconds |
+| cost | gas fees | market rate |
+| currency | volatile token | stable compute |
 | complexity | high | low |
+
+### vs cloud
+
+| | cloud | easyenclave |
+|-|-------|-------------|
+| trust | "trust us" | TDX attestation |
+| proof | none | cryptographic |
+| pricing | complex | dynamic market |
+| lock-in | high | portable |
+
+### vs tokens
+
+| | tokens | compute commitments |
+|-|--------|---------------------|
+| value | speculative | backed by real compute |
+| volatility | high | market-stable |
+| utility | often none | always redeemable |
+| inflation | varies | tied to capacity |
 
 ---
 
@@ -399,152 +374,81 @@ high reputation = more job routing = more revenue.
 
 ### confidential compute
 
-run sensitive workloads with proof of execution:
-
 ```python
-from easyenclave import submit_job
+# buy compute commitment
+commitment = buy_commitment("node-abc", months=1)
 
-result = submit_job(
+# verify offline
+assert commitment.verify()  # no network needed
+
+# redeem for compute
+result = commitment.redeem(
     image="myapp:latest",
-    env={"API_KEY": "secret"},
-    max_cost_usd=10.00
+    env={"SECRET": "value"}
 )
-
-print(f"executed on: {result.node_id}")
-print(f"attestation: {result.quote[:50]}...")
-print(f"cost: ${result.cost_usd}")
 ```
 
-### private AI inference
+your code runs in TDX. attestation proves it.
+
+### compute as payment
 
 ```python
-result = submit_job(
+# pay contractor in compute
+contractor_wallet = "..."
+commitment = create_commitment(months=2)
+transfer(commitment, contractor_wallet)
+
+# contractor can:
+# - use it for compute
+# - sell to others
+# - exchange to USD (2:1)
+```
+
+### private AI
+
+```python
+commitment = buy_commitment("gpu-node", hours=10)
+
+result = commitment.redeem(
     image="llama:70b",
-    input={"prompt": "confidential query..."},
+    input={"prompt": "confidential..."},
     require_sealed=True
 )
 ```
 
-your prompt never leaves the enclave. not even the node operator sees it.
-
-### financial settlement
-
-```python
-# atomic swap without blockchain
-result = submit_job(
-    image="settlement:v1",
-    input={
-        "from": "bank_a",
-        "to": "bank_b",
-        "amount": 1000000
-    }
-)
-
-# attestation proves settlement executed correctly
-verify_settlement(result.attestation)
-```
+prompt never leaves the enclave. attestation proves it.
 
 ---
 
-## roadmap
+## summary
 
-### phase 1: foundation
-- control plane launch
-- basic staking (single tier)
-- USD deposits via Stripe
-- 10 initial nodes
+```
+┌─────────────────────────────────────────────────────────────┐
+│                                                             │
+│   MACHINE-MONTHS = THE CURRENCY                             │
+│                                                             │
+│   ✓ Trade peer-to-peer: 0% overhead                         │
+│   ✓ Provide compute: 0% overhead                            │
+│   ✓ Cash out to USD: 2:1 rate (50% to EasyEnclave)          │
+│                                                             │
+│   ✓ Stake 1 day per 1 month commitment                      │
+│   ✓ Lose stake if you cause migration                       │
+│                                                             │
+│   ✓ Dynamic pricing - market decides                        │
+│   ✓ Third-party exchanges welcome                           │
+│   ✓ Offline verification via pre-signed commitments         │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
 
-### phase 2: economics
-- multi-tier staking
-- slashing automation
-- reputation system
-- 100+ nodes
+blockchains asked: "how do we trust remote execution?"
 
-### phase 3: governance
-- treasury management
-- stake-weighted voting
-- third-party audits
-- 1000+ nodes
+and answered with: consensus, redundancy, tokens.
 
-### phase 4: ecosystem
-- SDK for other languages
-- mobile verification
-- enterprise features
-- global node network
+TDX answers with: silicon.
+
+we build the economics on top.
 
 ---
 
-## conclusion
-
-blockchains answered: "how do we trust remote execution?"
-
-with: redundancy, consensus, tokens, complexity.
-
-TDX answers the same question with: hardware attestation.
-
-EasyEnclave builds an economic layer on top:
-
-- **stake work-months** to participate
-- **earn dollar points** for serving workloads
-- **lose stake** if you misbehave
-- **no tokens** - just compute credits
-
-simple. auditable. attested.
-
-```
-┌─────────────────────────────────────────────────┐
-│                                                 │
-│   THE BLOCKCHAIN WAS JUST A VERY EXPENSIVE      │
-│   WAY TO SAY "I PROMISE I RAN YOUR CODE"        │
-│                                                 │
-│   TDX SAYS IT WITH SILICON.                     │
-│                                                 │
-└─────────────────────────────────────────────────┘
-```
-
----
-
-## appendix: technical details
-
-### TDX quote structure
-
-```
-offset | size | field
--------|------|------
-0      | 4    | version
-4      | 2    | attestation key type
-6      | 2    | TEE type (TDX = 0x81)
-8      | 16   | QE vendor ID
-24     | 16   | user data
-40     | 48   | RTMR[0-3]
-...    | ...  | signature
-```
-
-### RTMR measurements
-
-| register | measures |
-|----------|----------|
-| RTMR0 | TDX module + firmware |
-| RTMR1 | OS loader + kernel |
-| RTMR2 | application code |
-| RTMR3 | runtime configuration |
-
-### API endpoints
-
-```
-POST /v1/jobs              # submit job
-GET  /v1/jobs/{id}         # job status
-GET  /v1/jobs/{id}/attest  # attestation proof
-
-POST /v1/accounts/deposit  # add dollar points
-GET  /v1/accounts/balance  # check balance
-GET  /v1/accounts/history  # transaction history
-
-POST /v1/nodes/register    # register as node
-POST /v1/nodes/stake       # add stake
-GET  /v1/nodes/status      # node status
-```
-
----
-
-*built on [easyenclave](/) - hardware trust for the rest of us*
+*[easyenclave.com](/) - compute that trades like money*
