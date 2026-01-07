@@ -954,25 +954,26 @@ def setup_port_forward(vm_ip: str, vm_port: int, host_port: int = None) -> int:
             )
 
     def remove_forward_rules() -> None:
-        result = subprocess.run(
-            ['sudo', 'iptables', '-L', 'FORWARD', '--line-numbers'],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            return
-        rule_numbers = []
-        for line in result.stdout.splitlines():
-            parts = line.split()
-            if not parts or not parts[0].isdigit():
-                continue
-            if f"dpt:{vm_port}" in line and "ACCEPT" in line:
-                rule_numbers.append(int(parts[0]))
-        for number in reversed(rule_numbers):
-            subprocess.run(
-                ['sudo', 'iptables', '-D', 'FORWARD', str(number)],
+        for chain in ("FORWARD", "LIBVIRT_FWI"):
+            result = subprocess.run(
+                ['sudo', 'iptables', '-L', chain, '--line-numbers'],
                 capture_output=True,
+                text=True,
             )
+            if result.returncode != 0:
+                continue
+            rule_numbers = []
+            for line in result.stdout.splitlines():
+                parts = line.split()
+                if not parts or not parts[0].isdigit():
+                    continue
+                if f"dpt:{vm_port}" in line and "ACCEPT" in line:
+                    rule_numbers.append(int(parts[0]))
+            for number in reversed(rule_numbers):
+                subprocess.run(
+                    ['sudo', 'iptables', '-D', chain, str(number)],
+                    capture_output=True,
+                )
 
     # Remove any existing rules for this port first
     remove_nat_rules('PREROUTING')
@@ -997,14 +998,14 @@ def setup_port_forward(vm_ip: str, vm_port: int, host_port: int = None) -> int:
     if result.returncode != 0:
         log(f"Warning: Failed to add OUTPUT rule: {result.stderr}")
 
-    # Add FORWARD rule to allow the traffic
+    # Allow inbound traffic to virbr0 before libvirt's default reject.
     result = subprocess.run([
-        'sudo', 'iptables', '-A', 'FORWARD',
+        'sudo', 'iptables', '-I', 'LIBVIRT_FWI', '1',
         '-p', 'tcp', '-d', vm_ip, '--dport', str(vm_port),
         '-j', 'ACCEPT'
     ], capture_output=True, text=True)
     if result.returncode != 0:
-        log(f"Warning: Failed to add FORWARD rule: {result.stderr}")
+        log(f"Warning: Failed to add LIBVIRT_FWI rule: {result.stderr}")
 
     log(f"Port forwarding configured: *:{host_port} -> {vm_ip}:{vm_port}")
     return host_port
