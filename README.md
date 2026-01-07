@@ -119,6 +119,47 @@ print(f"Verified endpoint: {client.endpoint}")
 
 Details and inputs live in `action/README.md`.
 
+## CI/CD and Releases
+
+```
++-----------------------------+        +------------------------------+
+| GitHub Actions              |        | GitHub Releases              |
+| - pipeline-dev (main)       |        | - dev allowlist asset         |
+| - pipeline-release (v* tag) |        | - deploy-YYYYMMDD-HHMMSS tag  |
+|                             |        |   - attestation.json          |
+| 1) build allowlist          |        |   - endpoint URL              |
+| 2) upload bundle artifact   |        +------------------------------+
+| 3) POST /deploy to agent    |                     ^
++--------------+--------------+                     |
+               |                                    |
+               v                                    |
+     +---------------------+             create release
+     | Agent VM (control)  |-------------------------+
+     | http://host:8000    |
+     | runs control plane  |
+     +----------+----------+
+                |
+                | EE_CONTROL_WS (tunnel)
+                v
+     +---------------------+
+     | Agent VM (apps)     |
+     | http://host:8001    |
+     | runs workloads      |
+     +---------------------+
+```
+
+Releases:
+- `pipeline-dev` updates the `dev` allowlist release and deploys the control plane + examples.
+- `pipeline-release` runs on `v*` tags and produces release allowlists.
+- Each deployment publishes a `deploy-YYYYMMDD-HHMMSS` release with `attestation.json`
+  (quote, endpoint, timestamp, sealed state).
+
+Control plane networks:
+- Agents register with the control plane over `EE_CONTROL_WS`, providing `repo`, `release_tag`,
+  `app_name`, and `network`.
+- Networks are policy domains. They are enforced by the control plane (attestation + seal status).
+- `forge-1` is sealed-only (production), `sandbox-1` allows unsealed nodes for testing.
+
 ## CI/CD Lifecycle (Current)
 
 - Release the agent VM image and publish the allowlist asset (`agent-attestation-allowlist.json`).
