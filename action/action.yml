@@ -301,7 +301,7 @@ runs:
       if: ${{ inputs.agent-url != '' }}
       uses: actions/upload-artifact@v4
       with:
-        name: ee-deploy-bundle
+        name: ee-deploy-bundle-${{ github.run_id }}-${{ github.job }}
         path: ${{ steps.bundle.outputs.bundle_dir }}
         if-no-files-found: error
 
