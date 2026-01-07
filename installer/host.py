@@ -9,6 +9,8 @@ See: https://github.com/canonical/tdx
 import hashlib
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -67,6 +69,66 @@ UBUNTU_CLOUD_IMAGES = {
 
 # Deployment state directory
 DEPLOYMENTS_DIR = Path("/var/lib/easy-enclave/deployments")
+PCCS_ENV_VARS = (
+    "PCCS_URL",
+    "EE_PCCS_URL",
+    "TDX_PCCS_URL",
+    "COLLATERAL_SERVICE_URL",
+    "EE_COLLATERAL_SERVICE_URL",
+)
+PCCS_CONFIG_PATHS = (
+    "/etc/sgx_default_qcnl.conf",
+    "/etc/qcnl.conf",
+    "/etc/tdx-qgs/qgs.conf",
+)
+PCCS_CONFIG_KEYS = ("PCCS_URL", "COLLATERAL_SERVICE_URL")
+
+
+def _find_collateral_url() -> tuple[str, str]:
+    """Return collateral service URL and source."""
+    for key in PCCS_ENV_VARS:
+        value = os.environ.get(key, "").strip()
+        if value:
+            return value, f"env:{key}"
+
+    for path in PCCS_CONFIG_PATHS:
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as f:
+                for raw in f:
+                    line = raw.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    for key in PCCS_CONFIG_KEYS:
+                        match = re.match(rf"{key}\s*=\s*(.+)", line)
+                        if match:
+                            value = match.group(1).strip().strip('"').strip("'")
+                            if value:
+                                return value, path
+        except OSError:
+            continue
+    return "", ""
+
+
+def _check_qgs() -> None:
+    """Ensure QGS is running and collateral service is configured."""
+    if shutil.which("systemctl"):
+        result = subprocess.run(["systemctl", "is-active", "--quiet", "qgsd"])
+        if result.returncode != 0:
+            raise RuntimeError("QGS not running (qgsd inactive)")
+    else:
+        result = subprocess.run(["pgrep", "-x", "qgsd"], capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError("QGS not running (qgsd not found)")
+
+    url, source = _find_collateral_url()
+    if not url:
+        raise RuntimeError(
+            "QGS is running but PCCS/collateral URL is not configured "
+            "(set PCCS_URL or COLLATERAL_SERVICE_URL in /etc/sgx_default_qcnl.conf or cloud config)"
+        )
+    log(f"QGS: running, collateral URL set ({source})")
 
 
 def check_requirements() -> None:
@@ -88,6 +150,8 @@ def check_requirements() -> None:
     if not tdx_enabled:
         raise RuntimeError(f"TDX not enabled (check {tdx_path})")
     log("TDX: enabled")
+
+    _check_qgs()
 
     # Check libvirt
     result = subprocess.run(['virsh', 'version'], capture_output=True, text=True)

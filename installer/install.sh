@@ -93,6 +93,43 @@ prompt_if_empty() {
   printf -v "$var_name" '%s' "$value"
 }
 
+check_qgs() {
+  if command -v systemctl >/dev/null 2>&1; then
+    if ! systemctl is-active --quiet qgsd; then
+      echo "Error: QGS is not running (qgsd inactive)."
+      exit 1
+    fi
+  else
+    if ! pgrep -x qgsd >/dev/null 2>&1; then
+      echo "Error: QGS is not running (qgsd not found)."
+      exit 1
+    fi
+  fi
+
+  local collateral_url=""
+  for var in PCCS_URL EE_PCCS_URL TDX_PCCS_URL COLLATERAL_SERVICE_URL EE_COLLATERAL_SERVICE_URL; do
+    if [ -n "${!var:-}" ]; then
+      collateral_url="${!var}"
+      break
+    fi
+  done
+  if [ -z "$collateral_url" ]; then
+    for path in /etc/sgx_default_qcnl.conf /etc/qcnl.conf /etc/tdx-qgs/qgs.conf; do
+      if [ -f "$path" ]; then
+        collateral_url=$(awk -F= '/^[[:space:]]*(PCCS_URL|COLLATERAL_SERVICE_URL)[[:space:]]*=/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); gsub(/"/, "", $2); print $2; exit}' "$path")
+        if [ -n "$collateral_url" ]; then
+          break
+        fi
+      fi
+    done
+  fi
+  if [ -z "$collateral_url" ]; then
+    echo "Error: QGS is running but PCCS/collateral URL is not configured."
+    echo "Set PCCS_URL or COLLATERAL_SERVICE_URL in /etc/sgx_default_qcnl.conf (or provider config)."
+    exit 1
+  fi
+}
+
 # Check TDX requirements
 if [ ! -f /sys/module/kvm_intel/parameters/tdx ]; then
   echo "Warning: TDX kernel module not found"
@@ -102,6 +139,8 @@ else
     echo "Warning: TDX not enabled in kernel"
   fi
 fi
+
+check_qgs
 
 # Check libvirt
 if ! command -v virsh >/dev/null 2>&1; then

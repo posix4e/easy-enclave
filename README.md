@@ -75,7 +75,12 @@ Single-VM design (current):
 
 ### 1. Set Up TDX Agent
 
-See `installer/README.md` for host setup and prerequisites. From the repo root:
+Prerequisites (host):
+- BIOS configured for TDX (enable VMX/VT-d and TDX/TME per vendor guidance)
+- TDX kernel + libvirt/QEMU with TDX support
+- QGS running and enrolled with PCCS or a cloud collateral service
+
+See `installer/README.md` for host setup details. From the repo root:
 
 ```bash
 sudo ./install-agent.sh

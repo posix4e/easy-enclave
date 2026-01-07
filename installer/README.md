@@ -6,10 +6,10 @@ Host-side VM tooling and installation for the Easy Enclave agent.
 
 ### Prerequisites
 
-- Intel TDX-capable CPU and BIOS configuration
+- Intel TDX-capable CPU and BIOS configured for TDX (enable VMX/VT-d and TDX/TME per vendor guidance)
 - Ubuntu 24.04+ with TDX kernel
 - libvirt + QEMU with TDX support
-- QGS (Quote Generation Service) running
+- QGS (Quote Generation Service) running and enrolled with PCCS or a cloud collateral service
 
 ### QGS Setup
 
@@ -19,6 +19,14 @@ QGS listens on vsock (CID 2, port 4050):
 systemctl status qgsd
 sudo lsof -p $(pgrep qgs) | grep vsock
 ```
+
+Confirm the collateral service endpoint (PCCS or cloud equivalent) is configured:
+
+```bash
+grep -E '^(PCCS_URL|COLLATERAL_SERVICE_URL)=' /etc/sgx_default_qcnl.conf
+```
+
+The installer fails fast if QGS is inactive or no collateral service is configured.
 
 ### AppArmor Configuration
 
