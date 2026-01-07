@@ -174,7 +174,7 @@ def build_td_image_from_repo(
     """Build a TD guest image using canonical/tdx tooling."""
     repo_path = ensure_tdx_repo(repo_dir, ref=ref)
     image_dir = repo_path / "guest-tools" / "image"
-    cmd = ["./create-td-image.sh", "-v", version]
+    cmd = ["./create-td-image.sh", "-v", version, "--wait=12"]
     if os.geteuid() != 0:
         cmd = ["sudo"] + cmd
     log(f"Building TD image via {image_dir} ({version})...")
