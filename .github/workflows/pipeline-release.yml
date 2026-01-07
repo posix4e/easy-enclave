@@ -98,6 +98,11 @@ jobs:
         with:
           agent-url: ${{ secrets.AGENT_URL_CONTROL || secrets.AGENT_URL }}
           agent-release-tag: ${{ needs.release-agent.outputs.agent_release_tag }}
+          agent-attestation-via-ssh: 'true'
+          agent-ssh-host: ${{ secrets.AGENT_SSH_HOST }}
+          agent-ssh-user: ${{ secrets.AGENT_SSH_USER }}
+          agent-ssh-port: ${{ secrets.AGENT_SSH_PORT }}
+          agent-ssh-key: ${{ secrets.AGENT_SSH_KEY }}
           docker-compose: control_plane/docker-compose.yml
           public-files: control_plane
           private-env: |
