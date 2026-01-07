@@ -23,7 +23,14 @@ title: whitepaper
 
 ## abstract
 
-Blockchains are expensive. Tokens are speculative. Cloud providers say "just trust us."
+Blockchains are:
+- **wasteful** - 1000 nodes run the same code
+- **slow** - consensus takes seconds to minutes
+- **not confidential** - all data is public
+- **not general purpose** - only good for replicating public state
+- **speculative** - tokens disconnected from real utility
+
+Cloud providers say "just trust us." No proof. No transparency.
 
 EasyEnclave creates a compute currency:
 - **machine-months** are the unit of value
@@ -228,6 +235,14 @@ this creates an exchange ecosystem:
 - EasyEnclave provides backstop (when open)
 - users choose based on rate vs KYC needs
 
+**we want to be put out of business.**
+
+if someone builds an exchange at 1.5:1, use them. if someone builds one at 1.1:1, even better. our 2:1 rate is intentionally bad - it's a floor, not a ceiling.
+
+same for compute: if the network nodes are cheaper and better than our expensive backstop, great. that's the goal.
+
+we succeed by becoming unnecessary.
+
 ---
 
 ## staking & slashing
@@ -240,6 +255,22 @@ to provide 1 month of compute, stake **1 day of machine time**.
 provide: 1 month
 stake: 1 day (~3% collateral)
 ```
+
+### stake = trust
+
+the more you stake, the more the network trusts you:
+
+```
+low stake  → limited capacity, more scrutiny
+high stake → more capacity, less friction
+```
+
+high-stake nodes get:
+- higher job limits
+- priority routing
+- less aggressive abuse monitoring
+
+the abuse system watches for bad actors. stake is your reputation.
 
 ### what happens on downtime
 
@@ -317,15 +348,22 @@ the CPU signs what's running. not a committee. silicon.
 
 ## governance
 
+### the goal: make ourselves obsolete
+
+EasyEnclave is designed to be replaced:
+
+1. **our exchange** - 2:1 rate is intentionally bad. build a better one.
+2. **our compute** - priced high. network nodes should undercut us.
+3. **our control plane** - open source. fork it if you want.
+
 ### initially
 
-EasyEnclave controls everything:
-- exchange rates
-- when exchange opens/closes
+EasyEnclave controls:
+- exchange availability
 - protocol upgrades
 - dispute resolution
 
-### later
+### eventually
 
 stake-weighted voting by nodes:
 - governance proposals
@@ -335,6 +373,27 @@ stake-weighted voting by nodes:
 ```
 voting power = stake_amount × reputation_score
 ```
+
+the endgame: a network that doesn't need us.
+
+---
+
+## roadmap
+
+### now
+- control plane
+- basic staking
+- attestation verification
+
+### next
+- **abuse system dashboard** - monitor bad actors, stake-weighted trust
+- third-party exchange open source release
+- multi-region node support
+
+### later
+- stake-weighted governance
+- mobile verification SDK
+- full decentralization
 
 ---
 
@@ -429,14 +488,16 @@ prompt never leaves the enclave. attestation proves it.
 │                                                             │
 │   ✓ Trade peer-to-peer: 0% overhead                         │
 │   ✓ Provide compute: 0% overhead                            │
-│   ✓ Cash out to USD: 2:1 rate (50% to EasyEnclave)          │
+│   ✓ Cash out to USD: 2:1 (or better via third parties)      │
 │                                                             │
 │   ✓ Stake 1 day per 1 month commitment                      │
 │   ✓ Lose stake if you cause migration                       │
 │                                                             │
 │   ✓ Dynamic pricing - market decides                        │
-│   ✓ Third-party exchanges welcome                           │
+│   ✓ Third-party exchanges encouraged                        │
 │   ✓ Offline verification via pre-signed commitments         │
+│                                                             │
+│   ✓ Goal: make EasyEnclave unnecessary                      │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -447,7 +508,7 @@ and answered with: consensus, redundancy, tokens.
 
 TDX answers with: silicon.
 
-we build the economics on top.
+we build the economics on top. then we step aside.
 
 ---
 
