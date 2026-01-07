@@ -114,6 +114,7 @@ Details and inputs live in `action/README.md`.
 ## CI/CD Lifecycle (Current)
 
 - Release the agent VM image and publish the allowlist asset (`agent-attestation-allowlist.json`).
+- For development, `.github/workflows/release-agent-dev.yml` keeps the `dev` allowlist tag up to date.
 - Provision the agent VM with `.github/workflows/deploy-agent.yml`.
 - Deploy the control plane as an agent-managed workload with `.github/workflows/deploy-control-plane.yml`.
 - Deploy apps with `.github/workflows/deploy-contacts.yml` or your own workflow using `./action`.

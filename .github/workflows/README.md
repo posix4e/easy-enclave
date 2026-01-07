@@ -38,3 +38,8 @@ Deploys the control plane as an agent-managed workload (TD VM). Requires secrets
 
 Inputs:
 - `agent-release-tag`: allowlist release tag for agent attestation
+
+## release-agent-dev.yml
+
+Builds a dev agent image + allowlist on every push to `main` (and on manual run),
+publishing the allowlist to the `dev` release tag.
