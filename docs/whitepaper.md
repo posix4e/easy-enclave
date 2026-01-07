@@ -14,9 +14,9 @@ Hardware-attested compute that trades like money.
 ## abstract
 
 Blockchains replicate the same work across many nodes. Cloud providers ask you to trust them.
-EasyEnclave uses Intel TDX to prove what runs, and a control plane ledger to account for usage.
-The unit of value is a machine-month. Credits are minted from verified utilization, are transferable,
-and are redeemable for compute. No tokens, no gas, no speculation.
+EasyEnclave uses Intel TDX to prove what runs, and a control plane ledger to account for verified usage.
+The unit of value is a machine-month. Credits are issued only when compute is delivered, can be transferred,
+and can be spent on compute. No tokens, no gas, no speculation.
 
 ---
 
@@ -39,11 +39,17 @@ Use TDX to prove execution, and a control plane ledger to turn real compute usag
 ## system overview
 
 ```
-User/SDK -> Control Plane (attested) -> WS Tunnel -> Agent (TDX) -> Backend
+User/SDK -> Control Plane (TDX, ledger, routing) -> WS Tunnel -> Agent (TDX) -> Backend
 ```
 
 The control plane is not special infrastructure. It is just another TDX agent with a special role.
 It is verifiable the same way as any workload.
+
+Roles:
+- user or SDK: discovers apps and routes traffic
+- node: a TDX host that provides capacity and stake
+- agent: enclave software that serves an app and connects outbound
+- control plane: attested agent that verifies nodes, tracks usage and credits, and routes traffic
 
 Control plane responsibilities:
 - verify node attestation and health
@@ -64,10 +70,11 @@ Agent responsibilities:
 - unit of value: machine-month
 - definition: 1 vCPU for 30 days (or equivalent compute for other SKUs)
 - pricing: node-defined, market decides
-- issuance: credits minted only from verified usage
+- issuance: credits minted to providers from verified usage (no pre-issuance)
+- spend: credits are used to schedule compute
 - transfer: credits are transferable via control plane API
 
-Credits are a ledger balance, not a token. They represent real compute that already ran.
+Credits are a ledger balance, not a token. They represent verified compute delivered by the network.
 
 ---
 
@@ -77,9 +84,11 @@ Credits are a ledger balance, not a token. They represent real compute that alre
 2) control plane attests the node (TDX) and starts health checks
 3) node posts stake
 4) workloads run
-5) usage is reported for a period (ex: monthly)
+5) usage is reported or metered for a period (ex: monthly)
 6) if eligible, control plane issues credits to the node
-7) credits can be transferred or redeemed
+7) credits can be transferred or spent on compute
+
+Eligibility to earn credits requires active stake, valid attestation, and passing health checks.
 
 Example: capacity registration (conceptual)
 
@@ -108,6 +117,7 @@ Example: usage report (conceptual)
 ## staking and trust
 
 Staking is the availability guarantee. Hardware proves correctness, stake ensures uptime.
+Stake is required to be eligible to earn credits.
 
 Rule of thumb:
 - provide 1 month of capacity -> stake 1 day of machine time (about 3 percent)
@@ -133,30 +143,24 @@ The SDK resolves apps and routes through the proxy.
 ## offline verification
 
 TDX quotes and measurements can be verified offline. No network is required to validate
-that a node is real. Transfers, redemption, and credit issuance require the control plane
+that a node is real. Transfers, spending, and credit issuance require the control plane
 ledger to be online.
 
 ---
 
-## economics
+## credit flow
 
-### transfers
+Providers earn credits from verified usage. Clients acquire credits from providers or transfers,
+then spend credits to schedule compute.
+Transfers move credits between accounts.
 
-Credits move through a simple ledger update:
+Example: transfer
 
 ```
 Alice has: 2 machine-months
 Bob wants: compute
 
 Alice -> control plane API -> Bob
-```
-
-### redeem for compute
-
-Credits are redeemable for real compute at full value:
-
-```
-1 machine-month -> 1 month of compute
 ```
 
 ---
@@ -180,7 +184,7 @@ voting power = stake_amount * reputation_score
 - attestation verification
 
 ### next
-- usage-based credits, transfers API, redemption flow
+- usage-based credits, transfers API, spend flow
 - agent proxies (private agents behind control plane)
 - abuse system dashboard (stake-weighted trust)
 - third-party exchange open source release
