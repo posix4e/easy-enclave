@@ -35,7 +35,7 @@ Cloud providers say "just trust us." No proof. No transparency.
 EasyEnclave creates a compute currency:
 - **machine-months** are the unit of value
 - **TDX attestation** provides hardware trust
-- **pre-signed commitments** work offline
+- **control plane** tracks balances and routes traffic
 - **dynamic pricing** - the market decides
 
 No tokens. No gas. No speculation. Just compute that trades like money.
@@ -199,21 +199,18 @@ prevents:
 
 ## economics
 
-### trading machine-months
+### transfers
 
-**peer-to-peer trades have ZERO overhead.**
+credits transfer via control plane API:
 
 ```
 Alice has: 2 machine-months
 Bob wants: compute
 
-Alice → 2 machine-months → Bob
-Bob → $95 → Alice
-
-EasyEnclave cut: $0
+Alice → control plane API → Bob
 ```
 
-trade freely. no fees. no middleman.
+simple ledger update. the control plane tracks balances.
 
 ### running a node
 
@@ -248,11 +245,11 @@ the 2:1 rate means:
 - EasyEnclave gets 50% when you cash out
 - discourages frivolous withdrawals
 - incentivizes keeping value in the network
-- or finding peer-to-peer buyers instead
+- or using third-party exchanges (can run in enclaves!)
 
 ---
 
-## liquidity: three exit paths
+## liquidity: two exit paths
 
 ### path 1: use it
 
@@ -262,21 +259,7 @@ redeem for actual compute. full value.
 1 machine-month → 1 month of compute
 ```
 
-### path 2: sell to other users
-
-find someone who wants compute. market rate.
-
-```
-seller has: 2 machine-months
-buyer wants: compute
-
-seller gets: ~$95 (market price)
-buyer gets: 2 machine-months
-```
-
-no cut. no fees. peer-to-peer.
-
-### path 3: exchange to USD
+### path 2: exchange to USD
 
 **EasyEnclave Official Exchange**
 ```
@@ -289,11 +272,12 @@ availability: may close if low on funds
 ```
 rate: better than 2:1 possible
 KYC: optional (operator's choice)
-software: open source, anyone can run
+can run in an enclave for trustless operation
 ```
 
 this creates an exchange ecosystem:
 - third parties compete on rates
+- exchanges can run in enclaves (same trust model!)
 - EasyEnclave provides backstop (when open)
 - users choose based on rate vs KYC needs
 
@@ -372,11 +356,10 @@ pre-signed commitments work without network:
 └─────────────────────────────────────────────┘
 ```
 
-only redemption requires live network.
+only redemption and transfers require live network.
 
 use cases:
-- verify commitments on airplane
-- trade peer-to-peer in remote areas
+- verify node attestations on airplane
 - cache attestations locally
 - audit without network access
 
@@ -514,15 +497,14 @@ your code runs in TDX. attestation proves it.
 ### compute as payment
 
 ```python
-# pay contractor in compute
-contractor_wallet = "..."
-commitment = create_commitment(months=2)
-transfer(commitment, contractor_wallet)
+# pay contractor in compute credits
+contractor_id = "..."
+transfer_credits(to=contractor_id, amount="2 machine-months")
 
 # contractor can:
 # - use it for compute
-# - sell to others
-# - exchange to USD (2:1)
+# - transfer to others (via API)
+# - exchange to USD (2:1, or better via third-party)
 ```
 
 ### private AI
@@ -548,16 +530,16 @@ prompt never leaves the enclave. attestation proves it.
 │                                                             │
 │   MACHINE-MONTHS = THE CURRENCY                             │
 │                                                             │
-│   ✓ Trade peer-to-peer: 0% overhead                         │
-│   ✓ Provide compute: 0% overhead                            │
+│   ✓ Transfer via control plane API                          │
+│   ✓ Provide compute: keep what you earn                     │
 │   ✓ Cash out to USD: 2:1 (or better via third parties)      │
 │                                                             │
 │   ✓ Stake 1 day per 1 month commitment                      │
 │   ✓ Lose stake if you cause migration                       │
 │                                                             │
 │   ✓ Dynamic pricing - market decides                        │
-│   ✓ Third-party exchanges encouraged                        │
-│   ✓ Offline verification via pre-signed commitments         │
+│   ✓ Third-party exchanges (can run in enclaves!)            │
+│   ✓ Offline verification of node attestations               │
 │                                                             │
 │   ✓ Goal: make EasyEnclave unnecessary                      │
 │                                                             │
