@@ -96,6 +96,69 @@ These commitments:
 
 ---
 
+## trust model
+
+nodes provide two things to assure different security properties:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    TRUST DECOMPOSITION                       │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  SIGNED PROMISES (TDX attestation)                          │
+│  ├─ Integrity      → code runs exactly as specified         │
+│  └─ Confidentiality → data never leaves the enclave         │
+│                                                             │
+│  STAKES (slashable collateral)                              │
+│  └─ Availability   → economic incentive to stay online      │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**signed promises** are cryptographic guarantees. the CPU signs what's running. you can verify offline. no trust required.
+
+**stakes** are economic guarantees. nodes put up collateral. if they go offline and cause problems, they lose it. skin in the game.
+
+together: hardware proves correctness, economics ensures uptime.
+
+### the control plane
+
+the control plane is itself an agent running in TDX - not special infrastructure:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      CONTROL PLANE                           │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Just another TDX agent with a special role:                │
+│  ├─ Bootstraps the network                                  │
+│  ├─ Tracks who's contributing what                          │
+│  └─ Verifiable the same way as any other workload           │
+│                                                             │
+│  Continuous Verification:                                   │
+│  ├─ Re-attests nodes (TDX quotes still valid?)              │
+│  ├─ Health checks (node still online?)                      │
+│  └─ Updates trust scores based on behavior                  │
+│                                                             │
+│  Authoritative Ledger:                                      │
+│  ├─ Commitments issued (who, when, how much)                │
+│  ├─ Redemptions (work performed)                            │
+│  ├─ Current balances (points/credits)                       │
+│  ├─ Stake amounts per node                                  │
+│  └─ Transfer history                                        │
+│                                                             │
+│  Routing & Proxy:                                           │
+│  └─ Routes traffic to apps at appname.app.easyenclave.com   │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+contracts are agents. the control plane is a special agent. same trust model for both - TDX attestation proves what's running.
+
+nodes do the compute. the control plane continuously verifies, keeps score, and routes traffic.
+
+---
+
 ## supply architecture
 
 ```
