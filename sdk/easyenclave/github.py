@@ -39,8 +39,14 @@ def get_latest_attestation(repo: str, token: Optional[str] = None) -> dict[str, 
 
     response.raise_for_status()
     releases = response.json()
+    if isinstance(releases, dict):
+        releases = [releases]
+    if not isinstance(releases, list):
+        raise AttestationNotFoundError(f"Unexpected releases payload for {repo}")
 
     for release in releases:
+        if not isinstance(release, dict):
+            continue
         # Look for attestation.json asset
         for asset in release.get("assets", []):
             if asset["name"] == "attestation.json":
@@ -64,9 +70,7 @@ def get_latest_attestation(repo: str, token: Optional[str] = None) -> dict[str, 
         except json.JSONDecodeError:
             pass
 
-    raise AttestationNotFoundError(
-        f"No releases with attestation data found for {repo}"
-    )
+    raise AttestationNotFoundError(f"no attestation data found for {repo}")
 
 
 def list_attestations(repo: str, token: Optional[str] = None, limit: int = 10) -> list:
