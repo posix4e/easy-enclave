@@ -268,7 +268,14 @@ runs:
       run: |
         set -euo pipefail
         BUNDLE_DIR=$(mktemp -d)
-        cp "${{ inputs.docker-compose }}" "$BUNDLE_DIR/docker-compose.yml"
+        COMPOSE_SRC="${{ inputs.docker-compose }}"
+        COMPOSE_DIR=$(dirname "$COMPOSE_SRC")
+        COMPOSE_DIR="${COMPOSE_DIR#./}"
+        if [ -z "$COMPOSE_DIR" ] || [ "$COMPOSE_DIR" = "." ]; then
+          cp "$COMPOSE_SRC" "$BUNDLE_DIR/docker-compose.yml"
+        else
+          cp -a --parents -- "$COMPOSE_DIR" "$BUNDLE_DIR/"
+        fi
 
         if [ -n "${{ inputs.public-env }}" ]; then
           printf '%s\n' "${{ inputs.public-env }}" > "$BUNDLE_DIR/.env.public"

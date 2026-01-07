@@ -52,3 +52,6 @@ Deploy workloads to a remote Easy Enclave agent and publish an attested release.
 - Each deployment replaces the previous workload on that agent VM. Use a dedicated
   agent VM for the control plane if you want it to stay running while deploying
   other apps.
+- If the compose file lives in a subdirectory, that directory is bundled to keep
+  build context paths intact. For root-level compose files, add build context files
+  via `public-files`.
