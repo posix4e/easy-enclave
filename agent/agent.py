@@ -937,16 +937,19 @@ def build_attestation() -> dict:
     }
 
 
-def write_bundle_files(bundle_dir: str, extra_files: list[dict[str, str]]) -> str:
+def write_bundle_files(bundle_dir: str, compose_path: str, extra_files: list[dict[str, str]]) -> str:
     """Write bundle files to /opt/workload and return compose path."""
 
     target_root = Path("/opt/workload")
     target_root.mkdir(parents=True, exist_ok=True)
-    compose_path = target_root / "docker-compose.yml"
-    src_compose = Path(bundle_dir) / "docker-compose.yml"
-    if not src_compose.exists():
-        src_compose = Path(bundle_dir) / "docker-compose.yaml"
-    compose_path.write_text(src_compose.read_text(encoding="utf-8"), encoding="utf-8")
+    bundle_root = Path(bundle_dir).resolve()
+    src_compose = Path(compose_path).resolve()
+    if bundle_root not in src_compose.parents:
+        raise ValueError(f"Compose path {src_compose} is not under bundle root {bundle_root}")
+    compose_rel = src_compose.relative_to(bundle_root)
+    target_compose = target_root / compose_rel
+    target_compose.parent.mkdir(parents=True, exist_ok=True)
+    target_compose.write_text(src_compose.read_text(encoding="utf-8"), encoding="utf-8")
 
     for entry in extra_files:
         rel_path = entry.get("path")
@@ -957,7 +960,7 @@ def write_bundle_files(bundle_dir: str, extra_files: list[dict[str, str]]) -> st
         dest_path.write_text(entry.get("content", ""), encoding="utf-8")
         if entry.get("permissions"):
             os.chmod(dest_path, int(entry["permissions"], 8))
-    return str(compose_path)
+    return str(target_compose)
 
 
 def resolve_compose_command() -> list[str]:
@@ -979,10 +982,12 @@ def run_docker_compose(compose_path: str) -> None:
     """Run docker compose to start workload."""
 
     compose_cmd = resolve_compose_command()
+    compose_dir = str(Path(compose_path).parent)
     result = subprocess.run(
         [*compose_cmd, "-f", compose_path, "up", "-d", "--remove-orphans"],
         capture_output=True,
         text=True,
+        cwd=compose_dir,
     )
     if result.returncode != 0:
         raise RuntimeError(f"docker compose failed: {result.stderr.strip()}")
@@ -1076,20 +1081,23 @@ def run_deployment(deployment: Deployment, token: Optional[str]) -> None:
         if deployment.vm_name:
             log("vm_name ignored in single-VM mode")
 
-        compose_path = write_bundle_files(bundle_dir, extra_files)
+        compose_path = write_bundle_files(bundle_dir, compose_path, extra_files)
+        compose_dir = Path(compose_path).parent
+        env_public_path = None
         if bundle_meta.get("env_public"):
-            with open("/opt/workload/.env.public", "w") as f:
-                f.write(bundle_meta["env_public"])
+            env_public_path = compose_dir / ".env.public"
+            env_public_path.write_text(bundle_meta["env_public"], encoding="utf-8")
+        env_private_path = None
         if deployment.private_env:
-            with open("/opt/workload/.env.private", "w") as f:
-                f.write(deployment.private_env)
-            os.chmod("/opt/workload/.env.private", 0o600)
-        env_path = "/opt/workload/.env"
+            env_private_path = compose_dir / ".env.private"
+            env_private_path.write_text(deployment.private_env, encoding="utf-8")
+            os.chmod(env_private_path, 0o600)
+        env_path = compose_dir / ".env"
         parts = []
-        if bundle_meta.get("env_public"):
-            parts.append("/opt/workload/.env.public")
-        if deployment.private_env:
-            parts.append("/opt/workload/.env.private")
+        if env_public_path:
+            parts.append(env_public_path)
+        if env_private_path:
+            parts.append(env_private_path)
         if parts:
             with open(env_path, "w") as f:
                 for idx, part in enumerate(parts):

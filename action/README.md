@@ -29,7 +29,7 @@ Deploy workloads to a remote Easy Enclave agent and publish an attested release.
 - `unseal-password`: password for `ubuntu` when SSH is enabled
 - `public-env`: newline-separated public env vars (bundled)
 - `private-env`: newline-separated private env vars (sent inline)
-- `public-files`: file paths to bundle (comma or newline separated)
+- `public-files`: file or directory paths to bundle (comma or newline separated)
 - `cleanup-prefixes`: ignored in single-VM agent deployments
 - `seal-vm`: seal VM access after deployment (default: true unless SSH enabled)
 

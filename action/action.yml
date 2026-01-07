@@ -17,7 +17,7 @@ inputs:
     required: false
     default: ''
   public-files:
-    description: 'Public file paths to include in the bundle artifact (comma or newline separated)'
+    description: 'Public file or directory paths to include in the bundle artifact (comma or newline separated)'
     required: false
     default: ''
   seal-vm:
@@ -287,10 +287,10 @@ runs:
         fi
 
         if [ -n "${{ inputs.public-files }}" ]; then
-          printf '%s' "${{ inputs.public-files }}" | tr ',' '\n' | while IFS= read -r path; do
+          printf '%s\n' "${{ inputs.public-files }}" | tr ',' '\n' | while IFS= read -r path || [ -n "$path" ]; do
             path="$(printf '%s' "$path" | xargs)"
             [ -z "$path" ] && continue
-            cp --parents "$path" "$BUNDLE_DIR/"
+            cp -a --parents -- "$path" "$BUNDLE_DIR/"
           done
         fi
 

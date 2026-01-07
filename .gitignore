@@ -22,6 +22,7 @@ wheels/
 
 # Virtual environments
 .venv/
+.venv-control/
 venv/
 ENV/
 
@@ -44,3 +45,7 @@ Thumbs.db
 *.tmp
 *.temp
 /tmp/
+
+# Local control plane artifacts
+control_plane/logs/
+control_plane/*.pid

@@ -125,7 +125,7 @@ jobs:
           agent-url: ${{ secrets.AGENT_URL }}
           agent-release-tag: ${{ needs.dev-agent-release.outputs.agent_release_tag }}
           docker-compose: control_plane/docker-compose.yml
-          public-files: control_plane/Caddyfile
+          public-files: control_plane
           private-env: |
             EE_GITHUB_TOKEN=${{ secrets.CONTROL_GITHUB_TOKEN }}
             EE_ADMIN_TOKEN=${{ secrets.CONTROL_ADMIN_TOKEN }}
