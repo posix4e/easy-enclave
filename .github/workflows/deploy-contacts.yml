@@ -26,25 +26,19 @@ jobs:
             exit 1
           fi
 
-      - name: Resolve latest release tag
-        id: latest-release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check agent release tag configured
         run: |
-          TAG=$(gh api repos/${{ github.repository }}/releases --paginate \
-            --jq '([.[] | select(any(.assets[]?; .name=="agent-attestation-allowlist.json"))] | sort_by([.created_at, .tag_name]) | last | .tag_name)')
-          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
-            echo "::error::No release found with agent-attestation-allowlist.json"
+          if [ -z "${{ secrets.AGENT_RELEASE_TAG }}" ]; then
+            echo "::error::AGENT_RELEASE_TAG secret is not configured. Pin the agent allowlist release tag."
             exit 1
           fi
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
 
       - name: Deploy via Agent
         id: deploy
         uses: ./action
         with:
           agent-url: ${{ secrets.AGENT_URL }}
-          agent-release-tag: ${{ steps.latest-release.outputs.tag }}
+          agent-release-tag: ${{ secrets.AGENT_RELEASE_TAG }}
           agent-attestation-via-ssh: 'true'
           agent-ssh-host: ${{ secrets.AGENT_SSH_HOST }}
           agent-ssh-user: ${{ secrets.AGENT_SSH_USER }}

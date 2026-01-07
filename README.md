@@ -119,6 +119,9 @@ Details and inputs live in `action/README.md`.
 - Deploy apps with `.github/workflows/deploy-contacts.yml` or your own workflow using `./action`.
 - Clients verify via the SDK using the latest deployment release attestation.
 
+Notes:
+- App deploy workflows should pin `agent-release-tag` to a specific agent allowlist release.
+
 ## Control Plane + Proxy (Draft)
 
 The control plane accepts outbound WebSocket tunnels from agents, verifies Intel DCAP attestation

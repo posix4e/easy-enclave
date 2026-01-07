@@ -11,6 +11,8 @@ Contacts example deployment workflow that:
 Inputs in the workflow are meant as a reference for `public-env`, `private-env`,
 `public-files`, `github-developer`, and `unseal-password`.
 
+Requires `AGENT_RELEASE_TAG` to pin the agent allowlist release used for deploy.
+
 ## deploy-agent.yml
 
 Creates an agent VM on a bare-metal TDX host over SSH. Requires secrets:
