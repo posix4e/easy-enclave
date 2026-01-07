@@ -100,56 +100,15 @@ check_qgs() {
   if command -v systemctl >/dev/null 2>&1; then
     if ! systemctl is-active --quiet qgsd; then
       echo "Error: QGS is not running (qgsd inactive)."
+      echo "See installer/README.md for host setup."
       exit 1
     fi
   else
     if ! pgrep -x qgsd >/dev/null 2>&1; then
       echo "Error: QGS is not running (qgsd not found)."
+      echo "See installer/README.md for host setup."
       exit 1
     fi
-  fi
-
-  local collateral_url=""
-  for var in PCCS_URL EE_PCCS_URL TDX_PCCS_URL COLLATERAL_SERVICE_URL EE_COLLATERAL_SERVICE_URL; do
-    if [ -n "${!var:-}" ]; then
-      collateral_url="${!var}"
-      break
-    fi
-  done
-  if [ -z "$collateral_url" ]; then
-    for path in /etc/sgx_default_qcnl.conf /etc/qcnl.conf /etc/tdx-qgs/qgs.conf; do
-      if [ -f "$path" ]; then
-        collateral_url=$(awk -F= '/^[[:space:]]*(PCCS_URL|COLLATERAL_SERVICE_URL)[[:space:]]*=/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); gsub(/"/, "", $2); print $2; exit}' "$path")
-        if [ -n "$collateral_url" ]; then
-          break
-        fi
-      fi
-    done
-  fi
-  if [ -z "$collateral_url" ] && command -v systemctl >/dev/null 2>&1; then
-    env_line=$(systemctl show -p Environment qgsd 2>/dev/null | sed 's/^Environment=//')
-    if [ -n "$env_line" ]; then
-      for var in PCCS_URL COLLATERAL_SERVICE_URL; do
-        value=$(printf '%s' "$env_line" | tr ' ' '\n' | awk -F= -v k="$var" '$1==k {print $2; exit}')
-        if [ -n "$value" ]; then
-          collateral_url="$value"
-          break
-        fi
-      done
-    fi
-  fi
-  if [ -z "$collateral_url" ]; then
-    echo "Warning: QGS is running but PCCS/collateral URL is not configured."
-    echo "Quote verification may fail without PCCS_URL or COLLATERAL_SERVICE_URL."
-  fi
-
-  if [ ! -e /dev/vsock ]; then
-    echo "Error: /dev/vsock missing; QGS cannot be used by VMs."
-    exit 1
-  fi
-  if [ ! -e /dev/vhost-vsock ]; then
-    echo "Error: /dev/vhost-vsock missing; QGS cannot be used by VMs."
-    exit 1
   fi
 }
 
