@@ -96,7 +96,7 @@ jobs:
       - name: Deploy control plane
         uses: ./action
         with:
-          agent-url: ${{ secrets.AGENT_URL }}
+          agent-url: ${{ secrets.AGENT_URL_CONTROL || secrets.AGENT_URL }}
           agent-release-tag: ${{ needs.release-agent.outputs.agent_release_tag }}
           docker-compose: control_plane/docker-compose.yml
           public-files: control_plane
@@ -114,7 +114,7 @@ jobs:
       - name: Deploy contacts example
         uses: ./action
         with:
-          agent-url: ${{ secrets.AGENT_URL }}
+          agent-url: ${{ secrets.AGENT_URL_CONTACTS || secrets.AGENT_URL }}
           agent-release-tag: ${{ needs.release-agent.outputs.agent_release_tag }}
           agent-attestation-via-ssh: 'true'
           agent-ssh-host: ${{ secrets.AGENT_SSH_HOST }}

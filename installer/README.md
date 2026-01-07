@@ -74,6 +74,18 @@ To boot from a pre-baked pristine image:
 sudo python3 installer/host.py --agent --agent-image /var/lib/easy-enclave/agent-pristine-v0.1.0.qcow2
 ```
 
+### Multiple Agents Per Host
+
+Run multiple agent VMs on the same host by giving each VM a unique name and
+forwarding a unique host port to the VM's agent port (default 8000):
+
+```bash
+sudo python3 installer/host.py --agent --name ee-attestor-control --port 8000 --host-port 8000
+sudo python3 installer/host.py --agent --name ee-attestor-apps --port 8000 --host-port 8001
+```
+
+Use the host port in `AGENT_URL` (for example, `http://<host-ip>:8001`).
+
 ## Pristine Agent Image
 
 For releases, you can bake a pristine agent image using Canonical's TDX tooling.

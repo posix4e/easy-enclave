@@ -86,6 +86,9 @@ See `installer/README.md` for host setup details. From the repo root:
 sudo ./install-agent.sh
 ```
 
+Multiple agents per host are supported by running multiple agent VMs with unique
+names and host ports. See `installer/README.md` for examples.
+
 ### 2. Configure Repository
 
 Add the agent URL as a repository secret:
@@ -123,6 +126,10 @@ Details and inputs live in `action/README.md`.
 - The dev pipeline (`.github/workflows/pipeline-dev.yml`) bakes the agent allowlist, deploys the control plane, and deploys the contacts example.
 - The release pipeline (`.github/workflows/pipeline-release.yml`) does the same for `v*` tags.
 - Clients verify via the SDK using the latest deployment release attestation.
+
+Note: A single agent VM can only run one workload bundle at a time. For a persistent
+control plane, deploy it on a dedicated agent VM and point other workloads at a
+different agent URL.
 
 Notes:
 - App deploy workflows should pin `agent-release-tag` to a specific agent allowlist release.

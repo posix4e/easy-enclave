@@ -49,3 +49,6 @@ Deploy workloads to a remote Easy Enclave agent and publish an attested release.
 - `agent-release-tag` must point to a release that includes the allowlist asset.
 - For agent VM provisioning, use `.github/workflows/deploy-agent.yml`.
 - The agent VM starts without a workload and waits for deploy requests.
+- Each deployment replaces the previous workload on that agent VM. Use a dedicated
+  agent VM for the control plane if you want it to stay running while deploying
+  other apps.

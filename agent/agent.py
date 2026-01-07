@@ -475,7 +475,11 @@ def setup_port_forward(vm_ip: str, vm_port: int, host_port: int | None = None) -
             parts = line.split()
             if not parts or not parts[0].isdigit():
                 continue
-            if f"dpt:{host_port}" in line and "DNAT" in line:
+            if (
+                f"dpt:{host_port}" in line
+                and "DNAT" in line
+                and f"to:{vm_ip}:{vm_port}" in line
+            ):
                 rule_numbers.append(int(parts[0]))
         for number in reversed(rule_numbers):
             subprocess.run(["sudo", "iptables", "-t", "nat", "-D", chain, str(number)], capture_output=True)
@@ -489,7 +493,7 @@ def setup_port_forward(vm_ip: str, vm_port: int, host_port: int | None = None) -
             parts = line.split()
             if not parts or not parts[0].isdigit():
                 continue
-            if f"dpt:{vm_port}" in line and "ACCEPT" in line:
+            if f"dpt:{vm_port}" in line and vm_ip in line and "ACCEPT" in line:
                 rule_numbers.append(int(parts[0]))
         for number in reversed(rule_numbers):
             subprocess.run(["sudo", "iptables", "-D", "FORWARD", str(number)], capture_output=True)

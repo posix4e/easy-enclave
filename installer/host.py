@@ -483,6 +483,7 @@ def create_agent_image(
     agent_py: str,
     vm_image_tag: str,
     vm_image_sha256: str,
+    agent_port: int = 8000,
     user_data_template: str = "agent-user-data.yml",
 ) -> str:
     """Create an agent VM image with agent service installed."""
@@ -496,7 +497,7 @@ def create_agent_image(
         agent_image
     ], check=True, capture_output=True)
 
-    agent_service = load_template("agent-service.service")
+    agent_service = load_template("agent-service.service").format(agent_port=agent_port)
     network_config = load_template("network-config.yml")
     vm_image_id = build_vm_image_id_yaml(vm_image_tag, vm_image_sha256)
 
@@ -537,6 +538,7 @@ def create_agent_image(
 def create_agent_vm(
     name: str = "ee-attestor",
     port: int = 8000,
+    host_port: int | None = None,
     vm_image_tag: str = "",
     vm_image_sha256: str = "",
     base_image: str | None = None,
@@ -561,6 +563,7 @@ def create_agent_vm(
         agent_py,
         vm_image_tag,
         vm_image_sha256,
+        agent_port=port,
     )
 
     log("Starting agent VM...")
@@ -571,7 +574,7 @@ def create_agent_vm(
     wait_for_ready(ip, port=port, timeout=300)
 
     log("Setting up port forwarding...")
-    host_port = setup_port_forward(ip, port)
+    host_port = setup_port_forward(ip, port, host_port)
 
     return {
         "name": name,
@@ -614,6 +617,7 @@ def start_agent_vm_from_image(
     image_path: str,
     name: str = "ee-attestor",
     port: int = 8000,
+    host_port: int | None = None,
 ) -> dict:
     """Start an agent VM from a pre-baked image."""
     log("Checking requirements...")
@@ -627,10 +631,12 @@ def start_agent_vm_from_image(
     log(f"Agent VM IP: {ip}")
 
     log("Waiting for agent to be ready...")
+    if port != 8000:
+        log("Warning: agent images are often built for port 8000; ensure the image matches --port")
     wait_for_ready(ip, port=port, timeout=300)
 
     log("Setting up port forwarding...")
-    host_port = setup_port_forward(ip, port)
+    host_port = setup_port_forward(ip, port, host_port)
 
     return {
         "name": name,
@@ -666,6 +672,7 @@ def build_pristine_agent_image(
     tdx_repo_dir: str | None = None,
     tdx_repo_ref: str = "main",
     tdx_guest_version: str = DEFAULT_TDX_GUEST_VERSION,
+    agent_port: int = 8000,
     output_path: str | None = None,
     timeout: int = 1200,
 ) -> dict:
@@ -692,6 +699,7 @@ def build_pristine_agent_image(
         agent_py,
         vm_image_tag,
         vm_image_sha256,
+        agent_port=agent_port,
         user_data_template="agent-bake-user-data.yml",
     )
 
@@ -1009,7 +1017,11 @@ def setup_port_forward(vm_ip: str, vm_port: int, host_port: int = None) -> int:
             parts = line.split()
             if not parts or not parts[0].isdigit():
                 continue
-            if f"dpt:{host_port}" in line and "DNAT" in line:
+            if (
+                f"dpt:{host_port}" in line
+                and "DNAT" in line
+                and f"to:{vm_ip}:{vm_port}" in line
+            ):
                 rule_numbers.append(int(parts[0]))
         for number in reversed(rule_numbers):
             subprocess.run(
@@ -1031,7 +1043,7 @@ def setup_port_forward(vm_ip: str, vm_port: int, host_port: int = None) -> int:
                 parts = line.split()
                 if not parts or not parts[0].isdigit():
                     continue
-                if f"dpt:{vm_port}" in line and "ACCEPT" in line:
+                if f"dpt:{vm_port}" in line and vm_ip in line and "ACCEPT" in line:
                     rule_numbers.append(int(parts[0]))
             for number in reversed(rule_numbers):
                 subprocess.run(
@@ -1331,7 +1343,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Create TD VM with workload')
     parser.add_argument('docker_compose', nargs='?', help='Path to docker-compose.yml')
     parser.add_argument('--name', default='ee-workload', help='VM name (default: ee-workload)')
-    parser.add_argument('--port', type=int, default=8080, help='HTTP port (default: 8080)')
+    parser.add_argument('--port', type=int, default=None, help='HTTP port for workload or agent')
+    parser.add_argument('--host-port', type=int, default=None, help='Host port to forward to agent (default: same as --port)')
     parser.add_argument('--enable-ssh', action='store_true', help='Enable SSH access (default: off)')
     parser.add_argument('--create-release', action='store_true', help='Create GitHub release with attestation')
     parser.add_argument('--endpoint', help='Endpoint URL for release (default: http://{vm_ip}:{port})')
@@ -1348,6 +1361,11 @@ if __name__ == '__main__':
     parser.add_argument('--bake-timeout', type=int, default=1200, help='Bake timeout seconds (default: 1200)')
     args = parser.parse_args()
 
+    is_agent_mode = args.agent or args.build_pristine_agent_image
+    port = args.port
+    if port is None:
+        port = 8000 if is_agent_mode else 8080
+
     if args.build_pristine_agent_image:
         result = build_pristine_agent_image(
             name=args.name if args.name != 'ee-workload' else 'ee-agent-bake',
@@ -1356,6 +1374,7 @@ if __name__ == '__main__':
             tdx_repo_dir=args.tdx_repo_dir or None,
             tdx_repo_ref=args.tdx_repo_ref,
             tdx_guest_version=args.tdx_guest_version,
+            agent_port=port,
             output_path=args.output_image or None,
             timeout=args.bake_timeout,
         )
@@ -1369,12 +1388,14 @@ if __name__ == '__main__':
             result = start_agent_vm_from_image(
                 image_path=args.agent_image,
                 name=args.name,
-                port=args.port,
+                port=port,
+                host_port=args.host_port,
             )
         else:
             result = create_agent_vm(
                 name=args.name,
-                port=args.port,
+                port=port,
+                host_port=args.host_port,
                 vm_image_tag=args.vm_image_tag,
                 vm_image_sha256=args.vm_image_sha256,
                 base_image=args.base_image or None,
@@ -1389,7 +1410,7 @@ if __name__ == '__main__':
     result = create_td_vm(
         docker_compose,
         name=args.name,
-        port=args.port,
+        port=port,
         enable_ssh=args.enable_ssh,
         base_image=args.base_image or None,
     )

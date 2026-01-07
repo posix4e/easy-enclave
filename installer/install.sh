@@ -11,6 +11,7 @@ MODE="vm"
 NON_INTERACTIVE=0
 VM_NAME="ee-attestor"
 VM_PORT="8000"
+HOST_PORT=""
 VM_IMAGE_TAG=""
 VM_IMAGE_SHA256=""
 AGENT_IMAGE=""
@@ -32,7 +33,8 @@ Options:
   --mode vm|host           Install agent VM (default) or host service
   --non-interactive        Disable prompts
   --vm-name NAME           Agent VM name (default: ee-attestor)
-  --vm-port PORT           Agent VM port (default: 8000)
+  --vm-port PORT           Agent VM port inside the VM (default: 8000)
+  --host-port PORT         Host port to forward to the agent (default: same as --vm-port)
   --agent-image PATH       Use an existing pristine agent image
   --vm-image-tag TAG       Tag for pristine image/attestation
   --vm-image-sha256 SHA    Base image sha256 for vm_image_id (optional)
@@ -52,6 +54,7 @@ while [ "$#" -gt 0 ]; do
     --non-interactive) NON_INTERACTIVE=1; shift;;
     --vm-name) VM_NAME="$2"; shift 2;;
     --vm-port) VM_PORT="$2"; shift 2;;
+    --host-port) HOST_PORT="$2"; shift 2;;
     --agent-image) AGENT_IMAGE="$2"; shift 2;;
     --vm-image-tag) VM_IMAGE_TAG="$2"; shift 2;;
     --vm-image-sha256) VM_IMAGE_SHA256="$2"; shift 2;;
@@ -208,4 +211,8 @@ fi
 chmod 666 "$AGENT_IMAGE" || true
 
 echo "Starting agent VM..."
-python3 "$INSTALLER_SRC/host.py" --agent --agent-image "$AGENT_IMAGE" --name "$VM_NAME" --port "$VM_PORT"
+HOST_PORT_ARGS=()
+if [ -n "$HOST_PORT" ]; then
+  HOST_PORT_ARGS+=(--host-port "$HOST_PORT")
+fi
+python3 "$INSTALLER_SRC/host.py" --agent --agent-image "$AGENT_IMAGE" --name "$VM_NAME" --port "$VM_PORT" "${HOST_PORT_ARGS[@]}"
