@@ -20,6 +20,9 @@ from control_plane.config import (
     BIND_PORT,
     GITHUB_TOKEN,
     PCCS_URL,
+    PROXY_BIND,
+    PROXY_ENABLE,
+    PROXY_PORT,
     REGISTRATION_TTL_DAYS,
     REGISTRATION_WARN_DAYS,
 )
@@ -244,6 +247,53 @@ class ControlPlane:
     def get_session(self, app_name: str) -> Optional[Session]:
         return self._sessions_by_app.get(app_name)
 
+    async def proxy_request(
+        self,
+        app_name: str,
+        method: str,
+        path: str,
+        headers: dict,
+        body: bytes,
+    ) -> tuple[int, dict[str, str], bytes]:
+        record = self.registry.get(app_name)
+        if not record:
+            return _json_error(404, {"allowed": False, "reason": "unknown_app"})
+        payload = self.registry.status_payload(record)
+        if not payload.get("allowed"):
+            return _json_error(403, payload)
+
+        session = self.get_session(app_name)
+        if not session or session.ws.closed:
+            return _json_error(503, {"allowed": False, "reason": "no_tunnel"})
+
+        request_id = secrets.token_hex(12)
+        future = asyncio.get_running_loop().create_future()
+        session.pending_proxy[request_id] = future
+
+        headers = {k: v for k, v in headers.items() if k.lower() != "host"}
+        await session.ws.send_json(
+            {
+                "type": "proxy_request",
+                "request_id": request_id,
+                "method": method,
+                "path": path,
+                "headers": headers,
+                "body_b64": base64.b64encode(body).decode("ascii"),
+            }
+        )
+
+        try:
+            response_payload = await asyncio.wait_for(future, timeout=15)
+        except asyncio.TimeoutError:
+            session.pending_proxy.pop(request_id, None)
+            return _json_error(504, {"allowed": False, "reason": "proxy_timeout"})
+
+        status = int(response_payload.get("status", 502))
+        body_b64 = response_payload.get("body_b64") or ""
+        response_body = base64.b64decode(body_b64.encode("ascii")) if body_b64 else b""
+        response_headers = response_payload.get("headers") or {}
+        return status, response_headers, response_body
+
 
 async def require_admin(request: web.Request) -> None:
     if not ADMIN_TOKEN:
@@ -284,16 +334,6 @@ def create_app(control: ControlPlane) -> web.Application:
 
     async def proxy_app(request: web.Request) -> web.Response:
         app_name = request.match_info["app_name"]
-        record = control.registry.get(app_name)
-        if not record:
-            return web.json_response({"allowed": False, "reason": "unknown_app"}, status=404)
-        payload = control.registry.status_payload(record)
-        if not payload.get("allowed"):
-            return web.json_response(payload, status=403)
-
-        session = control.get_session(app_name)
-        if not session or session.ws.closed:
-            return web.json_response({"allowed": False, "reason": "no_tunnel"}, status=503)
 
         try:
             incoming = await request.json()
@@ -304,32 +344,13 @@ def create_app(control: ControlPlane) -> web.Application:
         headers = incoming.get("headers") or {}
         body_b64 = incoming.get("body_b64") or ""
         body = base64.b64decode(body_b64.encode("ascii")) if body_b64 else b""
-        request_id = secrets.token_hex(12)
-        future = asyncio.get_running_loop().create_future()
-        session.pending_proxy[request_id] = future
-
-        headers = {k: v for k, v in headers.items() if k.lower() != "host"}
-        await session.ws.send_json(
-            {
-                "type": "proxy_request",
-                "request_id": request_id,
-                "method": method,
-                "path": path,
-                "headers": headers,
-                "body_b64": base64.b64encode(body).decode("ascii"),
-            }
+        status, response_headers, response_body = await control.proxy_request(
+            app_name,
+            method,
+            path,
+            headers,
+            body,
         )
-
-        try:
-            response_payload = await asyncio.wait_for(future, timeout=15)
-        except asyncio.TimeoutError:
-            session.pending_proxy.pop(request_id, None)
-            return web.json_response({"allowed": False, "reason": "proxy_timeout"}, status=504)
-
-        status = int(response_payload.get("status", 502))
-        body_b64 = response_payload.get("body_b64") or ""
-        response_body = base64.b64decode(body_b64.encode("ascii")) if body_b64 else b""
-        response_headers = response_payload.get("headers") or {}
         return web.Response(status=status, body=response_body, headers=response_headers)
 
     async def dashboard(request: web.Request) -> web.Response:
@@ -384,10 +405,63 @@ def create_app(control: ControlPlane) -> web.Application:
     return app
 
 
-def main() -> None:
+def _json_error(status: int, payload: dict) -> tuple[int, dict[str, str], bytes]:
+    return status, {"Content-Type": "application/json"}, json.dumps(payload).encode()
+
+
+def resolve_app_name(request: web.Request) -> str | None:
+    app_name = request.headers.get("X-EE-App")
+    if app_name:
+        return app_name
+    host = request.headers.get("Host", "")
+    if host:
+        return host.split(".")[0]
+    return None
+
+
+def create_proxy_app(control: ControlPlane) -> web.Application:
+    async def handle_proxy(request: web.Request) -> web.Response:
+        app_name = resolve_app_name(request)
+        if not app_name:
+            return web.json_response({"error": "missing_app"}, status=400)
+
+        body = await request.read()
+        status, response_headers, response_body = await control.proxy_request(
+            app_name,
+            request.method,
+            request.rel_url.raw_path_qs,
+            dict(request.headers),
+            body,
+        )
+        return web.Response(status=status, body=response_body, headers=response_headers)
+
+    proxy_app = web.Application()
+    proxy_app.add_routes([web.route("*", "/{tail:.*}", handle_proxy)])
+    return proxy_app
+
+
+async def _run_servers() -> None:
     control = ControlPlane()
-    app = create_app(control)
-    web.run_app(app, host=BIND_HOST, port=BIND_PORT)
+    control_app = create_app(control)
+    control_runner = web.AppRunner(control_app)
+    await control_runner.setup()
+    control_site = web.TCPSite(control_runner, BIND_HOST, BIND_PORT)
+    await control_site.start()
+
+    proxy_runner = None
+    if PROXY_ENABLE:
+        proxy_app = create_proxy_app(control)
+        proxy_runner = web.AppRunner(proxy_app)
+        await proxy_runner.setup()
+        proxy_site = web.TCPSite(proxy_runner, PROXY_BIND, PROXY_PORT)
+        await proxy_site.start()
+
+    while True:
+        await asyncio.sleep(3600)
+
+
+def main() -> None:
+    asyncio.run(_run_servers())
 
 
 if __name__ == "__main__":

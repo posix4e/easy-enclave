@@ -12,6 +12,9 @@ def env(name: str, default: str | None = None) -> str | None:
 
 BIND_HOST = env("EE_CONTROL_BIND", "0.0.0.0")
 BIND_PORT = int(env("EE_CONTROL_PORT", "8088"))
+PROXY_BIND = env("EE_PROXY_BIND", "0.0.0.0")
+PROXY_PORT = int(env("EE_PROXY_PORT", "9090"))
+PROXY_ENABLE = env("EE_PROXY_ENABLE", "false").lower() in ("1", "true", "yes")
 ALLOWLIST_ASSET = env("EE_ALLOWLIST_ASSET", "agent-attestation-allowlist.json")
 GITHUB_TOKEN = env("EE_GITHUB_TOKEN")
 PCCS_URL = env("EE_PCCS_URL")

@@ -56,6 +56,9 @@ Set via environment variables:
 - `EE_ATTEST_DEADLINE_SEC` (default `30`)
 - `EE_REGISTRATION_TTL_DAYS` (default `30`)
 - `EE_REGISTRATION_WARN_DAYS` (default `3`)
+- `EE_PROXY_ENABLE` (default `false`)
+- `EE_PROXY_BIND` (default `0.0.0.0`)
+- `EE_PROXY_PORT` (default `9090`)
 
 ## Run locally
 
@@ -65,13 +68,7 @@ From the repo root:
 python -m venv .venv
 source .venv/bin/activate
 pip install -r control_plane/requirements.txt
-python control_plane/server.py
-```
-
-Tunnel proxy stub:
-
-```bash
-python control_plane/tunnel_proxy.py
+EE_PROXY_ENABLE=true python control_plane/server.py
 ```
 
 Agent tunnel (built into the agent process):
@@ -91,12 +88,11 @@ python agent/agent.py
 See `control_plane/examples/nginx.conf` for a basic `app.easyenclave.com` proxy layout that blocks
 unattested or expired backends using the resolve endpoint.
 
-## Tunnel proxy stub
+## Tunnel proxy
 
-`control_plane/tunnel_proxy.py` forwards incoming requests to `/v1/proxy/{app}` which dispatches
-them over the active WebSocket tunnel.
-
-The agent handles the tunnel client inside its main process (no separate sidecar).
+The optional proxy listener runs inside `control_plane/server.py` when
+`EE_PROXY_ENABLE=true`. It forwards incoming requests to `/v1/proxy/{app}` and
+dispatches them over the active WebSocket tunnel handled by the agent process.
 ## Networks
 
 - `forge-1` (sealed-only, production)
