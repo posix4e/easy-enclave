@@ -83,7 +83,7 @@ jobs:
                exit 1
              fi
              python3 installer/scripts/generate_allowlist.py \
-               --attestation-url \"http://\$IP:\$VM_PORT/attestation\" \
+               --attestation-url \"http://\$IP:${VM_PORT}/attestation\" \
                --release-tag \"$RELEASE_TAG\" \
                --output /tmp/agent-attestation-allowlist.json 1>&2
              base64 -w0 /tmp/agent-attestation-allowlist.json" 2> "$SSH_ERR") || {
