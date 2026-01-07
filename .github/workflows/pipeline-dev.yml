@@ -1,0 +1,133 @@
+name: Pipeline Dev
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  dev-agent-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      agent_release_tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Set dev tag
+        id: tag
+        run: echo "tag=dev" >> "$GITHUB_OUTPUT"
+
+      - name: Build dev allowlist on host
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEY_FILE=$(mktemp)
+          chmod 600 "$KEY_FILE"
+          printf '%s\n' "${{ secrets.AGENT_SSH_KEY }}" > "$KEY_FILE"
+
+          RELEASE_TAG="${{ steps.tag.outputs.tag }}"
+          VM_NAME="ee-attestor"
+          VM_PORT="8000"
+          AGENT_IMAGE="/var/lib/easy-enclave/agent-pristine-dev.qcow2"
+
+          ALLOWLIST_B64=$(ssh -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -p "${{ secrets.AGENT_SSH_PORT }}" -i "$KEY_FILE" \
+            "${{ secrets.AGENT_SSH_USER }}@${{ secrets.AGENT_SSH_HOST }}" \
+            "set -euo pipefail
+             sudo mkdir -p /opt/easy-enclave
+             if [ ! -d /opt/easy-enclave/.git ]; then
+               sudo git clone https://github.com/${{ github.repository }}.git /opt/easy-enclave 1>&2
+             fi
+             cd /opt/easy-enclave
+             sudo git fetch origin 1>&2
+             sudo git checkout main 1>&2
+             sudo git pull 1>&2
+
+             sudo python3 installer/host.py --build-pristine-agent-image \
+               --vm-image-tag \"$RELEASE_TAG\" \
+               --output-image \"$AGENT_IMAGE\" 1>&2
+
+             sudo python3 installer/host.py --agent \
+               --name \"$VM_NAME\" \
+               --port \"$VM_PORT\" \
+               --agent-image \"$AGENT_IMAGE\" >/tmp/ee-agent-create.json 1>&2
+
+             IP=\$(sudo virsh domifaddr \"$VM_NAME\" --source lease | awk '/ipv4/ {print \$4}' | head -n1 | cut -d/ -f1 || true)
+             if [ -z \"\$IP\" ]; then
+               echo \"Failed to determine agent VM IP\" >&2
+               exit 1
+             fi
+             python3 installer/scripts/generate_allowlist.py \
+               --attestation-url \"http://\$IP:\$VM_PORT/attestation\" \
+               --release-tag \"$RELEASE_TAG\" \
+               --output /tmp/agent-attestation-allowlist.json 1>&2
+             base64 -w0 /tmp/agent-attestation-allowlist.json" 2>/dev/null)
+
+          rm -f "$KEY_FILE"
+          echo "$ALLOWLIST_B64" | base64 -d > /tmp/agent-attestation-allowlist.json
+
+      - name: Publish dev allowlist
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" /tmp/agent-attestation-allowlist.json#agent-attestation-allowlist.json --clobber
+          else
+            gh release create "$TAG" /tmp/agent-attestation-allowlist.json#agent-attestation-allowlist.json \
+              -t "$TAG" -n "Dev agent allowlist"
+          fi
+
+  deploy-control-plane:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: dev-agent-release
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy control plane
+        uses: ./action
+        with:
+          agent-url: ${{ secrets.AGENT_URL }}
+          agent-release-tag: ${{ needs.dev-agent-release.outputs.agent_release_tag }}
+          docker-compose: control_plane/docker-compose.yml
+          public-files: control_plane/Caddyfile
+          private-env: |
+            EE_GITHUB_TOKEN=${{ secrets.CONTROL_GITHUB_TOKEN }}
+            EE_ADMIN_TOKEN=${{ secrets.CONTROL_ADMIN_TOKEN }}
+          endpoint-port: 9090
+
+  deploy-contacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [dev-agent-release, deploy-control-plane]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy contacts example
+        uses: ./action
+        with:
+          agent-url: ${{ secrets.AGENT_URL }}
+          agent-release-tag: ${{ needs.dev-agent-release.outputs.agent_release_tag }}
+          agent-attestation-via-ssh: 'true'
+          agent-ssh-host: ${{ secrets.AGENT_SSH_HOST }}
+          agent-ssh-user: ${{ secrets.AGENT_SSH_USER }}
+          agent-ssh-port: ${{ secrets.AGENT_SSH_PORT }}
+          agent-ssh-key: ${{ secrets.AGENT_SSH_KEY }}
+          agent-vm-name: ${{ secrets.AGENT_VM_NAME }}
+          agent-vm-port: ${{ secrets.AGENT_VM_PORT }}
+          docker-compose: ./example/contact-compose.yml
+          public-env: |
+            PUBLIC_GREETING=Hello from Easy Enclave
+            PUBLIC_REGION=us-east-demo
+            CONTACT_API_TOKEN=public-demo-token
+          private-env: |
+            CONTACT_API_TOKEN=${{ secrets.DEMO_CONTACT_TOKEN }}
+          unseal-password: ${{ secrets.DEMO_UNSEAL_PASSWORD }}
+          github-developer: posix4e
+          seal-vm: 'false'
+          github-token: ${{ github.token }}

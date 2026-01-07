@@ -11,8 +11,6 @@ Contacts example deployment workflow that:
 Inputs in the workflow are meant as a reference for `public-env`, `private-env`,
 `public-files`, `github-developer`, and `unseal-password`.
 
-Requires `AGENT_RELEASE_TAG` to pin the agent allowlist release used for deploy.
-
 ## deploy-agent.yml
 
 Creates an agent VM on a bare-metal TDX host over SSH. Requires secrets:
@@ -38,6 +36,20 @@ Deploys the control plane as an agent-managed workload (TD VM). Requires secrets
 
 Inputs:
 - `agent-release-tag`: allowlist release tag for agent attestation
+
+## pipeline-dev.yml
+
+Integrated dev pipeline (runs on `main` + manual):
+- bake agent image + allowlist (tagged `dev`)
+- deploy control plane
+- deploy contacts example
+
+## pipeline-release.yml
+
+Integrated release pipeline (runs on `v*` tags):
+- bake agent image + allowlist (tagged with the release)
+- deploy control plane
+- deploy contacts example
 
 ## release-agent-dev.yml
 

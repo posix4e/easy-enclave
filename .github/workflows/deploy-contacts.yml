@@ -26,13 +26,6 @@ jobs:
             exit 1
           fi
 
-      - name: Check agent release tag configured
-        run: |
-          if [ -z "${{ secrets.AGENT_RELEASE_TAG }}" ]; then
-            echo "::error::AGENT_RELEASE_TAG secret is not configured. Pin the agent allowlist release tag."
-            exit 1
-          fi
-
       - name: Deploy via Agent
         id: deploy
         uses: ./action
