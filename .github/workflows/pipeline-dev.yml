@@ -45,6 +45,8 @@ jobs:
         run: |
           set -euo pipefail
           KEY_FILE=$(mktemp)
+          SSH_ERR=$(mktemp)
+          trap 'rm -f "$KEY_FILE" "$SSH_ERR"' EXIT
           chmod 600 "$KEY_FILE"
           printf '%s\n' "${{ secrets.AGENT_SSH_KEY }}" > "$KEY_FILE"
 
@@ -84,9 +86,12 @@ jobs:
                --attestation-url \"http://\$IP:\$VM_PORT/attestation\" \
                --release-tag \"$RELEASE_TAG\" \
                --output /tmp/agent-attestation-allowlist.json 1>&2
-             base64 -w0 /tmp/agent-attestation-allowlist.json" 2>/dev/null)
+             base64 -w0 /tmp/agent-attestation-allowlist.json" 2> "$SSH_ERR") || {
+            echo "Allowlist build failed; SSH stderr:" >&2
+            cat "$SSH_ERR" >&2 || true
+            exit 1
+          }
 
-          rm -f "$KEY_FILE"
           echo "$ALLOWLIST_B64" | base64 -d > /tmp/agent-attestation-allowlist.json
 
       - name: Publish dev allowlist
