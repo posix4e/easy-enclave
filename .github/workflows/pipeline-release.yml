@@ -9,10 +9,14 @@ permissions:
   contents: write
   actions: read
 
+concurrency:
+  group: pipeline-release
+  cancel-in-progress: true
+
 jobs:
   release-agent:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
     outputs:
       agent_release_tag: ${{ steps.tag.outputs.tag }}
     steps:
@@ -85,7 +89,7 @@ jobs:
 
   deploy-control-plane:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     needs: release-agent
     steps:
       - uses: actions/checkout@v4
@@ -103,7 +107,7 @@ jobs:
 
   deploy-contacts:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     needs: [release-agent, deploy-control-plane]
     steps:
       - uses: actions/checkout@v4

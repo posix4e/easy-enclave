@@ -167,8 +167,14 @@ runs:
       run: |
         set -euo pipefail
         URL="${{ steps.agent-url.outputs.url }}"
-        curl -sf --connect-timeout 5 --max-time 10 "$URL/health" >/dev/null
-        curl -sf --connect-timeout 5 --max-time 10 "$URL/attestation" >/dev/null
+        if ! curl -sf --connect-timeout 5 --max-time 10 "$URL/health" >/dev/null; then
+          echo "::error::Agent URL health check failed: $URL/health" >&2
+          exit 1
+        fi
+        if ! curl -sf --connect-timeout 5 --max-time 10 "$URL/attestation" >/dev/null; then
+          echo "::error::Agent URL attestation check failed: $URL/attestation" >&2
+          exit 1
+        fi
     - name: Ensure agent VM
       if: ${{ inputs.agent-url != '' && inputs.agent-ssh-host != '' && inputs.agent-ssh-key != '' }}
       shell: bash
