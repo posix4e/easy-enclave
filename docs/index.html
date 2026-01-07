@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EasyEnclave - TDX Attestation with GitHub Trust</title>
+  <meta name="description" content="Deploy to Intel TDX. Attest with GitHub. Trust no one else. Hardware-verified confidential computing made simple.">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔐</text></svg>">
+</head>
+<body>
+  <div class="grid-bg"></div>
+  <div class="scanlines"></div>
+
+  <nav>
+    <a href="index.html" class="logo">EASYENCLAVE</a>
+    <ul class="nav-links">
+      <li><a href="quickstart.html">Quickstart</a></li>
+      <li><a href="concepts.html">Concepts</a></li>
+      <li><a href="sdk.html">SDK</a></li>
+      <li><a href="action.html">GitHub Action</a></li>
+      <li><a href="https://github.com/anthropics/easyenclave" target="_blank">GitHub</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    <section class="hero">
+      <h1 class="hero-title">EASYENCLAVE</h1>
+      <p class="hero-tagline">
+        Deploy to <strong>TDX</strong>. Attest with <strong>GitHub</strong>. Trust no one else.
+      </p>
+      <div class="install-box">
+        <code>pip install easyenclave</code>
+        <span class="cursor"></span>
+      </div>
+      <div class="cta-buttons">
+        <a href="quickstart.html" class="btn btn-primary">Get Started</a>
+        <a href="concepts.html" class="btn btn-secondary">How It Works</a>
+      </div>
+    </section>
+
+    <section class="features">
+      <h2 class="section-title">// FEATURES</h2>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">🔒</div>
+          <h3>Hardware Attestation</h3>
+          <p>Intel TDX provides cryptographic proof your code runs on genuine hardware. No trust assumptions needed.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🐙</div>
+          <h3>GitHub = Trust Anchor</h3>
+          <p>Your repo IS your identity. Attestations published as releases. Clients verify directly from GitHub.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">⚡</div>
+          <h3>One-Line Deploy</h3>
+          <p>Push your docker-compose. GitHub Action handles the rest. Attestation generated automatically.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🔐</div>
+          <h3>Sealed by Default</h3>
+          <p>Production VMs are sealed - no SSH, no serial console. What's deployed is what runs. Period.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🧪</div>
+          <h3>Simple SDK</h3>
+          <p>Connect to any attested service with one line of Python. We handle verification, you handle your app.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🌐</div>
+          <h3>Zero PKI</h3>
+          <p>No certificates to manage. No CAs to trust. GitHub releases + TDX quotes = verified endpoints.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="quickstart">
+      <h2 class="section-title">// QUICK START</h2>
+      <div class="steps">
+        <div class="step">
+          <div class="step-number">01</div>
+          <div class="step-content">
+            <h3>Install the SDK</h3>
+            <p>Get the Python client to connect to attested services.</p>
+            <pre data-lang="bash"><code>pip install easyenclave</code></pre>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">02</div>
+          <div class="step-content">
+            <h3>Deploy Your Service</h3>
+            <p>Add our GitHub Action to your repo. Push a docker-compose and we handle the rest.</p>
+            <pre data-lang="yaml"><code><span class="keyword">name:</span> <span class="string">Deploy to TDX</span>
+<span class="keyword">on:</span> workflow_dispatch
+
+<span class="keyword">jobs:</span>
+  <span class="keyword">deploy:</span>
+    <span class="keyword">uses:</span> <span class="string">anthropics/easyenclave/.github/workflows/pipeline-dev.yml@main</span>
+    <span class="keyword">secrets:</span> <span class="string">inherit</span></code></pre>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">03</div>
+          <div class="step-content">
+            <h3>Connect & Verify</h3>
+            <p>Connect to your service. We verify the TDX attestation automatically.</p>
+            <pre data-lang="python"><code><span class="keyword">from</span> easyenclave <span class="keyword">import</span> connect
+
+<span class="comment"># That's it. Attestation verified.</span>
+client = <span class="function">connect</span>(<span class="string">"your-org/your-repo"</span>)
+response = client.<span class="function">get</span>(<span class="string">"/api/data"</span>)</code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>
+      Built for the paranoid. Powered by <a href="https://www.intel.com/content/www/us/en/developer/tools/trust-domain-extensions/overview.html" target="_blank">Intel TDX</a>.
+      <br>
+      <a href="https://github.com/anthropics/easyenclave" target="_blank">GitHub</a> ·
+      <a href="quickstart.html">Docs</a> ·
+      <a href="concepts.html">Learn More</a>
+    </p>
+  </footer>
+
+  <script src="js/main.js"></script>
+</body>
+</html>

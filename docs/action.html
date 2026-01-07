@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GitHub Action - EasyEnclave</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔐</text></svg>">
+</head>
+<body>
+  <div class="grid-bg"></div>
+  <div class="scanlines"></div>
+
+  <nav>
+    <a href="index.html" class="logo">EASYENCLAVE</a>
+    <ul class="nav-links">
+      <li><a href="quickstart.html">Quickstart</a></li>
+      <li><a href="concepts.html">Concepts</a></li>
+      <li><a href="sdk.html">SDK</a></li>
+      <li><a href="action.html">GitHub Action</a></li>
+      <li><a href="https://github.com/anthropics/easyenclave" target="_blank">GitHub</a></li>
+    </ul>
+  </nav>
+
+  <main class="docs-container">
+    <h1>// GITHUB ACTION</h1>
+    <p>Deploy your service to TDX with attestation in a single workflow.</p>
+
+    <h2>Basic Usage</h2>
+    <p>Add this workflow to your repository at <code>.github/workflows/deploy.yml</code>:</p>
+
+    <pre data-lang="yaml"><code><span class="keyword">name:</span> <span class="string">Deploy to TDX</span>
+
+<span class="keyword">on:</span>
+  <span class="keyword">workflow_dispatch:</span>
+    <span class="keyword">inputs:</span>
+      <span class="keyword">ssh:</span>
+        <span class="keyword">description:</span> <span class="string">'Enable SSH access'</span>
+        <span class="keyword">type:</span> <span class="string">boolean</span>
+        <span class="keyword">default:</span> <span class="string">false</span>
+
+<span class="keyword">jobs:</span>
+  <span class="keyword">deploy:</span>
+    <span class="keyword">uses:</span> <span class="string">anthropics/easyenclave/.github/workflows/pipeline-dev.yml@main</span>
+    <span class="keyword">with:</span>
+      <span class="keyword">ssh:</span> <span class="string">${{ inputs.ssh }}</span>
+    <span class="keyword">secrets:</span> <span class="string">inherit</span></code></pre>
+
+    <h2>Workflow Options</h2>
+
+    <h3>Development Pipeline</h3>
+    <p>Use <code>pipeline-dev.yml</code> for development deployments:</p>
+    <ul>
+      <li>Allows unsealed VMs (with SSH access)</li>
+      <li>Deploys to sandbox network</li>
+      <li>Faster iteration, less strict policies</li>
+    </ul>
+
+    <h3>Release Pipeline</h3>
+    <p>Use <code>pipeline-release.yml</code> for production:</p>
+    <ul>
+      <li>Sealed VMs only (no SSH)</li>
+      <li>Deploys to production network</li>
+      <li>Stricter attestation verification</li>
+    </ul>
+
+    <pre data-lang="yaml"><code><span class="keyword">jobs:</span>
+  <span class="keyword">deploy-prod:</span>
+    <span class="keyword">uses:</span> <span class="string">anthropics/easyenclave/.github/workflows/pipeline-release.yml@main</span>
+    <span class="keyword">secrets:</span> <span class="string">inherit</span></code></pre>
+
+    <h2>Inputs</h2>
+
+    <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+      <thead>
+        <tr style="border-bottom: 1px solid var(--neon-cyan);">
+          <th style="text-align: left; padding: 0.5rem; color: var(--neon-cyan);">Input</th>
+          <th style="text-align: left; padding: 0.5rem; color: var(--neon-cyan);">Type</th>
+          <th style="text-align: left; padding: 0.5rem; color: var(--neon-cyan);">Default</th>
+          <th style="text-align: left; padding: 0.5rem; color: var(--neon-cyan);">Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
+          <td style="padding: 0.5rem;"><code>ssh</code></td>
+          <td style="padding: 0.5rem;">boolean</td>
+          <td style="padding: 0.5rem;">false</td>
+          <td style="padding: 0.5rem;">Enable SSH access (dev only)</td>
+        </tr>
+        <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
+          <td style="padding: 0.5rem;"><code>compose_file</code></td>
+          <td style="padding: 0.5rem;">string</td>
+          <td style="padding: 0.5rem;">docker-compose.yml</td>
+          <td style="padding: 0.5rem;">Path to compose file</td>
+        </tr>
+        <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
+          <td style="padding: 0.5rem;"><code>public_dir</code></td>
+          <td style="padding: 0.5rem;">string</td>
+          <td style="padding: 0.5rem;">public/</td>
+          <td style="padding: 0.5rem;">Directory for public files</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Environment Variables</h2>
+    <p>EasyEnclave handles two types of environment variables:</p>
+
+    <h3>Public Variables</h3>
+    <p>Defined in your docker-compose.yml. Bundled with the deployment artifact:</p>
+    <pre data-lang="yaml"><code><span class="keyword">services:</span>
+  <span class="keyword">app:</span>
+    <span class="keyword">environment:</span>
+      - <span class="string">LOG_LEVEL=info</span>
+      - <span class="string">PUBLIC_URL=https://api.example.com</span></code></pre>
+
+    <h3>Private Variables (Secrets)</h3>
+    <p>Stored as GitHub secrets, injected at deploy time, <strong>never persisted to disk</strong>:</p>
+
+    <ol>
+      <li>Add secret to your repo: <code>Settings → Secrets → Actions</code></li>
+      <li>Reference in compose with <code>${SECRET_NAME}</code></li>
+      <li>Add to workflow with <code>secrets: inherit</code></li>
+    </ol>
+
+    <pre data-lang="yaml"><code><span class="keyword">services:</span>
+  <span class="keyword">app:</span>
+    <span class="keyword">environment:</span>
+      - <span class="string">DATABASE_URL=${DATABASE_URL}</span>  <span class="comment"># From GitHub secret</span>
+      - <span class="string">API_KEY=${API_KEY}</span>            <span class="comment"># From GitHub secret</span></code></pre>
+
+    <div class="callout callout-info">
+      <strong>Private env vars are:</strong>
+      <ul>
+        <li>Transmitted inline, not in the bundle</li>
+        <li>Injected directly into container env</li>
+        <li>Never written to disk in the TD</li>
+        <li>Not visible in attestation artifacts</li>
+      </ul>
+    </div>
+
+    <h2>Required Files</h2>
+    <p>Your repository should have:</p>
+
+    <pre data-lang="text"><code>your-repo/
+├── docker-compose.yml    <span class="comment"># Required: your service definition</span>
+├── public/               <span class="comment"># Optional: public files (configs, etc)</span>
+│   └── config.json
+└── .github/
+    └── workflows/
+        └── deploy.yml    <span class="comment"># Your workflow file</span></code></pre>
+
+    <h2>Docker Compose Requirements</h2>
+    <ul>
+      <li>Use images from public registries or authenticated private registries</li>
+      <li>Expose your service on a port (default: 8080)</li>
+      <li>Include health checks for reliability</li>
+    </ul>
+
+    <pre data-lang="yaml"><code><span class="keyword">version:</span> <span class="string">'3.8'</span>
+
+<span class="keyword">services:</span>
+  <span class="keyword">app:</span>
+    <span class="keyword">image:</span> <span class="string">ghcr.io/your-org/your-app:latest</span>
+    <span class="keyword">ports:</span>
+      - <span class="string">"8080:8080"</span>
+    <span class="keyword">environment:</span>
+      - <span class="string">DATABASE_URL=${DATABASE_URL}</span>
+    <span class="keyword">healthcheck:</span>
+      <span class="keyword">test:</span> [<span class="string">"CMD"</span>, <span class="string">"curl"</span>, <span class="string">"-f"</span>, <span class="string">"http://localhost:8080/health"</span>]
+      <span class="keyword">interval:</span> <span class="string">30s</span>
+      <span class="keyword">timeout:</span> <span class="string">10s</span>
+      <span class="keyword">retries:</span> <span class="string">3</span></code></pre>
+
+    <h2>Outputs</h2>
+    <p>The workflow creates a GitHub release with:</p>
+
+    <pre data-lang="json"><code>{
+  <span class="string">"endpoint"</span>: <span class="string">"https://your-app.easyenclave.com"</span>,
+  <span class="string">"quote"</span>: <span class="string">"base64-encoded-tdx-quote..."</span>,
+  <span class="string">"sealed"</span>: <span class="keyword">true</span>,
+  <span class="string">"rtmrs"</span>: {
+    <span class="string">"rtmr0"</span>: <span class="string">"abc123..."</span>,
+    <span class="string">"rtmr1"</span>: <span class="string">"def456..."</span>,
+    <span class="string">"rtmr2"</span>: <span class="string">"ghi789..."</span>,
+    <span class="string">"rtmr3"</span>: <span class="string">"jkl012..."</span>
+  },
+  <span class="string">"timestamp"</span>: <span class="string">"2024-01-15T10:30:00Z"</span>
+}</code></pre>
+
+    <h2>Triggering Deployments</h2>
+
+    <h3>Manual (UI)</h3>
+    <p>Go to <code>Actions → Deploy to TDX → Run workflow</code></p>
+
+    <h3>CLI</h3>
+    <pre data-lang="bash"><code><span class="comment"># Development (with SSH)</span>
+gh workflow run deploy.yml -f ssh=true
+
+<span class="comment"># Production (sealed)</span>
+gh workflow run deploy.yml</code></pre>
+
+    <h3>On Push (Not Recommended)</h3>
+    <pre data-lang="yaml"><code><span class="keyword">on:</span>
+  <span class="keyword">push:</span>
+    <span class="keyword">branches:</span> [main]</code></pre>
+
+    <div class="callout callout-warning">
+      <strong>Auto-deploy on push</strong> means every commit triggers a new deployment. Make sure you have proper branch protections.
+    </div>
+
+    <h2>Monitoring Deployments</h2>
+    <pre data-lang="bash"><code><span class="comment"># Watch the deployment</span>
+gh run watch
+
+<span class="comment"># List recent runs</span>
+gh run list --workflow=deploy.yml
+
+<span class="comment"># View logs</span>
+gh run view --log</code></pre>
+
+    <h2>Troubleshooting</h2>
+
+    <h3>Deployment Stuck</h3>
+    <ul>
+      <li>Check Actions logs for errors</li>
+      <li>Verify your docker-compose is valid</li>
+      <li>Ensure images are accessible</li>
+    </ul>
+
+    <h3>Attestation Failed</h3>
+    <ul>
+      <li>TDX quote generation requires specific hardware</li>
+      <li>Check the agent logs in the workflow output</li>
+      <li>Verify the host has DCAP configured</li>
+    </ul>
+
+    <h3>Container Won't Start</h3>
+    <ul>
+      <li>Enable SSH mode to debug: <code>ssh=true</code></li>
+      <li>Check container logs inside the TD</li>
+      <li>Verify environment variables are set</li>
+    </ul>
+
+    <h2>Next Steps</h2>
+    <ul>
+      <li><a href="sdk.html">Connect to your service with the SDK</a></li>
+      <li><a href="concepts.html">Understand the attestation model</a></li>
+    </ul>
+  </main>
+
+  <footer>
+    <p><a href="index.html">EasyEnclave</a> · <a href="https://github.com/anthropics/easyenclave">GitHub</a></p>
+  </footer>
+
+  <script src="js/main.js"></script>
+</body>
+</html>
