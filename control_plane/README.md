@@ -70,6 +70,12 @@ pip install -r control_plane/requirements.txt
 python control_plane/server.py
 ```
 
+Compose (runs prod + staging + Caddy):
+
+```bash
+docker compose -f control_plane/docker-compose.yml up --build
+```
+
 Agent tunnel (built into the agent process):
 
 ```bash
@@ -104,6 +110,8 @@ Production expects `appname.app.easyenclave.com` to route to the proxy port
 The control plane is deployed as an agent-managed workload using
 `control_plane/docker-compose.yml`. It runs production and staging services in
 the same VM and uses Caddy for TLS termination.
+
+The default GitHub workflow is `.github/workflows/deploy-control-plane.yml`.
 ## Networks
 
 - `forge-1` (sealed-only, production)

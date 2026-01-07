@@ -94,7 +94,7 @@ Trigger deployment by running a workflow that uses the `./action` composite acti
 
 ```bash
 # Example: trigger a workflow run
-gh workflow run deploy
+gh workflow run deploy-contacts
 ```
 
 ### 4. Connect (Python SDK)
@@ -111,6 +111,14 @@ print(f"Verified endpoint: {client.endpoint}")
 
 Details and inputs live in `action/README.md`.
 
+## CI/CD Lifecycle (Current)
+
+- Release the agent VM image and publish the allowlist asset (`agent-attestation-allowlist.json`).
+- Provision the agent VM with `.github/workflows/deploy-agent.yml`.
+- Deploy the control plane as an agent-managed workload with `.github/workflows/deploy-control-plane.yml`.
+- Deploy apps with `.github/workflows/deploy-contacts.yml` or your own workflow using `./action`.
+- Clients verify via the SDK using the latest deployment release attestation.
+
 ## Control Plane + Proxy (Draft)
 
 The control plane accepts outbound WebSocket tunnels from agents, verifies Intel DCAP attestation
@@ -119,15 +127,17 @@ is sealed-only for production, while `sandbox-1` allows unsealed testing.
 
 See `control_plane/README.md` for the protocol and `control_plane/examples/nginx.conf` for a proxy
 layout that routes `appname.app.easyenclave.com` only when attestation and health checks are valid.
-`control_plane/tunnel_proxy.py` forwards traffic to `/v1/proxy/{app}` which dispatches requests
-over the active WebSocket tunnel handled by the agent process.
+The proxy listener is part of `control_plane/server.py`.
+
+The production control plane is deployed as an agent-managed workload using
+`control_plane/docker-compose.yml`, which runs both prod and staging listeners in
+one TD VM (with Caddy terminating TLS).
 
 Minimal run:
 
 ```bash
 pip install -r control_plane/requirements.txt
 python control_plane/server.py
-python control_plane/tunnel_proxy.py
 ```
 
 Agent tunnel client (built-in):

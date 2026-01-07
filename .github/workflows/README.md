@@ -37,3 +37,7 @@ Deploys the control plane as an agent-managed workload (TD VM). Requires secrets
 Inputs:
 - `target`: `prod` or `staging`
 - `agent-release-tag`: allowlist release tag for agent attestation
+
+Note: the compose bundle runs both prod (8088/9090) and staging (8089/9091)
+listeners in the same VM; `target` controls which port is recorded in the
+deployment release.
