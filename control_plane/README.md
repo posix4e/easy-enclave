@@ -105,7 +105,7 @@ The control plane is deployed as an agent-managed workload using
 `control_plane/docker-compose.yml`. It runs a sealed-only control plane and
 uses Caddy for TLS termination.
 
-The default GitHub workflow is `.github/workflows/deploy-control-plane.yml`.
+The default GitHub workflow is `.github/workflows/pipeline-dev.yml`.
 ## Networks
 
 - `forge-1` (sealed-only, production)

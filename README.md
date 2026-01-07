@@ -93,8 +93,8 @@ Add the agent URL as a repository secret:
 Trigger deployment by running a workflow that uses the `./action` composite action:
 
 ```bash
-# Example: trigger a workflow run
-gh workflow run deploy-contacts
+# Example: trigger the dev pipeline
+gh workflow run pipeline-dev
 ```
 
 ### 4. Connect (Python SDK)
@@ -115,9 +115,8 @@ Details and inputs live in `action/README.md`.
 
 - Release the agent VM image and publish the allowlist asset (`agent-attestation-allowlist.json`).
 - For development, `.github/workflows/pipeline-dev.yml` keeps the `dev` allowlist tag up to date and deploys the stack.
-- Provision the agent VM with `.github/workflows/deploy-agent.yml`.
-- Deploy the control plane as an agent-managed workload with `.github/workflows/deploy-control-plane.yml`.
-- Deploy apps with `.github/workflows/deploy-contacts.yml` or your own workflow using `./action`.
+- The dev pipeline (`.github/workflows/pipeline-dev.yml`) bakes the agent allowlist, deploys the control plane, and deploys the contacts example.
+- The release pipeline (`.github/workflows/pipeline-release.yml`) does the same for `v*` tags.
 - Clients verify via the SDK using the latest deployment release attestation.
 
 Notes:
