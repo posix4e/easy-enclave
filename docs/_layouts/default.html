@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ page.title }} | EASYENCLAVE</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0d0d0d;color:#0f0;font:16px/1.6 'Courier New',monospace;padding:20px;max-width:800px;margin:0 auto}
+::selection{background:#0f0;color:#000}
+a{color:#0ff;text-decoration:none}
+a:hover{text-decoration:underline;text-shadow:0 0 5px #0ff}
+h1,h2,h3{color:#0f0;text-shadow:0 0 10px #0f0;margin:1.5em 0 .5em;font-weight:normal}
+h1{border-bottom:1px solid #0f0;padding-bottom:.3em}
+h1::before{content:'# '}
+h2::before{content:'## '}
+h3::before{content:'### '}
+p{margin:.8em 0}
+code{background:#1a1a1a;padding:2px 6px;color:#ff0}
+pre{background:#1a1a1a;padding:15px;overflow-x:auto;border-left:3px solid #0f0;margin:1em 0}
+pre code{padding:0;background:none}
+ul,ol{margin:1em 0 1em 2em}
+li{margin:.3em 0}
+li::marker{color:#0f0}
+blockquote{border-left:3px solid #f0f;padding-left:15px;color:#aaa;margin:1em 0}
+nav{margin-bottom:30px;padding-bottom:15px;border-bottom:1px dashed #333}
+nav a{margin-right:20px}
+.prompt::before{content:'> ';color:#0f0}
+footer{margin-top:40px;padding-top:15px;border-top:1px dashed #333;color:#555;font-size:14px}
+.blink{animation:b 1s infinite}
+@keyframes b{50%{opacity:0}}
+</style>
+</head>
+<body>
+<nav>
+<a href="/">EASYENCLAVE</a>
+<a href="/quickstart">quickstart</a>
+<a href="/concepts">concepts</a>
+<a href="/sdk">sdk</a>
+<a href="/action">action</a>
+<a href="https://github.com/posix4e/easy-enclave">github</a>
+</nav>
+{{ content }}
+<footer>
+<span class="blink">_</span> easyenclave.com
+</footer>
+</body>
+</html>

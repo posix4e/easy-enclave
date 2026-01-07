@@ -1,0 +1,7 @@
+title: EASYENCLAVE
+description: Deploy to TDX. Attest with GitHub. Trust no one.
+baseurl: ""
+url: "https://easyenclave.com"
+markdown: kramdown
+kramdown:
+  syntax_highlighter: rouge
