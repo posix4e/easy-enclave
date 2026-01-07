@@ -1037,9 +1037,15 @@ def load_bundle(bundle_dir: str) -> tuple[str, list[dict[str, str]], dict]:
     compose_paths = list(root.rglob("docker-compose.yml")) + list(root.rglob("docker-compose.yaml"))
     if not compose_paths:
         raise FileNotFoundError("Bundle missing docker-compose.yml")
-    if len(compose_paths) > 1:
-        raise ValueError("Bundle has multiple docker-compose files")
-    compose_path = compose_paths[0]
+    compose_root = root / "docker-compose.yml"
+    if not compose_root.exists():
+        compose_root = root / "docker-compose.yaml"
+    if compose_root.exists():
+        compose_path = compose_root
+    elif len(compose_paths) == 1:
+        compose_path = compose_paths[0]
+    else:
+        raise ValueError("Bundle has multiple docker-compose files and no root compose")
 
     env_public = None
     if (root / ".env.public").exists():
