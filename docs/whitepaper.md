@@ -431,6 +431,10 @@ the endgame: a network that doesn't need us.
 - attestation verification
 
 ### next
+- **implement whitepaper** - signed promises, transfers API, redemption flow
+- **agent proxies** - agents stay private behind control plane, no public exposure required
+  - SDK routes through proxy to reach private agent IPs
+- **USD/USDC bridge** - company exchange for points to USDC (50% profit margin)
 - **abuse system dashboard** - monitor bad actors, stake-weighted trust
 - third-party exchange open source release
 - multi-region node support
