@@ -53,7 +53,7 @@ jobs:
           RELEASE_TAG="${{ steps.tag.outputs.tag }}"
           VM_NAME="ee-attestor"
           VM_PORT="8000"
-          AGENT_IMAGE="/var/lib/easy-enclave/agent-pristine-dev.qcow2"
+          AGENT_IMAGE="/var/lib/easy-enclave/agent-pristine-dev-$(date +%Y%m%d%H%M%S).qcow2"
 
           ALLOWLIST_B64=$(ssh -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             -p "${{ secrets.AGENT_SSH_PORT }}" -i "$KEY_FILE" \
