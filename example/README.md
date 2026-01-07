@@ -38,7 +38,7 @@ curl -X POST http://localhost:8080/lookup \
 
 ## Usage
 
-The example deploy workflow lives at `.github/workflows/deploy.yml` and uploads:
+The example deploy workflow lives at `.github/workflows/deploy-contacts.yml` and uploads:
 - `docker-compose.yml` as part of the public bundle
 - `public/banner.txt` via `public-files`
 - public env via `public-env`

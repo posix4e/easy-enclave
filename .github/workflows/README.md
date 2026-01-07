@@ -1,6 +1,6 @@
 # Workflows
 
-## deploy.yml
+## deploy-contacts.yml
 
 Contacts example deployment workflow that:
 - builds a public bundle artifact (docker-compose + public env/files)
