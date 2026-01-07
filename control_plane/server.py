@@ -21,7 +21,6 @@ from control_plane.config import (
     GITHUB_TOKEN,
     PCCS_URL,
     PROXY_BIND,
-    PROXY_ENABLE,
     PROXY_PORT,
     REGISTRATION_TTL_DAYS,
     REGISTRATION_WARN_DAYS,
@@ -448,13 +447,11 @@ async def _run_servers() -> None:
     control_site = web.TCPSite(control_runner, BIND_HOST, BIND_PORT)
     await control_site.start()
 
-    proxy_runner = None
-    if PROXY_ENABLE:
-        proxy_app = create_proxy_app(control)
-        proxy_runner = web.AppRunner(proxy_app)
-        await proxy_runner.setup()
-        proxy_site = web.TCPSite(proxy_runner, PROXY_BIND, PROXY_PORT)
-        await proxy_site.start()
+    proxy_app = create_proxy_app(control)
+    proxy_runner = web.AppRunner(proxy_app)
+    await proxy_runner.setup()
+    proxy_site = web.TCPSite(proxy_runner, PROXY_BIND, PROXY_PORT)
+    await proxy_site.start()
 
     while True:
         await asyncio.sleep(3600)

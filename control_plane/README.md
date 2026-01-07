@@ -56,7 +56,6 @@ Set via environment variables:
 - `EE_ATTEST_DEADLINE_SEC` (default `30`)
 - `EE_REGISTRATION_TTL_DAYS` (default `30`)
 - `EE_REGISTRATION_WARN_DAYS` (default `3`)
-- `EE_PROXY_ENABLE` (default `false`)
 - `EE_PROXY_BIND` (default `0.0.0.0`)
 - `EE_PROXY_PORT` (default `9090`)
 
@@ -68,7 +67,7 @@ From the repo root:
 python -m venv .venv
 source .venv/bin/activate
 pip install -r control_plane/requirements.txt
-EE_PROXY_ENABLE=true python control_plane/server.py
+python control_plane/server.py
 ```
 
 Agent tunnel (built into the agent process):
@@ -90,9 +89,9 @@ unattested or expired backends using the resolve endpoint.
 
 ## Tunnel proxy
 
-The optional proxy listener runs inside `control_plane/server.py` when
-`EE_PROXY_ENABLE=true`. It forwards incoming requests to `/v1/proxy/{app}` and
-dispatches them over the active WebSocket tunnel handled by the agent process.
+The proxy listener runs inside `control_plane/server.py`. It forwards incoming
+requests to `/v1/proxy/{app}` and dispatches them over the active WebSocket
+tunnel handled by the agent process.
 ## Networks
 
 - `forge-1` (sealed-only, production)
