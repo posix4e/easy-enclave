@@ -154,26 +154,24 @@ Releases:
 - Each deployment publishes a `deploy-YYYYMMDD-HHMMSS` release with `attestation.json`
   (quote, endpoint, timestamp, sealed state).
 
-Control plane networks:
-- Agents register with the control plane over `EE_CONTROL_WS`, providing `repo`, `release_tag`,
-  `app_name`, and `network`.
-- Networks are policy domains. They are enforced by the control plane (attestation + seal status).
-- `forge-1` is sealed-only (production), `sandbox-1` allows unsealed nodes for testing.
-
-## CI/CD Lifecycle (Current)
-
+CI/CD lifecycle:
 - Release the agent VM image and publish the allowlist asset (`agent-attestation-allowlist.json`).
 - For development, `.github/workflows/pipeline-dev.yml` keeps the `dev` allowlist tag up to date and deploys the stack.
 - The dev pipeline (`.github/workflows/pipeline-dev.yml`) bakes the agent allowlist, deploys the control plane, and deploys the contacts example.
 - The release pipeline (`.github/workflows/pipeline-release.yml`) does the same for `v*` tags.
 - Clients verify via the SDK using the latest deployment release attestation.
 
-Note: A single agent VM can only run one workload bundle at a time. For a persistent
-control plane, deploy it on a dedicated agent VM and point other workloads at a
-different agent URL.
-
 Notes:
+- A single agent VM can only run one workload bundle at a time. For a persistent
+  control plane, deploy it on a dedicated agent VM and point other workloads at a
+  different agent URL.
 - App deploy workflows should pin `agent-release-tag` to a specific agent allowlist release.
+
+Control plane networks:
+- Agents register with the control plane over `EE_CONTROL_WS`, providing `repo`, `release_tag`,
+  `app_name`, and `network`.
+- Networks are policy domains. They are enforced by the control plane (attestation + seal status).
+- `forge-1` is sealed-only (production), `sandbox-1` allows unsealed nodes for testing.
 
 ## Control Plane + Proxy (Draft)
 
