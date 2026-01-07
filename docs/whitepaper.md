@@ -77,7 +77,6 @@ Nodes issue **signed promises** to provide compute:
 
 These commitments:
 - can be verified **offline** (signature check)
-- are **tradeable** (user A sells to user B)
 - are **redeemable** for actual compute
 - are **backed by stake** (slashable)
 
@@ -88,9 +87,9 @@ These commitments:
 │ MACHINE-MONTH  │
 │                │
 │ 1. Verifiable  │ ← TDX quote proves node is real
-│ 2. Tradeable   │ ← transfer to anyone
-│ 3. Redeemable  │ ← use for actual compute
-│ 4. Backed      │ ← node stakes collateral
+│ 2. Redeemable  │ ← use for actual compute
+│ 3. Backed      │ ← node stakes collateral
+│ 4. Transferable│ ← via control plane API
 └────────────────┘
 ```
 
