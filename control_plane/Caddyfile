@@ -1,7 +1,3 @@
 *.app.easyenclave.com {
   reverse_proxy control-plane-prod:9090
 }
-
-*.sandbox.app.easyenclave.com {
-  reverse_proxy control-plane-staging:9091
-}

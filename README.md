@@ -122,8 +122,8 @@ Details and inputs live in `action/README.md`.
 ## Control Plane + Proxy (Draft)
 
 The control plane accepts outbound WebSocket tunnels from agents, verifies Intel DCAP attestation
-against the repo allowlist, and exposes `/v1/resolve/{app}` for proxy routing decisions. `forge-1`
-is sealed-only for production, while `sandbox-1` allows unsealed testing.
+against the repo allowlist, and exposes `/v1/resolve/{app}` for proxy routing decisions.
+The control plane only accepts sealed agents (`forge-1`).
 
 See `control_plane/README.md` for the protocol and `control_plane/examples/nginx.conf` for a proxy
 layout that routes `appname.app.easyenclave.com` only when attestation and health checks are valid.

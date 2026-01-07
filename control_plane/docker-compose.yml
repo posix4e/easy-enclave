@@ -19,26 +19,6 @@ services:
       - "8088:8088"
       - "9090:9090"
 
-  control-plane-staging:
-    image: python:3.12-slim
-    working_dir: /opt/app
-    command: >
-      bash -c "pip install --no-cache-dir -r /opt/app/control_plane/requirements.txt
-      && python /opt/app/control_plane/server.py"
-    environment:
-      EE_CONTROL_BIND: 0.0.0.0
-      EE_CONTROL_PORT: 8089
-      EE_PROXY_BIND: 0.0.0.0
-      EE_PROXY_PORT: 9091
-      EE_ALLOWLIST_ASSET: agent-attestation-allowlist.json
-      EE_GITHUB_TOKEN: ${EE_GITHUB_TOKEN}
-      EE_ADMIN_TOKEN: ${EE_ADMIN_TOKEN}
-    volumes:
-      - ./control_plane:/opt/app/control_plane:ro
-    ports:
-      - "8089:8089"
-      - "9091:9091"
-
   caddy:
     image: caddy:2
     restart: unless-stopped

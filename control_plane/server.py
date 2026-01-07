@@ -64,7 +64,7 @@ class ControlPlane:
         self._sessions: dict[web.WebSocketResponse, Session] = {}
         self._sessions_by_app: dict[str, Session] = {}
         self._sealed_networks = {"forge-1"}
-        self._allowed_networks = {"forge-1", "sandbox-1"}
+        self._allowed_networks = {"forge-1"}
 
     async def handle_ws(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse(heartbeat=30)
@@ -109,7 +109,7 @@ class ControlPlane:
         release_tag = payload.get("release_tag")
         app_name = payload.get("app_name")
         agent_id = payload.get("agent_id")
-        network = payload.get("network") or "prod"
+        network = payload.get("network") or "forge-1"
 
         if network not in self._allowed_networks:
             await session.ws.send_json({"type": "status", "state": "invalid", "reason": "invalid_network"})

@@ -3,10 +3,6 @@ name: Deploy Control Plane
 on:
   workflow_dispatch:
     inputs:
-      target:
-        description: 'Deployment target (prod or staging)'
-        required: true
-        default: 'prod'
       agent-release-tag:
         description: 'Release tag for agent allowlist'
         required: false
@@ -24,12 +20,7 @@ jobs:
         id: ports
         shell: bash
         run: |
-          TARGET="${{ inputs.target }}"
-          if [ "$TARGET" = "staging" ]; then
-            echo "endpoint_port=9091" >> $GITHUB_OUTPUT
-          else
-            echo "endpoint_port=9090" >> $GITHUB_OUTPUT
-          fi
+          echo "endpoint_port=9090" >> $GITHUB_OUTPUT
 
       - name: Deploy control plane
         uses: ./action

@@ -99,17 +99,11 @@ The proxy listener runs inside `control_plane/server.py`. It forwards incoming
 requests to `/v1/proxy/{app}` and dispatches them over the active WebSocket
 tunnel handled by the agent process.
 
-## Staging vs Production
-
-Production expects `appname.app.easyenclave.com` to route to the proxy port
-(default `9090`). Staging uses `appname.sandbox.app.easyenclave.com` on port
-`9091`. The provided `control_plane/Caddyfile` configures both.
-
 ## Agent Deployment
 
 The control plane is deployed as an agent-managed workload using
-`control_plane/docker-compose.yml`. It runs production and staging services in
-the same VM and uses Caddy for TLS termination.
+`control_plane/docker-compose.yml`. It runs a sealed-only control plane and
+uses Caddy for TLS termination.
 
 The default GitHub workflow is `.github/workflows/deploy-control-plane.yml`.
 ## Networks
