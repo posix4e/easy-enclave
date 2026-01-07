@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -81,7 +82,61 @@ PCCS_CONFIG_PATHS = (
     "/etc/qcnl.conf",
     "/etc/tdx-qgs/qgs.conf",
 )
-PCCS_CONFIG_KEYS = ("PCCS_URL", "COLLATERAL_SERVICE_URL")
+PCCS_CONFIG_KEYS = ("pccs_url", "collateral_service_url")
+
+
+def _parse_key_value_file(path: str) -> dict[str, str]:
+    """Parse simple KEY=VALUE config files."""
+    values: dict[str, str] = {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                match = re.match(r"([A-Za-z_]+)\s*=\s*(.+)", line)
+                if not match:
+                    continue
+                key = match.group(1).strip().lower()
+                value = match.group(2).strip().strip('"').strip("'")
+                if value:
+                    values[key] = value
+    except OSError:
+        return {}
+    return values
+
+
+def _parse_systemd_env(service: str) -> tuple[dict[str, str], list[str]]:
+    """Read Environment and EnvironmentFile entries from systemd."""
+    if not shutil.which("systemctl"):
+        return {}, []
+    result = subprocess.run(
+        ["systemctl", "show", "-p", "Environment", "-p", "EnvironmentFile", service],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return {}, []
+
+    env_values: dict[str, str] = {}
+    env_files: list[str] = []
+    for line in result.stdout.splitlines():
+        if line.startswith("Environment="):
+            raw = line.split("=", 1)[1].strip()
+            if raw:
+                for token in shlex.split(raw):
+                    if "=" in token:
+                        key, value = token.split("=", 1)
+                        if value:
+                            env_values[key.strip().lower()] = value.strip()
+        elif line.startswith("EnvironmentFile="):
+            raw = line.split("=", 1)[1].strip()
+            if raw:
+                for token in shlex.split(raw):
+                    path = token.lstrip("-")
+                    if path:
+                        env_files.append(path)
+    return env_values, env_files
 
 
 def _find_collateral_url() -> tuple[str, str]:
@@ -91,23 +146,24 @@ def _find_collateral_url() -> tuple[str, str]:
         if value:
             return value, f"env:{key}"
 
+    env_values, env_files = _parse_systemd_env("qgsd")
+    for key in PCCS_CONFIG_KEYS:
+        if key in env_values and env_values[key]:
+            return env_values[key], "systemd:qgsd"
+
+    for env_file in env_files:
+        values = _parse_key_value_file(env_file)
+        for key in PCCS_CONFIG_KEYS:
+            if key in values and values[key]:
+                return values[key], env_file
+
     for path in PCCS_CONFIG_PATHS:
         if not os.path.exists(path):
             continue
-        try:
-            with open(path, encoding="utf-8") as f:
-                for raw in f:
-                    line = raw.strip()
-                    if not line or line.startswith("#"):
-                        continue
-                    for key in PCCS_CONFIG_KEYS:
-                        match = re.match(rf"{key}\s*=\s*(.+)", line)
-                        if match:
-                            value = match.group(1).strip().strip('"').strip("'")
-                            if value:
-                                return value, path
-        except OSError:
-            continue
+        values = _parse_key_value_file(path)
+        for key in PCCS_CONFIG_KEYS:
+            if key in values and values[key]:
+                return values[key], path
     return "", ""
 
 

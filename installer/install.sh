@@ -126,6 +126,18 @@ check_qgs() {
       fi
     done
   fi
+  if [ -z "$collateral_url" ] && command -v systemctl >/dev/null 2>&1; then
+    env_line=$(systemctl show -p Environment qgsd 2>/dev/null | sed 's/^Environment=//')
+    if [ -n "$env_line" ]; then
+      for var in PCCS_URL COLLATERAL_SERVICE_URL; do
+        value=$(printf '%s' "$env_line" | tr ' ' '\n' | awk -F= -v k="$var" '$1==k {print $2; exit}')
+        if [ -n "$value" ]; then
+          collateral_url="$value"
+          break
+        fi
+      done
+    fi
+  fi
   if [ -z "$collateral_url" ]; then
     echo "Error: QGS is running but PCCS/collateral URL is not configured."
     echo "Set PCCS_URL or COLLATERAL_SERVICE_URL in /etc/sgx_default_qcnl.conf (or provider config)."
