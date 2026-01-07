@@ -247,8 +247,6 @@ response = client.get("/api/private")
 - tdx attestation proves execution
 - stake provides availability guarantees
 - control plane maintains the ledger and routes traffic
-- goal: make easyenclave unnecessary
-
 ---
 
 compute that trades like money
