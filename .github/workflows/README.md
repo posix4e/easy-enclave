@@ -25,3 +25,16 @@ Inputs:
 - `vm_image_sha256`: image hash for allowlist matching
 - `vm_name`: agent VM name
 - `vm_port`: agent port
+
+## deploy-control-plane.yml
+
+Deploys the control plane + proxy onto a TDX host over SSH. Requires secrets:
+
+- `CONTROL_HOST`
+- `CONTROL_USER`
+- `CONTROL_SSH_KEY`
+- `CONTROL_GITHUB_TOKEN` (optional, for private allowlist assets)
+- `CONTROL_ADMIN_TOKEN` (optional, protects `/v1/apps`)
+
+Input:
+- `target`: `prod` or `staging`

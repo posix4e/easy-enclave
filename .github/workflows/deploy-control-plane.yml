@@ -1,0 +1,60 @@
+name: Deploy Control Plane
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Deployment target (prod or staging)'
+        required: true
+        default: 'prod'
+
+jobs:
+  deploy-control-plane:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Deploy control plane on host
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.CONTROL_HOST }}
+          username: ${{ secrets.CONTROL_USER }}
+          key: ${{ secrets.CONTROL_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            TARGET="${{ inputs.target }}"
+            if [ "$TARGET" != "prod" ] && [ "$TARGET" != "staging" ]; then
+              echo "Invalid target: $TARGET" >&2
+              exit 1
+            fi
+
+            sudo mkdir -p /opt/easy-enclave
+            if [ ! -d /opt/easy-enclave/.git ]; then
+              sudo git clone https://github.com/${{ github.repository }}.git /opt/easy-enclave
+            fi
+            cd /opt/easy-enclave
+            sudo git fetch origin
+            sudo git checkout main
+            sudo git pull
+
+            sudo bash /opt/easy-enclave/control_plane/install.sh
+
+            sudo mkdir -p /etc/easy-enclave/control-plane
+            CONTROL_PORT=8088
+            PROXY_PORT=9090
+            if [ "$TARGET" = "staging" ]; then
+              CONTROL_PORT=8089
+              PROXY_PORT=9091
+            fi
+
+            sudo tee "/etc/easy-enclave/control-plane/${TARGET}.env" >/dev/null <<EOF
+            EE_CONTROL_BIND=0.0.0.0
+            EE_CONTROL_PORT=${CONTROL_PORT}
+            EE_PROXY_BIND=0.0.0.0
+            EE_PROXY_PORT=${PROXY_PORT}
+            EE_ALLOWLIST_ASSET=agent-attestation-allowlist.json
+            EE_GITHUB_TOKEN=${{ secrets.CONTROL_GITHUB_TOKEN }}
+            EE_ADMIN_TOKEN=${{ secrets.CONTROL_ADMIN_TOKEN }}
+            EOF
+
+            sudo systemctl enable --now "ee-control-plane@${TARGET}.service"
+            sudo systemctl restart "ee-control-plane@${TARGET}.service"

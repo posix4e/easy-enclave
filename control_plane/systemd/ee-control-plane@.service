@@ -1,0 +1,18 @@
+[Unit]
+Description=Easy Enclave Control Plane (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/easy-enclave
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/etc/easy-enclave/control-plane/%i.env
+ExecStart=/opt/easy-enclave/control_plane/.venv/bin/python /opt/easy-enclave/control_plane/server.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

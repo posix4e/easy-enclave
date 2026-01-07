@@ -92,6 +92,12 @@ unattested or expired backends using the resolve endpoint.
 The proxy listener runs inside `control_plane/server.py`. It forwards incoming
 requests to `/v1/proxy/{app}` and dispatches them over the active WebSocket
 tunnel handled by the agent process.
+
+## Staging vs Production
+
+Production expects `appname.app.easyenclave.com` to route to the proxy port
+(default `9090`). Staging uses `appname.sandbox.app.easyenclave.com` on port
+`9091`. The provided `control_plane/Caddyfile` configures both.
 ## Networks
 
 - `forge-1` (sealed-only, production)
