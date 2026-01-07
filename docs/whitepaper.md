@@ -5,195 +5,136 @@ title: whitepaper
 
 # whitepaper
 
-## EasyEnclave: Compute Commitments as Currency
+## easyenclave: machine-months as currency
 
-*Hardware-attested compute that trades like money.*
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                                                             │
-│   THE CURRENCY = MACHINE-MONTHS OF COMPUTE                  │
-│   TRUST = TDX ATTESTATION                                   │
-│   PRICE = WHATEVER THE MARKET DECIDES                       │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
+Hardware-attested compute that trades like money.
 
 ---
 
 ## abstract
 
-Blockchains are:
-- **wasteful** - 1000 nodes run the same code
-- **slow** - consensus takes seconds to minutes
-- **not confidential** - all data is public
-- **not general purpose** - only good for replicating public state
-- **speculative** - tokens disconnected from real utility
-
-Cloud providers say "just trust us." No proof. No transparency.
-
-EasyEnclave creates a compute currency:
-- **machine-months** are the unit of value
-- **TDX attestation** provides hardware trust
-- **control plane** tracks balances and routes traffic
-- **dynamic pricing** - the market decides
-
-No tokens. No gas. No speculation. Just compute that trades like money.
+Blockchains replicate the same work across many nodes. Cloud providers ask you to trust them.
+EasyEnclave uses Intel TDX to prove what runs, and a control plane ledger to account for usage.
+The unit of value is a machine-month. Credits are minted from verified utilization, are transferable,
+and are redeemable for compute. No tokens, no gas, no speculation.
 
 ---
 
 ## the problem
 
-### blockchains
-
-1000 nodes run the same code to agree on state. Wasteful.
-
-### tokens
-
-Volatile. Speculative. Price disconnected from utility.
-
-### cloud providers
-
-"Trust us." No proof of execution. No transparency.
+- waste: 1000 nodes running the same job to agree on state
+- speed: consensus adds seconds or minutes
+- privacy: data is public
+- cloud trust: no proof that code ran as promised
+- tokens: price disconnected from utility
 
 ---
 
-## the solution
+## the solution in one sentence
 
-### compute commitments
+Use TDX to prove execution, and a control plane ledger to turn real compute usage into transferable credits.
 
-Nodes issue **signed promises** to provide compute:
+---
+
+## system overview
+
+```
+User/SDK -> Control Plane (attested) -> WS Tunnel -> Agent (TDX) -> Backend
+```
+
+The control plane is not special infrastructure. It is just another TDX agent with a special role.
+It is verifiable the same way as any workload.
+
+Control plane responsibilities:
+- verify node attestation and health
+- track capacity, stake, usage, credits, transfers
+- route traffic to private agents
+- maintain the authoritative ledger
+
+Agent responsibilities:
+- run workloads in TDX
+- register capacity and pricing
+- provide health signals
+- accept proxied requests over an outbound WebSocket tunnel
+
+---
+
+## units and credits
+
+- unit of value: machine-month
+- definition: 1 vCPU for 30 days (or equivalent compute for other SKUs)
+- pricing: node-defined, market decides
+- issuance: credits minted only from verified usage
+- transfer: credits are transferable via control plane API
+
+Credits are a ledger balance, not a token. They represent real compute that already ran.
+
+---
+
+## node lifecycle
+
+1) node registers capacity and pricing
+2) control plane attests the node (TDX) and starts health checks
+3) node posts stake
+4) workloads run
+5) usage is reported for a period (ex: monthly)
+6) if eligible, control plane issues credits to the node
+7) credits can be transferred or redeemed
+
+Example: capacity registration (conceptual)
 
 ```json
 {
   "node_id": "node-abc",
-  "capacity": "1 vCPU-month",
-  "valid_from": "2024-02-01",
-  "valid_until": "2024-03-01",
-  "price_usd": 50.00,
-  "signature": "<TDX-attested signature>"
+  "capacity_months": 1,
+  "price_usd": 50.0
 }
 ```
 
-These commitments:
-- can be verified **offline** (signature check)
-- are **redeemable** for actual compute
-- are **backed by stake** (slashable)
+Example: usage report (conceptual)
 
-### why this works
-
-```
-┌────────────────┐
-│ MACHINE-MONTH  │
-│                │
-│ 1. Verifiable  │ ← TDX quote proves node is real
-│ 2. Redeemable  │ ← use for actual compute
-│ 3. Backed      │ ← node stakes collateral
-│ 4. Transferable│ ← via control plane API
-└────────────────┘
+```json
+{
+  "usage_id": "usage-123",
+  "node_id": "node-abc",
+  "period_start": "2024-02-01T00:00:00Z",
+  "period_end": "2024-03-01T00:00:00Z",
+  "units": 1.0
+}
 ```
 
 ---
 
-## trust model
+## staking and trust
 
-nodes provide two things to assure different security properties:
+Staking is the availability guarantee. Hardware proves correctness, stake ensures uptime.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    TRUST DECOMPOSITION                       │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  SIGNED PROMISES (TDX attestation)                          │
-│  ├─ Integrity      → code runs exactly as specified         │
-│  └─ Confidentiality → data never leaves the enclave         │
-│                                                             │
-│  STAKES (slashable collateral)                              │
-│  └─ Availability   → economic incentive to stay online      │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
+Rule of thumb:
+- provide 1 month of capacity -> stake 1 day of machine time (about 3 percent)
 
-**signed promises** are cryptographic guarantees. the CPU signs what's running. you can verify offline. no trust required.
+Trust behavior:
+- low stake: limited capacity, more scrutiny
+- high stake: more capacity, less friction
 
-**stakes** are economic guarantees. nodes put up collateral. if they go offline and cause problems, they lose it. skin in the game.
-
-together: hardware proves correctness, economics ensures uptime.
-
-### the control plane
-
-the control plane is itself an agent running in TDX - not special infrastructure:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      CONTROL PLANE                           │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  Just another TDX agent with a special role:                │
-│  ├─ Bootstraps the network                                  │
-│  ├─ Tracks who's contributing what                          │
-│  └─ Verifiable the same way as any other workload           │
-│                                                             │
-│  Continuous Verification:                                   │
-│  ├─ Re-attests nodes (TDX quotes still valid?)              │
-│  ├─ Health checks (node still online?)                      │
-│  └─ Updates trust scores based on behavior                  │
-│                                                             │
-│  Authoritative Ledger:                                      │
-│  ├─ Commitments issued (who, when, how much)                │
-│  ├─ Redemptions (work performed)                            │
-│  ├─ Current balances (points/credits)                       │
-│  ├─ Stake amounts per node                                  │
-│  └─ Transfer history                                        │
-│                                                             │
-│  Routing & Proxy:                                           │
-│  └─ Routes traffic to apps at appname.app.easyenclave.com   │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-contracts are agents. the control plane is a special agent. same trust model for both - TDX attestation proves what's running.
-
-nodes do the compute. the control plane continuously verifies, keeps score, and routes traffic.
+Slashing events:
+- downtime causing migration -> lose 1 day stake
+- attestation fraud -> lose all stake and permanent ban
 
 ---
 
-## supply architecture
+## routing and privacy
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    COMPUTE SUPPLY                           │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  EasyEnclave Direct (Backstop)                              │
-│  - Always available                                         │
-│  - VERY expensive (priced to rarely be used)                │
-│  - Emergency capacity only                                  │
-│                                                             │
-│  Network Nodes (Dynamic Market)                             │
-│  - Third-party TDX hosts                                    │
-│  - Nodes set their own prices                               │
-│  - Users choose based on price + reputation                 │
-│  - Staked + slashable                                       │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
+Agents connect outbound and stay private. No public exposure required.
+The control plane proxies requests to the active agent over the WebSocket tunnel.
+The SDK resolves apps and routes through the proxy.
 
-**No hardcoded prices.** The market decides everything.
+---
 
-### supply constraint
+## offline verification
 
-never issue more capacity than real demand:
-
-```
-if (network_capacity_issued > real_demand):
-    STOP issuing new commitments
-```
-
-prevents:
-- over-promising compute that doesn't exist
-- bank runs
-- price collapse from oversupply
+TDX quotes and measurements can be verified offline. No network is required to validate
+that a node is real. Transfers, redemption, and credit issuance require the control plane
+ledger to be online.
 
 ---
 
@@ -201,225 +142,33 @@ prevents:
 
 ### transfers
 
-credits transfer via control plane API:
+Credits move through a simple ledger update:
 
 ```
 Alice has: 2 machine-months
 Bob wants: compute
 
-Alice → control plane API → Bob
+Alice -> control plane API -> Bob
 ```
 
-simple ledger update. the control plane tracks balances.
+### redeem for compute
 
-### running a node
-
-**providing compute has ZERO overhead.**
+Credits are redeemable for real compute at full value:
 
 ```
-Node provides: 1 month of compute
-User pays: $50 (market rate)
-Node receives: $50
-
-EasyEnclave cut: $0
+1 machine-month -> 1 month of compute
 ```
-
-you keep everything you earn.
-
-### cashing out to USD
-
-**only the official exchange takes a cut.**
-
-```
-Node has: 2 machine-months (worth $100)
-Node wants: USD
-
-Exchange rate: 2:1
-Node gives: 2 machine-months
-Node receives: $50 USD
-
-EasyEnclave receives: $50 (the other half)
-```
-
-the 2:1 rate means:
-- EasyEnclave gets 50% when you cash out
-- discourages frivolous withdrawals
-- incentivizes keeping value in the network
-- or using third-party exchanges (can run in enclaves!)
-
----
-
-## liquidity: two exit paths
-
-### path 1: use it
-
-redeem for actual compute. full value.
-
-```
-1 machine-month → 1 month of compute
-```
-
-### path 2: exchange to USD
-
-**EasyEnclave Official Exchange**
-```
-rate: 2:1 (you get 50% in USD)
-KYC: required
-availability: may close if low on funds
-```
-
-**Third-Party Exchanges**
-```
-rate: better than 2:1 possible
-KYC: optional (operator's choice)
-can run in an enclave for trustless operation
-```
-
-this creates an exchange ecosystem:
-- third parties compete on rates
-- exchanges can run in enclaves (same trust model!)
-- EasyEnclave provides backstop (when open)
-- users choose based on rate vs KYC needs
-
-**we want to be put out of business.**
-
-if someone builds an exchange at 1.5:1, use them. if someone builds one at 1.1:1, even better. our 2:1 rate is intentionally bad - it's a floor, not a ceiling.
-
-same for compute: if the network nodes are cheaper and better than our expensive backstop, great. that's the goal.
-
-we succeed by becoming unnecessary.
-
----
-
-## staking & slashing
-
-### stake requirement
-
-to provide 1 month of compute, stake **1 day of machine time**.
-
-```
-provide: 1 month
-stake: 1 day (~3% collateral)
-```
-
-### stake = trust
-
-the more you stake, the more the network trusts you:
-
-```
-low stake  → limited capacity, more scrutiny
-high stake → more capacity, less friction
-```
-
-high-stake nodes get:
-- higher job limits
-- priority routing
-- less aggressive abuse monitoring
-
-the abuse system watches for bad actors. stake is your reputation.
-
-### what happens on downtime
-
-```
-1. Node A goes offline
-2. Down too long → workload migrates to Node B
-3. Node A loses entire 1-day stake
-4. Stake covers migration cost
-```
-
-### slashing table
-
-| event | consequence |
-|-------|-------------|
-| downtime causing migration | lose 1 day stake |
-| attestation fraud | lose all + permanent ban |
-
-simple: stake 1 day, risk 1 day if you cause problems.
-
----
-
-## offline operation
-
-pre-signed commitments work without network:
-
-```
-┌─────────────────────────────────────────────┐
-│           OFFLINE VERIFICATION              │
-├─────────────────────────────────────────────┤
-│                                             │
-│  1. Check signature → valid?                │
-│  2. Check expiry → still valid?             │
-│  3. Check TDX quote → real hardware?        │
-│                                             │
-│  All verifiable without internet.           │
-│                                             │
-└─────────────────────────────────────────────┘
-```
-
-only redemption and transfers require live network.
-
-use cases:
-- verify node attestations on airplane
-- cache attestations locally
-- audit without network access
-
----
-
-## attestation flow
-
-```
-┌──────────┐     ┌──────────┐     ┌──────────┐
-│   USER   │     │  CONTROL │     │   NODE   │
-│          │     │  PLANE   │     │  (TDX)   │
-└────┬─────┘     └────┬─────┘     └────┬─────┘
-     │                │                │
-     │ buy commitment │                │
-     │ ──────────────>│                │
-     │                │ verify node ──>│
-     │                │<── TDX quote ──│
-     │                │                │
-     │<── commitment ─│                │
-     │    (signed)    │                │
-     │                │                │
-     │ redeem ───────>│ route job ───>│
-     │                │                │
-     │<── compute ────│<── compute ───│
-     │                │                │
-```
-
-the CPU signs what's running. not a committee. silicon.
 
 ---
 
 ## governance
 
-### the goal: make ourselves obsolete
-
-EasyEnclave is designed to be replaced:
-
-1. **our exchange** - 2:1 rate is intentionally bad. build a better one.
-2. **our compute** - priced high. network nodes should undercut us.
-3. **our control plane** - open source. fork it if you want.
-
-### initially
-
-EasyEnclave controls:
-- exchange availability
-- protocol upgrades
-- dispute resolution
-
-### eventually
-
-stake-weighted voting by nodes:
-- governance proposals
-- parameter changes
-- treasury allocation
+EasyEnclave is designed to be replaced. The control plane is open source and forkable.
+Eventually, stake-weighted voting can govern parameters and upgrades.
 
 ```
-voting power = stake_amount × reputation_score
+voting power = stake_amount * reputation_score
 ```
-
-the endgame: a network that doesn't need us.
 
 ---
 
@@ -431,11 +180,9 @@ the endgame: a network that doesn't need us.
 - attestation verification
 
 ### next
-- **implement whitepaper** - signed promises, transfers API, redemption flow
-- **agent proxies** - agents stay private behind control plane, no public exposure required
-  - SDK routes through proxy to reach private agent IPs
-- **USD/USDC bridge** - company exchange for points to USDC (50% profit margin)
-- **abuse system dashboard** - monitor bad actors, stake-weighted trust
+- usage-based credits, transfers API, redemption flow
+- agent proxies (private agents behind control plane)
+- abuse system dashboard (stake-weighted trust)
 - third-party exchange open source release
 - multi-region node support
 
@@ -451,9 +198,9 @@ the endgame: a network that doesn't need us.
 ### vs blockchain
 
 | | blockchain | easyenclave |
-|-|------------|-------------|
-| trust | 1000 nodes agree | 1 node + TDX |
-| speed | seconds/minutes | milliseconds |
+|---|---|---|
+| trust | many nodes agree | 1 node plus TDX |
+| speed | seconds or minutes | milliseconds |
 | cost | gas fees | market rate |
 | currency | volatile token | stable compute |
 | complexity | high | low |
@@ -461,20 +208,11 @@ the endgame: a network that doesn't need us.
 ### vs cloud
 
 | | cloud | easyenclave |
-|-|-------|-------------|
-| trust | "trust us" | TDX attestation |
+|---|---|---|
+| trust | trust the provider | TDX attestation |
 | proof | none | cryptographic |
-| pricing | complex | dynamic market |
+| pricing | complex | market set |
 | lock-in | high | portable |
-
-### vs tokens
-
-| | tokens | compute commitments |
-|-|--------|---------------------|
-| value | speculative | backed by real compute |
-| volatility | high | market-stable |
-| utility | often none | always redeemable |
-| inflation | varies | tied to capacity |
 
 ---
 
@@ -483,81 +221,39 @@ the endgame: a network that doesn't need us.
 ### confidential compute
 
 ```python
-# buy compute commitment
-commitment = buy_commitment("node-abc", months=1)
-
-# verify offline
-assert commitment.verify()  # no network needed
-
-# redeem for compute
-result = commitment.redeem(
+# run a private workload
+result = run_private_job(
     image="myapp:latest",
     env={"SECRET": "value"}
 )
 ```
 
-your code runs in TDX. attestation proves it.
-
 ### compute as payment
 
 ```python
-# pay contractor in compute credits
-contractor_id = "..."
-transfer_credits(to=contractor_id, amount="2 machine-months")
-
-# contractor can:
-# - use it for compute
-# - transfer to others (via API)
-# - exchange to USD (2:1, or better via third-party)
+# pay a contractor in compute credits
+transfer_credits(to="contractor-id", amount="2 machine-months")
 ```
 
-### private AI
+### private APIs
 
 ```python
-commitment = buy_commitment("gpu-node", hours=10)
-
-result = commitment.redeem(
-    image="llama:70b",
-    input={"prompt": "confidential..."},
-    require_sealed=True
-)
+# reach an agent behind the control plane proxy
+client = connect("app-name")
+response = client.get("/api/private")
 ```
-
-prompt never leaves the enclave. attestation proves it.
 
 ---
 
 ## summary
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                                                             │
-│   MACHINE-MONTHS = THE CURRENCY                             │
-│                                                             │
-│   ✓ Transfer via control plane API                          │
-│   ✓ Provide compute: keep what you earn                     │
-│   ✓ Cash out to USD: 2:1 (or better via third parties)      │
-│                                                             │
-│   ✓ Stake 1 day per 1 month commitment                      │
-│   ✓ Lose stake if you cause migration                       │
-│                                                             │
-│   ✓ Dynamic pricing - market decides                        │
-│   ✓ Third-party exchanges (can run in enclaves!)            │
-│   ✓ Offline verification of node attestations               │
-│                                                             │
-│   ✓ Goal: make EasyEnclave unnecessary                      │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-blockchains asked: "how do we trust remote execution?"
-
-and answered with: consensus, redundancy, tokens.
-
-TDX answers with: silicon.
-
-we build the economics on top. then we step aside.
+- machine-months are the currency
+- credits are minted from verified usage
+- TDX attestation proves execution
+- stake provides availability guarantees
+- control plane maintains the ledger and routes traffic
+- goal: make EasyEnclave unnecessary
 
 ---
 
-*[easyenclave.com](/) - compute that trades like money*
+compute that trades like money
