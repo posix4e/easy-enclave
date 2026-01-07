@@ -7,16 +7,17 @@ title: whitepaper
 
 ## easyenclave: machine-months as currency
 
-Hardware-attested compute that trades like money.
+attested compute, accounted by usage.
 
 ---
 
 ## abstract
 
-Blockchains replicate the same work across many nodes. Cloud providers ask you to trust them.
-EasyEnclave uses Intel TDX to prove what runs, and a control plane ledger to account for verified usage.
-The unit of value is a machine-month. Credits are issued only when compute is delivered, can be transferred,
-and can be spent on compute. No tokens, no gas, no speculation.
+clouds say "trust us." blockchains say "replicate it."
+easyenclave uses intel tdx to prove what runs, and a control plane ledger to account for verified usage.
+machine-months are the unit. credits are issued only after compute is delivered.
+credits move by transfer and are spent to schedule compute.
+no tokens. no gas. no speculation.
 
 ---
 
@@ -30,67 +31,75 @@ and can be spent on compute. No tokens, no gas, no speculation.
 
 ---
 
-## the solution in one sentence
-
-Use TDX to prove execution, and a control plane ledger to turn real compute usage into transferable credits.
-
----
-
-## system overview
+## construction
 
 ```
-User/SDK -> Control Plane (TDX, ledger, routing) -> WS Tunnel -> Agent (TDX) -> Backend
+user/sdk -> control plane (tdx, ledger, routing) -> ws tunnel -> agent (tdx) -> backend
 ```
 
-The control plane is not special infrastructure. It is just another TDX agent with a special role.
-It is verifiable the same way as any workload.
+the control plane is not special infrastructure. it is just another tdx agent with a special role.
+it is verifiable the same way as any workload.
 
-Roles:
-- user or SDK: discovers apps and routes traffic
-- node: a TDX host that provides capacity and stake
+roles:
+- user or sdk: discovers apps and routes traffic
+- node: a tdx host that provides capacity and stake
 - agent: enclave software that serves an app and connects outbound
 - control plane: attested agent that verifies nodes, tracks usage and credits, and routes traffic
 
-Control plane responsibilities:
+control plane responsibilities:
 - verify node attestation and health
 - track capacity, stake, usage, credits, transfers
 - route traffic to private agents
 - maintain the authoritative ledger
 
-Agent responsibilities:
-- run workloads in TDX
+agent responsibilities:
+- run workloads in tdx
 - register capacity and pricing
 - provide health signals
-- accept proxied requests over an outbound WebSocket tunnel
+- accept proxied requests over an outbound websocket tunnel
 
 ---
 
 ## units and credits
 
 - unit of value: machine-month
-- definition: 1 vCPU for 30 days (or equivalent compute for other SKUs)
+- definition: 1 vcpu for 30 days (or equivalent compute for other skus)
 - pricing: node-defined, market decides
 - issuance: credits minted to providers from verified usage (no pre-issuance)
 - spend: credits are used to schedule compute
-- transfer: credits are transferable via control plane API
+- transfer: credits are transferable via control plane api
 
-Credits are a ledger balance, not a token. They represent verified compute delivered by the network.
+credits are a ledger balance, not a token. they represent verified compute delivered by the network.
+
+---
+
+## trust model
+
+hardware proves correctness and confidentiality. stake proves availability.
+stake is required to be eligible to earn credits.
+
+rule of thumb:
+- provide 1 month of capacity -> stake 1 day of machine time (about 3 percent)
+
+slashing events:
+- downtime causing migration -> lose 1 day stake
+- attestation fraud -> lose all stake and permanent ban
 
 ---
 
 ## node lifecycle
 
 1) node registers capacity and pricing
-2) control plane attests the node (TDX) and starts health checks
+2) control plane attests the node (tdx) and starts health checks
 3) node posts stake
 4) workloads run
 5) usage is reported or metered for a period (ex: monthly)
 6) if eligible, control plane issues credits to the node
 7) credits can be transferred or spent on compute
 
-Eligibility to earn credits requires active stake, valid attestation, and passing health checks.
+eligibility to earn credits requires active stake, valid attestation, and passing health checks.
 
-Example: capacity registration (conceptual)
+example: capacity registration (conceptual)
 
 ```json
 {
@@ -100,7 +109,7 @@ Example: capacity registration (conceptual)
 }
 ```
 
-Example: usage report (conceptual)
+example: usage report (conceptual)
 
 ```json
 {
@@ -114,61 +123,43 @@ Example: usage report (conceptual)
 
 ---
 
-## staking and trust
-
-Staking is the availability guarantee. Hardware proves correctness, stake ensures uptime.
-Stake is required to be eligible to earn credits.
-
-Rule of thumb:
-- provide 1 month of capacity -> stake 1 day of machine time (about 3 percent)
-
-Trust behavior:
-- low stake: limited capacity, more scrutiny
-- high stake: more capacity, less friction
-
-Slashing events:
-- downtime causing migration -> lose 1 day stake
-- attestation fraud -> lose all stake and permanent ban
-
----
-
 ## routing and privacy
 
-Agents connect outbound and stay private. No public exposure required.
-The control plane proxies requests to the active agent over the WebSocket tunnel.
-The SDK resolves apps and routes through the proxy.
+agents connect outbound and stay private. no public exposure required.
+the control plane proxies requests to the active agent over the websocket tunnel.
+the sdk resolves apps and routes through the proxy.
 
 ---
 
 ## offline verification
 
-TDX quotes and measurements can be verified offline. No network is required to validate
-that a node is real. Transfers, spending, and credit issuance require the control plane
+tdx quotes and measurements can be verified offline. no network is required to validate
+that a node is real. transfers, spending, and credit issuance require the control plane
 ledger to be online.
 
 ---
 
 ## credit flow
 
-Providers earn credits from verified usage. Clients acquire credits from providers or transfers,
+providers earn credits from verified usage. clients acquire credits from providers or transfers,
 then spend credits to schedule compute.
-Transfers move credits between accounts.
+transfers move credits between accounts.
 
-Example: transfer
+example: transfer
 
 ```
-Alice has: 2 machine-months
-Bob wants: compute
+alice has: 2 machine-months
+bob wants: compute
 
-Alice -> control plane API -> Bob
+alice -> control plane api -> bob
 ```
 
 ---
 
 ## governance
 
-EasyEnclave is designed to be replaced. The control plane is open source and forkable.
-Eventually, stake-weighted voting can govern parameters and upgrades.
+easyenclave is designed to be replaced. the control plane is open source and forkable.
+eventually, stake-weighted voting can govern parameters and upgrades.
 
 ```
 voting power = stake_amount * reputation_score
@@ -184,7 +175,7 @@ voting power = stake_amount * reputation_score
 - attestation verification
 
 ### next
-- usage-based credits, transfers API, spend flow
+- usage-based credits, transfers api, spend flow
 - agent proxies (private agents behind control plane)
 - abuse system dashboard (stake-weighted trust)
 - third-party exchange open source release
@@ -192,7 +183,7 @@ voting power = stake_amount * reputation_score
 
 ### later
 - stake-weighted governance
-- mobile verification SDK
+- mobile verification sdk
 - full decentralization
 
 ---
@@ -201,9 +192,9 @@ voting power = stake_amount * reputation_score
 
 ### vs blockchain
 
-| | blockchain | easyenclave |
+| metric | blockchain | easyenclave |
 |---|---|---|
-| trust | many nodes agree | 1 node plus TDX |
+| trust | many nodes agree | 1 node plus tdx |
 | speed | seconds or minutes | milliseconds |
 | cost | gas fees | market rate |
 | currency | volatile token | stable compute |
@@ -211,9 +202,9 @@ voting power = stake_amount * reputation_score
 
 ### vs cloud
 
-| | cloud | easyenclave |
+| metric | cloud | easyenclave |
 |---|---|---|
-| trust | trust the provider | TDX attestation |
+| trust | trust the provider | tdx attestation |
 | proof | none | cryptographic |
 | pricing | complex | market set |
 | lock-in | high | portable |
@@ -239,7 +230,7 @@ result = run_private_job(
 transfer_credits(to="contractor-id", amount="2 machine-months")
 ```
 
-### private APIs
+### private apis
 
 ```python
 # reach an agent behind the control plane proxy
@@ -253,10 +244,10 @@ response = client.get("/api/private")
 
 - machine-months are the currency
 - credits are minted from verified usage
-- TDX attestation proves execution
+- tdx attestation proves execution
 - stake provides availability guarantees
 - control plane maintains the ledger and routes traffic
-- goal: make EasyEnclave unnecessary
+- goal: make easyenclave unnecessary
 
 ---
 
