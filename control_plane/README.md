@@ -98,6 +98,12 @@ tunnel handled by the agent process.
 Production expects `appname.app.easyenclave.com` to route to the proxy port
 (default `9090`). Staging uses `appname.sandbox.app.easyenclave.com` on port
 `9091`. The provided `control_plane/Caddyfile` configures both.
+
+## Agent Deployment
+
+The control plane is deployed as an agent-managed workload using
+`control_plane/docker-compose.yml`. It runs production and staging services in
+the same VM and uses Caddy for TLS termination.
 ## Networks
 
 - `forge-1` (sealed-only, production)

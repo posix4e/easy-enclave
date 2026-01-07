@@ -28,13 +28,12 @@ Inputs:
 
 ## deploy-control-plane.yml
 
-Deploys the control plane + proxy onto a TDX host over SSH. Requires secrets:
+Deploys the control plane as an agent-managed workload (TD VM). Requires secrets:
 
-- `CONTROL_HOST`
-- `CONTROL_USER`
-- `CONTROL_SSH_KEY`
+- `AGENT_URL`
 - `CONTROL_GITHUB_TOKEN` (optional, for private allowlist assets)
 - `CONTROL_ADMIN_TOKEN` (optional, protects `/v1/apps`)
 
-Input:
+Inputs:
 - `target`: `prod` or `staging`
+- `agent-release-tag`: allowlist release tag for agent attestation

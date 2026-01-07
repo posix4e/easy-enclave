@@ -1,7 +1,7 @@
 *.app.easyenclave.com {
-  reverse_proxy 127.0.0.1:9090
+  reverse_proxy control-plane-prod:9090
 }
 
 *.sandbox.app.easyenclave.com {
-  reverse_proxy 127.0.0.1:9091
+  reverse_proxy control-plane-staging:9091
 }
