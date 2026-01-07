@@ -1,4 +1,4 @@
-name: Deploy
+name: Deploy Contacts Example
 
 on:
   workflow_dispatch:
@@ -52,17 +52,16 @@ jobs:
           agent-ssh-key: ${{ secrets.AGENT_SSH_KEY }}
           agent-vm-name: ${{ secrets.AGENT_VM_NAME }}
           agent-vm-port: ${{ secrets.AGENT_VM_PORT }}
-          docker-compose: ./example/docker-compose.yml
+          docker-compose: ./example/contact-compose.yml
           public-env: |
             PUBLIC_GREETING=Hello from Easy Enclave
             PUBLIC_REGION=us-east-demo
+            CONTACT_API_TOKEN=public-demo-token
           private-env: |
-            PRIVATE_MESSAGE=${{ secrets.DEMO_PRIVATE_MESSAGE }}
+            CONTACT_API_TOKEN=${{ secrets.DEMO_CONTACT_TOKEN }}
           unseal-password: ${{ secrets.DEMO_UNSEAL_PASSWORD }}
           github-developer: posix4e
           seal-vm: 'false'
-          public-files: |
-            example/public/banner.txt
           github-token: ${{ github.token }}
 
       - name: Verify deployment
