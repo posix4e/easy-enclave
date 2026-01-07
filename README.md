@@ -226,47 +226,6 @@ curl http://agent:8000/status/{deployment_id}
 curl http://agent:8000/health
 ```
 
-## Host Setup
-
-Host requirements and setup steps live in `installer/README.md`.
-
-## Roadmap
-
-### Completed
-
-- [x] GitHub Action with agent-based deployment
-- [x] TD VM creation with docker-compose workloads
-- [x] TDX quote generation via QGS vsock
-- [x] GitHub release creation with attestation
-- [x] Python SDK with DCAP verification
-- [x] CI/CD pipeline (lint, test, deploy)
-
-### In Progress
-
-- [ ] Full PCCS integration for TCB verification
-- [ ] Multi-repo/multi-host support
-- [ ] VM lifecycle management (cleanup, resource limits)
-
-### Future
-
-- [ ] Browser extension for visual attestation
-- [ ] Dashboard for repo/host registration
-- [ ] Discovery service for finding attested services
-
-## Development
-
-```bash
-# Install dev dependencies
-pip install -e "sdk[dev]"
-
-# Run tests
-pytest sdk/tests -v
-
-# Lint
-ruff check sdk/ action/src/
-mypy sdk/easyenclave
-```
-
 ## License
 
 MIT
