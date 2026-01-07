@@ -638,6 +638,7 @@ def build_pristine_agent_image(
 
     log(f"Exporting pristine image to {dest_path}...")
     subprocess.run(['qemu-img', 'convert', '-O', 'qcow2', agent_image, dest_path], check=True)
+    os.chmod(dest_path, 0o666)
 
     return {
         "name": name,
