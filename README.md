@@ -1,6 +1,6 @@
 # Easy Enclave
 
-[![CI](https://github.com/posix4e/easy-enclave/actions/workflows/ci.yml/badge.svg)](https://github.com/posix4e/easy-enclave/actions/workflows/ci.yml)
+[![Dev Pipeline](https://github.com/posix4e/easy-enclave/actions/workflows/pipeline-dev.yml/badge.svg)](https://github.com/posix4e/easy-enclave/actions/workflows/pipeline-dev.yml)
 
 A TDX attestation platform using GitHub as the trust anchor. Deploy workloads to TDX hosts with remote attestation stored as GitHub release attestations.
 

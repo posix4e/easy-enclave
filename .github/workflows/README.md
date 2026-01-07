@@ -6,6 +6,7 @@ below.
 ## pipeline-dev.yml
 
 Integrated dev pipeline (runs on `main` + manual):
+- lint + SDK tests
 - bake agent image + allowlist (tagged `dev`)
 - deploy control plane
 - deploy contacts example

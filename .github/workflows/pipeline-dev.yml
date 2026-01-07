@@ -10,9 +10,29 @@ permissions:
   actions: read
 
 jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ruff pytest pytest-cov "requests>=2.28.0" "cryptography>=41.0.0" "urllib3<2"
+      - name: Lint
+        run: |
+          ruff check .
+      - name: SDK tests
+        run: |
+          PYTHONPATH=$PWD/sdk pytest sdk/tests -v
+
   dev-agent-release:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: lint-test
     outputs:
       agent_release_tag: ${{ steps.tag.outputs.tag }}
     steps:
