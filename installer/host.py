@@ -168,7 +168,7 @@ def _find_collateral_url() -> tuple[str, str]:
 
 
 def _check_qgs() -> None:
-    """Ensure QGS is running and collateral service is configured."""
+    """Ensure QGS is running and vsock devices are available."""
     if shutil.which("systemctl"):
         result = subprocess.run(["systemctl", "is-active", "--quiet", "qgsd"])
         if result.returncode != 0:
@@ -178,13 +178,16 @@ def _check_qgs() -> None:
         if result.returncode != 0:
             raise RuntimeError("QGS not running (qgsd not found)")
 
+    if not os.path.exists("/dev/vsock"):
+        raise RuntimeError("QGS running but /dev/vsock is missing (vsock not available to VMs)")
+    if not os.path.exists("/dev/vhost-vsock"):
+        raise RuntimeError("QGS running but /dev/vhost-vsock is missing (vsock host device not available)")
+
     url, source = _find_collateral_url()
-    if not url:
-        raise RuntimeError(
-            "QGS is running but PCCS/collateral URL is not configured "
-            "(set PCCS_URL or COLLATERAL_SERVICE_URL in /etc/sgx_default_qcnl.conf or cloud config)"
-        )
-    log(f"QGS: running, collateral URL set ({source})")
+    if url:
+        log(f"QGS: running, collateral URL set ({source})")
+    else:
+        log("Warning: QGS running but collateral URL not detected; quote verification may fail")
 
 
 def check_requirements() -> None:

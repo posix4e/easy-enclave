@@ -139,8 +139,16 @@ check_qgs() {
     fi
   fi
   if [ -z "$collateral_url" ]; then
-    echo "Error: QGS is running but PCCS/collateral URL is not configured."
-    echo "Set PCCS_URL or COLLATERAL_SERVICE_URL in /etc/sgx_default_qcnl.conf (or provider config)."
+    echo "Warning: QGS is running but PCCS/collateral URL is not configured."
+    echo "Quote verification may fail without PCCS_URL or COLLATERAL_SERVICE_URL."
+  fi
+
+  if [ ! -e /dev/vsock ]; then
+    echo "Error: /dev/vsock missing; QGS cannot be used by VMs."
+    exit 1
+  fi
+  if [ ! -e /dev/vhost-vsock ]; then
+    echo "Error: /dev/vhost-vsock missing; QGS cannot be used by VMs."
     exit 1
   fi
 }
