@@ -178,7 +178,14 @@ def build_td_image_from_repo(
     if os.geteuid() != 0:
         cmd = ["sudo"] + cmd
     log(f"Building TD image via {image_dir} ({version})...")
-    subprocess.run(cmd, check=True, cwd=image_dir, capture_output=True)
+    try:
+        subprocess.run(cmd, check=True, cwd=image_dir, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        if exc.stdout:
+            log(f"create-td-image.sh stdout:\n{exc.stdout.rstrip()}")
+        if exc.stderr:
+            log(f"create-td-image.sh stderr:\n{exc.stderr.rstrip()}")
+        raise
     return find_latest_td_image(image_dir, version)
 
 
