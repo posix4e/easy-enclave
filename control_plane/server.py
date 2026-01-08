@@ -7,8 +7,8 @@ import secrets
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -23,12 +23,6 @@ from control_plane.config import (
     BIND_HOST,
     BIND_PORT,
     DB_PATH,
-    GITHUB_TOKEN,
-    HEALTH_TIMEOUT_SEC,
-    LAUNCHER_TOKEN,
-    PCCS_URL,
-    PROXY_BIND,
-    PROXY_PORT,
     DNS_APP_WILDCARD,
     DNS_AUTO_IP,
     DNS_CONTROL_HOST,
@@ -37,6 +31,12 @@ from control_plane.config import (
     DNS_PROXIED,
     DNS_TTL,
     DNS_UPDATE_ON_START,
+    GITHUB_TOKEN,
+    HEALTH_TIMEOUT_SEC,
+    LAUNCHER_TOKEN,
+    PCCS_URL,
+    PROXY_BIND,
+    PROXY_PORT,
     REGISTRATION_TTL_DAYS,
     REGISTRATION_WARN_DAYS,
     UPTIME_TOKEN,
