@@ -3,16 +3,17 @@ layout: default
 title: whitepaper
 ---
 
-# easyenclave
+# easyenclave network
 
 ## a network for attested compute
 
 ### abstract
 
-easyenclave is a compute network. nodes provide capacity, agents serve workloads, and a control plane
-keeps the ledger and routes traffic. users prepay usd credits to run compute, credits are locked while
-work runs, and settlement pays providers only after strict verification. the control plane is itself a
-tdx agent, so the network can verify its own coordinator.
+an easyenclave network is a production deployment of control plane and agents. nodes provide capacity,
+agents serve workloads, and a control plane keeps the ledger and routes traffic. users prepay usd
+credits to run compute, credits are locked while work runs, and settlement pays providers only
+after strict verification. the control plane is itself a tdx agent, so the network can verify
+its own coordinator.
 
 ---
 
@@ -214,7 +215,7 @@ voting power = stake_amount * reputation_score
 
 ### vs blockchain
 
-| metric | blockchain | easyenclave |
+| metric | blockchain | easyenclave network |
 |---|---|---|
 | trust | many nodes agree | 1 node plus tdx |
 | speed | seconds or minutes | milliseconds |
@@ -224,7 +225,7 @@ voting power = stake_amount * reputation_score
 
 ### vs cloud
 
-| metric | cloud | easyenclave |
+| metric | cloud | easyenclave network |
 |---|---|---|
 | trust | trust the provider | tdx attestation |
 | proof | none | cryptographic |
