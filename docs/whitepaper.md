@@ -82,10 +82,10 @@ at the end of the period and pays providers only if all checks pass.
 period settlement is zero tolerance:
 - any missed health check fails the period
 - any missed attestation fails the period
-- verified abuse reports fail the period
+- authorized abuse reports fail the period
 
 health and attestation checks come from the control plane or a trusted attested uptime server.
-abuse reports are filed by the launcher and must be verified by the central abuse system to prevent misuse.
+abuse reports are filed by the launcher and authorized by the control plane owner.
 misses are low cost: the period fails and payout is withheld, nothing more.
 if the control plane goes down, checks can misfire and settlement halts. this is accepted.
 
@@ -101,11 +101,6 @@ nodes publish a usd price per vcpu-hour.
 the control plane routes traffic to the lowest effective price among eligible nodes,
 weighted by trust (attestation, health, abuse history).
 prices are posted; there is no algorithmic price curve.
-
-long-term affinity (1-3 years)
-: users can request pinned placement to avoid migration for up to 3 years.
-this carries a significant price premium to compensate providers for the
-operational risk of guaranteeing specific hardware availability for that duration.
 
 ---
 
@@ -147,6 +142,7 @@ requests are proxied over the websocket tunnel. the sdk resolves apps and routes
 - transfers api and spend flow
 - fast failover between boxes (todo)
 - agent proxies (private agents behind control plane)
+- long-term affinity (1-3 years) with premium pricing
 - abuse system dashboard (stake-weighted trust)
 - third-party exchange open source release
 - multi-region node support
