@@ -1,8 +1,12 @@
-# Easy Enclave
+# EasyEnclave
 
 [![Dev Pipeline](https://github.com/posix4e/easy-enclave/actions/workflows/pipeline-dev.yml/badge.svg)](https://github.com/posix4e/easy-enclave/actions/workflows/pipeline-dev.yml)
 
-A TDX attestation platform using GitHub as the trust anchor. Deploy workloads to TDX hosts with remote attestation stored as GitHub release attestations.
+**The 1-click way to deploy attested software without changing your code.**
+
+EasyEnclave is a hardware-attested confidential computing platform. Your code runs on Intel TDX, attestations are published to GitHub, and clients verify cryptographically. No certificates, no PKI, and no trust assumptions required.
+
+[Read the whitepaper](https://easyenclave.com/whitepaper) to understand the economics and trust model.
 
 ## Core Concept
 

@@ -16,9 +16,13 @@ title: home
 
 ## what is this
 
-Hardware-attested confidential computing. Your code runs on Intel TDX. Attestation published to GitHub. Clients verify cryptographically.
+The 1-click way to deploy attested software without changing your code.
+
+EasyEnclave provides hardware-attested confidential computing. Your code runs on Intel TDX. Attestation is published to GitHub. Clients verify cryptographically.
 
 No certificates. No PKI. No trust assumptions.
+
+[Read the whitepaper](/whitepaper) to understand the economics and trust model.
 
 ## quick example
 
