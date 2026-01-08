@@ -15,7 +15,7 @@ attested compute, accounted by usage.
 
 clouds say "trust us." blockchains say "replicate it."
 easyenclave uses intel tdx to prove what runs, and a control plane ledger to account for verified usage.
-machine-months are the unit. credits are issued only after compute is delivered.
+machine-months are the unit. users prepay credits to run compute, providers get paid after settlement.
 credits move by transfer and are spent to schedule compute.
 no tokens. no gas. no speculation.
 
@@ -65,8 +65,9 @@ agent responsibilities:
 - unit of value: machine-month
 - definition: 1 vcpu for 30 days (or equivalent compute for other skus)
 - pricing: node-defined, market decides
-- issuance: credits minted to providers from verified usage (no pre-issuance)
-- spend: credits are used to schedule compute
+- issuance: credits are minted to users on prepay
+- spend: credits are used to schedule compute and locked during the period
+- settlement: providers receive credits only after passing the period checks
 - transfer: credits are transferable via control plane api
 
 credits are a ledger balance, not a token. they represent verified compute delivered by the network.
@@ -94,8 +95,8 @@ slashing events:
 3) node posts stake
 4) workloads run
 5) usage is reported or metered for a period (ex: monthly)
-6) if eligible, control plane issues credits to the node
-7) credits can be transferred or spent on compute
+6) if eligible, control plane settles the period
+7) provider receives credits, users keep or spend remaining balance
 
 eligibility to earn credits requires active stake, valid attestation, and passing health checks.
 
@@ -134,16 +135,25 @@ the sdk resolves apps and routes through the proxy.
 ## offline verification
 
 tdx quotes and measurements can be verified offline. no network is required to validate
-that a node is real. transfers, spending, and credit issuance require the control plane
+that a node is real. transfers, spending, and settlement require the control plane
 ledger to be online.
 
 ---
 
 ## credit flow
 
-providers earn credits from verified usage. clients acquire credits from providers or transfers,
-then spend credits to schedule compute.
-transfers move credits between accounts.
+providers earn credits only after settlement. clients prepay credits, spend them to schedule compute,
+and transfers move credits between accounts.
+
+settlement is zero tolerance:
+- any missed health check fails the period
+- any missed attestation fails the period
+- any abuse report fails the period
+
+health and attestation checks come from the control plane or a trusted attested uptime server.
+abuse reports can only be filed by the launcher.
+misses are low cost: the period fails and payout is withheld, nothing more.
+if the control plane goes down, checks can misfire and settlement halts. this is accepted.
 
 example: transfer
 
