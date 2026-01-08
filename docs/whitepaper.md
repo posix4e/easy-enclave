@@ -11,8 +11,8 @@ title: whitepaper
 
 this paper proposes a system where compute is proven by hardware attestation and paid for with credits.
 credits are issued to users on prepay, locked while compute runs, and settled to providers only after
-strict verification. the unit of account is the machine-month. the control plane is itself a tdx agent
-and keeps the authoritative ledger for usage, stake, and transfers.
+strict verification. the unit of account is usd credits, where 1 credit = $1. the control plane is
+itself a tdx agent and keeps the authoritative ledger for usage, stake, and transfers.
 
 ---
 
@@ -30,11 +30,14 @@ we want a currency that is always tied to delivered compute, and a network that 
 
 ## 2. model and terms
 
-machine-month
-: one vcpu for 30 days, or an equivalent unit for other skus.
+usd credit
+: ledger balance denominated in dollars. 1 credit = $1.
+
+vcpu-hour
+: one vcpu for one hour, used for metering and pricing.
 
 credits
-: ledger balance used to schedule compute. credits are transferable.
+: usd balance used to schedule compute. credits are transferable.
 
 node
 : a tdx host that provides capacity and stake.
@@ -98,19 +101,10 @@ control plane ledger to be online.
 
 ## 6. pricing
 
-nodes publish a floor price. the control plane computes a suggested price from utilization
-and reliability, and routes traffic by effective price plus trust.
-
-```
-suggested_price =
-  floor_price * (utilization / target_utilization) ^ alpha * reliability_factor
-```
-
-utilization is observed demand vs capacity. target_utilization is a policy constant.
-reliability_factor reflects attestation, health, and abuse history.
-
-stake-weighted gauges can shift target_utilization by region or node class.
-price follows the gauge, but the floor price is always honored.
+nodes publish a usd price per vcpu-hour.
+the control plane routes traffic to the lowest effective price among eligible nodes,
+weighted by trust (attestation, health, abuse history).
+prices are posted; there is no algorithmic price curve.
 
 ---
 
@@ -177,7 +171,7 @@ voting power = stake_amount * reputation_score
 | trust | many nodes agree | 1 node plus tdx |
 | speed | seconds or minutes | milliseconds |
 | cost | gas fees | market rate |
-| currency | volatile token | stable compute |
+| currency | volatile token | usd credits |
 | complexity | high | low |
 
 ### vs cloud
@@ -207,7 +201,7 @@ result = run_private_job(
 
 ```python
 # pay a contractor in compute credits
-transfer_credits(to="contractor-id", amount="2 machine-months")
+transfer_credits(to="contractor-id", amount="$200")
 ```
 
 ### private apis
@@ -222,7 +216,7 @@ response = client.get("/api/private")
 
 ## summary
 
-- machine-months are the unit of account
+- usd credits are the unit of account
 - users prepay credits, providers are paid after settlement
 - tdx attestation proves execution
 - stake provides availability guarantees
