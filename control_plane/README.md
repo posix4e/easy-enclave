@@ -3,6 +3,9 @@
 This component is a control-plane + discovery service that accepts outbound WebSocket tunnels from agents.
 It enforces Intel DCAP attestation, allowlist matching per repo/release, and sealed-only policy for sealed networks.
 
+Status: current control plane provides discovery, routing, and attestation. Ledger endpoints exist as a draft
+implementation and will change as the network model in `docs/whitepaper.md` is finalized.
+
 ## What it does
 
 - **Registers apps** via WebSocket with `repo`, `release_tag`, and `app_name`.
@@ -10,6 +13,14 @@ It enforces Intel DCAP attestation, allowlist matching per repo/release, and sea
 - **Rejects non-sealed** nodes in sealed networks.
 - **Tracks TTL** (30 days) with a 3-day warning window.
 - **Serves status** for proxy/dashboard via `GET /v1/resolve/{app_name}`.
+
+## Planned (whitepaper)
+
+- **USD credits** (1 credit = $1) with prepaid funding and period settlement.
+- **Zero-tolerance settlement checks** for health, attestation, and authorized abuse reports.
+- **Node pricing** per vCPU-hour with routing by lowest effective price among eligible nodes.
+- **Stake gating** and tiered slashing penalties for availability.
+- **Abuse flow** where reports are filed by the launcher and authorized by the control plane owner.
 
 ## Endpoints
 
@@ -19,6 +30,18 @@ It enforces Intel DCAP attestation, allowlist matching per repo/release, and sea
 - `POST /v1/proxy/{app_name}` -> forwards requests over the WS tunnel (proxy use)
 - `GET /v1/apps` -> admin list (requires `EE_ADMIN_TOKEN` if set)
 - `GET /v1/apps/{app_name}` -> admin detail (requires `EE_ADMIN_TOKEN` if set)
+
+Planned endpoints (draft):
+
+- `POST /v1/credits/purchase` -> mint USD credits for a user
+- `POST /v1/credits/transfer` -> transfer credits between accounts
+- `GET /v1/balances/{account}` -> account balance
+- `POST /v1/usage/report` -> report usage for a period
+- `POST /v1/settlements/{period}/finalize` -> settle a period
+- `POST /v1/abuse/reports` -> file abuse report (launcher)
+- `POST /v1/abuse/reports/{id}/authorize` -> authorize abuse (owner)
+- `POST /v1/nodes/register` -> register node capacity, pricing, stake
+- `GET /v1/nodes/{node_id}` -> admin node detail
 
 ## WebSocket Messages
 
@@ -48,12 +71,16 @@ Set via environment variables:
 
 - `EE_CONTROL_BIND` (default `0.0.0.0`)
 - `EE_CONTROL_PORT` (default `8088`)
+- `EE_DB_PATH` (default `control_plane/data/control-plane.db`)
 - `EE_ALLOWLIST_ASSET` (default `agent-attestation-allowlist.json`)
 - `EE_GITHUB_TOKEN` (optional, for private allowlist assets)
 - `EE_PCCS_URL` (optional, PCCS override for DCAP)
 - `EE_ADMIN_TOKEN` (optional, protects `/v1/apps`)
+- `EE_LAUNCHER_TOKEN` (optional, required for `/v1/abuse/reports` if set)
+- `EE_UPTIME_TOKEN` (optional, required for `/v1/usage/report` if set)
 - `EE_ATTEST_INTERVAL_SEC` (default `3600`)
 - `EE_ATTEST_DEADLINE_SEC` (default `30`)
+- `EE_HEALTH_TIMEOUT_SEC` (default `120`)
 - `EE_REGISTRATION_TTL_DAYS` (default `30`)
 - `EE_REGISTRATION_WARN_DAYS` (default `3`)
 - `EE_PROXY_BIND` (default `0.0.0.0`)

@@ -5,6 +5,7 @@ import base64
 import json
 import secrets
 import time
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -18,13 +19,18 @@ from control_plane.config import (
     ATTEST_INTERVAL_SEC,
     BIND_HOST,
     BIND_PORT,
+    DB_PATH,
     GITHUB_TOKEN,
+    HEALTH_TIMEOUT_SEC,
+    LAUNCHER_TOKEN,
     PCCS_URL,
     PROXY_BIND,
     PROXY_PORT,
     REGISTRATION_TTL_DAYS,
     REGISTRATION_WARN_DAYS,
+    UPTIME_TOKEN,
 )
+from control_plane.ledger import LedgerError, LedgerStore, parse_cents, parse_vcpu_hours
 from control_plane.policy import AttestationResult, verify_attestation
 from control_plane.registry import Registry, RegistryConfig
 
@@ -61,6 +67,7 @@ class ControlPlane:
             RegistryConfig(ttl_days=REGISTRATION_TTL_DAYS, warn_days=REGISTRATION_WARN_DAYS)
         )
         self.allowlist_cache = AllowlistCache()
+        self.ledger = LedgerStore(DB_PATH)
         self._sessions: dict[web.WebSocketResponse, Session] = {}
         self._sessions_by_app: dict[str, Session] = {}
         self._sealed_networks = {"forge-1"}
@@ -124,6 +131,7 @@ class ControlPlane:
         session.agent_id = agent_id
         session.network = network
         session.tunnel_id = f"{app_name}:{secrets.token_hex(8)}"
+        self.ledger.ensure_node(agent_id)
 
         await self._send_attest_request(session, reason="register")
 
@@ -148,6 +156,9 @@ class ControlPlane:
         }
         result = await self._verify_session_attestation(session, attestation)
         if not result.verified:
+            if session.agent_id:
+                self.ledger.mark_attestation(session.agent_id, "invalid")
+                self.ledger.record_node_event(session.agent_id, "attest_miss", result.reason)
             await session.ws.send_json({"type": "status", "state": "invalid", "reason": result.reason})
             await session.ws.close()
             return
@@ -165,6 +176,9 @@ class ControlPlane:
         session.pending_nonce = None
         session.attesting = False
         session.registered = True
+        if session.agent_id:
+            self.ledger.mark_attestation(session.agent_id, "valid")
+            self.ledger.mark_health(session.agent_id, "pass")
 
         await session.ws.send_json({"type": "status", "state": "ok", "reason": "attested"})
 
@@ -178,6 +192,8 @@ class ControlPlane:
         if status not in {"pass", "fail"}:
             status = "fail"
         self.registry.mark_health(session.app_name, status)
+        if session.agent_id:
+            self.ledger.mark_health(session.agent_id, status)
 
     async def _handle_proxy_response(self, session: Session, payload: dict) -> None:
         request_id = payload.get("request_id")
@@ -202,6 +218,9 @@ class ControlPlane:
     async def _attestation_timeout(self, session: Session, nonce: str) -> None:
         await asyncio.sleep(ATTEST_DEADLINE_SEC)
         if session.pending_nonce == nonce:
+            if session.agent_id:
+                self.ledger.record_node_event(session.agent_id, "attest_miss", "timeout")
+                self.ledger.mark_attestation(session.agent_id, "invalid")
             await session.ws.send_json({"type": "status", "state": "invalid", "reason": "attestation_timeout"})
             await session.ws.close()
 
@@ -211,6 +230,23 @@ class ControlPlane:
             if session.ws.closed:
                 return
             await self._send_attest_request(session, reason="periodic")
+
+    async def health_watchdog(self) -> None:
+        while True:
+            await asyncio.sleep(HEALTH_TIMEOUT_SEC)
+            now = datetime.now(timezone.utc)
+            for record in self.registry.list_apps():
+                if not record.ws_connected:
+                    continue
+                last_health = record.last_health_at or record.registered_at
+                if (now - last_health).total_seconds() <= HEALTH_TIMEOUT_SEC:
+                    continue
+                if record.health_status == "fail":
+                    continue
+                self.registry.mark_health(record.app_name, "fail")
+                if record.agent_id:
+                    self.ledger.record_node_event(record.agent_id, "health_miss", "timeout")
+                    self.ledger.mark_health(record.agent_id, "fail")
 
     async def _verify_session_attestation(self, session: Session, attestation: dict) -> AttestationResult:
         allowlist = self.allowlist_cache.get(session.repo, session.release_tag)
@@ -234,12 +270,19 @@ class ControlPlane:
             agent_id=session.agent_id,
         )
         self.registry.mark_attested(session.app_name, result.sealed, "invalid")
+        if session.agent_id:
+            self.ledger.mark_attestation(session.agent_id, "invalid")
+            self.ledger.record_node_event(session.agent_id, "attest_miss", result.reason)
         return result
 
     async def _handle_disconnect(self, session: Session) -> None:
         if not session.app_name:
             return
         self.registry.mark_connection(session.app_name, False, session.tunnel_id)
+        self.registry.mark_health(session.app_name, "fail")
+        if session.agent_id:
+            self.ledger.record_node_event(session.agent_id, "health_miss", "disconnect")
+            self.ledger.mark_health(session.agent_id, "fail")
         if self._sessions_by_app.get(session.app_name) is session:
             self._sessions_by_app.pop(session.app_name, None)
 
@@ -299,6 +342,33 @@ async def require_admin(request: web.Request) -> None:
         return
     auth = request.headers.get("Authorization", "")
     if auth != f"Bearer {ADMIN_TOKEN}":
+        raise web.HTTPUnauthorized()
+
+
+def _bearer_token(request: web.Request) -> str:
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return auth.split(" ", 1)[1]
+    return ""
+
+
+async def require_launcher(request: web.Request) -> None:
+    token = _bearer_token(request)
+    if ADMIN_TOKEN and token == ADMIN_TOKEN:
+        return
+    if not LAUNCHER_TOKEN:
+        return
+    if token != LAUNCHER_TOKEN:
+        raise web.HTTPUnauthorized()
+
+
+async def require_uptime(request: web.Request) -> None:
+    token = _bearer_token(request)
+    if ADMIN_TOKEN and token == ADMIN_TOKEN:
+        return
+    if not UPTIME_TOKEN:
+        return
+    if token != UPTIME_TOKEN:
         raise web.HTTPUnauthorized()
 
 
@@ -390,6 +460,160 @@ def create_app(control: ControlPlane) -> web.Application:
         )
         return web.Response(text=html, content_type="text/html")
 
+    async def purchase_credits(request: web.Request) -> web.Response:
+        await require_admin(request)
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid_json"}, status=400)
+        account_id = payload.get("account_id")
+        amount = payload.get("amount_usd") or payload.get("amount")
+        if not account_id:
+            return web.json_response({"error": "missing_account_id"}, status=400)
+        try:
+            amount_cents = parse_cents(amount)
+            result = control.ledger.purchase_credits(account_id, amount_cents)
+        except LedgerError as exc:
+            return web.json_response({"error": exc.reason}, status=400)
+        return web.json_response({"account_id": account_id, "balance_cents": result["balance_cents"]})
+
+    async def transfer_credits(request: web.Request) -> web.Response:
+        await require_admin(request)
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid_json"}, status=400)
+        from_account = payload.get("from_account")
+        to_account = payload.get("to_account")
+        amount = payload.get("amount_usd") or payload.get("amount")
+        if not from_account or not to_account:
+            return web.json_response({"error": "missing_account"}, status=400)
+        try:
+            amount_cents = parse_cents(amount)
+            result = control.ledger.transfer_credits(from_account, to_account, amount_cents)
+        except LedgerError as exc:
+            return web.json_response({"error": exc.reason}, status=400)
+        return web.json_response(result)
+
+    async def get_balance(request: web.Request) -> web.Response:
+        await require_admin(request)
+        account_id = request.match_info["account_id"]
+        result = control.ledger.get_balance(account_id)
+        return web.json_response(result)
+
+    async def report_usage(request: web.Request) -> web.Response:
+        await require_uptime(request)
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid_json"}, status=400)
+        account_id = payload.get("account_id")
+        node_id = payload.get("node_id")
+        period_start = payload.get("period_start")
+        period_end = payload.get("period_end")
+        vcpu_hours = payload.get("vcpu_hours")
+        if not all([account_id, node_id, period_start, period_end, vcpu_hours]):
+            return web.json_response({"error": "missing_fields"}, status=400)
+        try:
+            hours = parse_vcpu_hours(vcpu_hours)
+            result = control.ledger.report_usage(account_id, node_id, hours, period_start, period_end)
+        except LedgerError as exc:
+            return web.json_response({"error": exc.reason}, status=400)
+        return web.json_response(result)
+
+    async def finalize_settlement(request: web.Request) -> web.Response:
+        await require_admin(request)
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid_json"}, status=400)
+        node_id = payload.get("node_id")
+        period_start = payload.get("period_start")
+        period_end = payload.get("period_end")
+        if not all([node_id, period_start, period_end]):
+            return web.json_response({"error": "missing_fields"}, status=400)
+        try:
+            result = control.ledger.settle_period(node_id, period_start, period_end)
+        except LedgerError as exc:
+            return web.json_response({"error": exc.reason}, status=400)
+        return web.json_response(result)
+
+    async def file_abuse_report(request: web.Request) -> web.Response:
+        await require_launcher(request)
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid_json"}, status=400)
+        node_id = payload.get("node_id")
+        period_start = payload.get("period_start")
+        period_end = payload.get("period_end")
+        reason = payload.get("reason")
+        reported_by = payload.get("reported_by") or "launcher"
+        if not node_id:
+            return web.json_response({"error": "missing_node_id"}, status=400)
+        try:
+            result = control.ledger.file_abuse_report(node_id, period_start, period_end, reported_by, reason)
+        except LedgerError as exc:
+            return web.json_response({"error": exc.reason}, status=400)
+        return web.json_response(result)
+
+    async def authorize_abuse(request: web.Request) -> web.Response:
+        await require_admin(request)
+        report_id = request.match_info["report_id"]
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid_json"}, status=400)
+        action = payload.get("action", "authorize")
+        authorized_by = payload.get("authorized_by") or "owner"
+        try:
+            result = control.ledger.authorize_abuse_report(report_id, authorized_by, action)
+        except LedgerError as exc:
+            return web.json_response({"error": exc.reason}, status=400)
+        return web.json_response(result)
+
+    async def register_node(request: web.Request) -> web.Response:
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid_json"}, status=400)
+        node_id = payload.get("node_id")
+        if not node_id:
+            return web.json_response({"error": "missing_node_id"}, status=400)
+        token = _bearer_token(request)
+        is_admin = not ADMIN_TOKEN or token == ADMIN_TOKEN
+        allow_update = bool(payload.get("allow_update"))
+        if not is_admin:
+            if not control.ledger.verify_node_token(node_id, token):
+                raise web.HTTPUnauthorized()
+            allow_update = True
+        price_value = payload.get("price_usd_per_vcpu_hour") or payload.get("price_usd")
+        stake_value = payload.get("stake_amount_usd")
+        stake_tier = payload.get("stake_tier")
+        rotate_token = bool(payload.get("rotate_token")) if is_admin else False
+        price_cents = parse_cents(price_value) if price_value is not None else None
+        stake_cents = parse_cents(stake_value) if stake_value is not None else None
+        try:
+            result = control.ledger.register_node(
+                node_id=node_id,
+                price_cents_per_vcpu_hour=price_cents,
+                stake_tier=stake_tier,
+                stake_amount_cents=stake_cents,
+                allow_update=allow_update,
+                rotate_token=rotate_token,
+            )
+        except LedgerError as exc:
+            return web.json_response({"error": exc.reason}, status=400)
+        return web.json_response(result)
+
+    async def get_node(request: web.Request) -> web.Response:
+        await require_admin(request)
+        node_id = request.match_info["node_id"]
+        node = control.ledger.get_node(node_id)
+        if not node:
+            raise web.HTTPNotFound()
+        return web.json_response(node)
+
     app.add_routes(
         [
             web.get("/health", health),
@@ -399,6 +623,15 @@ def create_app(control: ControlPlane) -> web.Application:
             web.post("/v1/proxy/{app_name}", proxy_app),
             web.get("/v1/tunnel", control.handle_ws),
             web.get("/dashboard", dashboard),
+            web.post("/v1/credits/purchase", purchase_credits),
+            web.post("/v1/credits/transfer", transfer_credits),
+            web.get("/v1/balances/{account_id}", get_balance),
+            web.post("/v1/usage/report", report_usage),
+            web.post("/v1/settlements/{period}/finalize", finalize_settlement),
+            web.post("/v1/abuse/reports", file_abuse_report),
+            web.post("/v1/abuse/reports/{report_id}/authorize", authorize_abuse),
+            web.post("/v1/nodes/register", register_node),
+            web.get("/v1/nodes/{node_id}", get_node),
         ]
     )
     return app
@@ -441,6 +674,7 @@ def create_proxy_app(control: ControlPlane) -> web.Application:
 
 async def _run_servers() -> None:
     control = ControlPlane()
+    asyncio.create_task(control.health_watchdog())
     control_app = create_app(control)
     control_runner = web.AppRunner(control_app)
     await control_runner.setup()

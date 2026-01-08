@@ -10,11 +10,13 @@ services:
       EE_CONTROL_PORT: 8088
       EE_PROXY_BIND: 0.0.0.0
       EE_PROXY_PORT: 9090
+      EE_DB_PATH: /var/lib/easy-enclave/control-plane.db
       EE_ALLOWLIST_ASSET: agent-attestation-allowlist.json
       EE_GITHUB_TOKEN: ${EE_GITHUB_TOKEN}
       EE_ADMIN_TOKEN: ${EE_ADMIN_TOKEN}
     volumes:
       - .:/opt/app/control_plane:ro
+      - control-plane-data:/var/lib/easy-enclave
     ports:
       - "8088:8088"
       - "9090:9090"
@@ -33,3 +35,4 @@ services:
 volumes:
   caddy-data:
   caddy-config:
+  control-plane-data:

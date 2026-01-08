@@ -5,43 +5,70 @@ title: control-plane
 
 # control plane
 
-Discovery + routing for attested services.
+the control plane is the network coordinator. it is itself an attested agent that verifies nodes,
+routes traffic, and maintains the ledger.
 
-## what it does
+## status
 
-```
-┌─────────────────────────────────────────────────┐
-│              CONTROL PLANE                      │
-│                                                 │
-│  agents ──WebSocket──> register + attest        │
-│                              │                  │
-│                              ▼                  │
-│                        allowlist check          │
-│                        DCAP verify              │
-│                        sealed check             │
-│                              │                  │
-│                              ▼                  │
-│  clients ──HTTP──> /v1/resolve/{app} ──> route  │
-│                                                 │
-└─────────────────────────────────────────────────┘
-```
+- current: discovery + routing + attestation + health gating over ws tunnels
+- draft: usd credit ledger endpoints are implemented but admin-only and subject to change
+- planned: full settlement automation, stake gating, and abuse authorization workflow
 
-- **registers apps** via WebSocket tunnel
-- **attests agents** on connect + every 60 min
-- **rejects unsealed** nodes in production networks
-- **tracks TTL** (30 days) with expiration warnings
-- **routes requests** to verified backends
+## responsibilities
+
+- verify node attestation and health
+- maintain the authoritative ledger for credits, usage, transfers, and settlement
+- route traffic to private agents over outbound ws tunnels
+- enforce eligibility (stake + attestation + health)
+- authorize abuse reports (control plane owner)
+
+## settlement model (planned)
+
+- users prepay usd credits (1 credit = $1)
+- credits lock for a period while compute runs
+- settlement is zero tolerance:
+  - any missed health check fails the period
+  - any missed attestation fails the period
+  - any authorized abuse report fails the period
+- pass: locked credits transfer to provider
+- fail: locked credits return to user
+
+## pricing and routing
+
+- nodes publish a usd price per vcpu-hour
+- control plane routes to lowest effective price among eligible nodes, weighted by trust
+- prices are posted; no algorithmic price curve
+
+## attestation
+
+- intel dcap verification against allowlisted measurements
+- sealed-only policy for production networks
+- attestation verification currently relies on pccs/dcap online collateral
 
 ## endpoints
+
+### current
 
 | endpoint | description |
 |----------|-------------|
 | `GET /health` | service health |
-| `GET /v1/tunnel` | WebSocket for agents |
+| `GET /v1/tunnel` | websocket for agents |
 | `GET /v1/resolve/{app}` | proxy routing (public) |
-| `POST /v1/proxy/{app}` | forward over WS tunnel |
+| `POST /v1/proxy/{app}` | forward over ws tunnel |
 | `GET /v1/apps` | admin list (auth required) |
 | `GET /v1/apps/{app}` | admin detail |
+
+### draft ledger endpoints
+
+- `POST /v1/credits/purchase` - mint usd credits for a user
+- `POST /v1/credits/transfer` - transfer credits between accounts
+- `GET /v1/balances/{account}` - account balance
+- `POST /v1/usage/report` - report usage for a period
+- `POST /v1/settlements/{period}/finalize` - settle a period
+- `POST /v1/abuse/reports` - file abuse report (launcher)
+- `POST /v1/abuse/reports/{id}/authorize` - authorize abuse (owner)
+- `POST /v1/nodes/register` - register node capacity, pricing, stake
+- `GET /v1/nodes/{node}` - admin node detail
 
 ## websocket protocol
 
@@ -110,10 +137,16 @@ EE_REGISTRATION_WARN_DAYS=3
 # auth
 EE_ADMIN_TOKEN=secret
 EE_GITHUB_TOKEN=ghp_xxx
+EE_LAUNCHER_TOKEN=launcher_secret
+EE_UPTIME_TOKEN=uptime_secret
 
 # proxy
 EE_PROXY_BIND=0.0.0.0
 EE_PROXY_PORT=9090
+
+# ledger
+EE_DB_PATH=control_plane/data/control-plane.db
+EE_HEALTH_TIMEOUT_SEC=120
 ```
 
 ## run locally
