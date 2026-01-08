@@ -143,6 +143,11 @@ the control plane routes traffic to the lowest effective price among eligible no
 weighted by trust (attestation, health, abuse history).
 prices are posted; there is no algorithmic price curve.
 
+long-term affinity (1-3 years)
+: users can request pinned placement to avoid migration for up to 3 years.
+this carries a significant price premium to compensate providers for the
+operational risk of guaranteeing specific hardware availability for that duration.
+
 ---
 
 ## 8. stake and incentives
@@ -150,11 +155,16 @@ prices are posted; there is no algorithmic price curve.
 hardware proves correctness and confidentiality. stake proves availability.
 stake is required to be eligible for settlement.
 
-rule of thumb
-- provide 1 month of capacity -> stake 1 day of machine time (about 3 percent)
+slashing cost goals are aligned with availability tiers:
+
+| tier | target availability | downtime/year | slashing penalty |
+|---|---|---|---|
+| premium | 99.999% (5 9s) | 5 minutes | high (e.g. 1 month revenue) |
+| standard | 99.99% (4 9s) | 53 minutes | moderate (e.g. 1 day revenue) |
+| economy | 99.9% (3 9s) | 9 hours | low (e.g. 1 hour revenue) |
 
 slashing events
-- downtime causing migration -> lose 1 day stake
+- downtime causing migration -> lose penalty amount based on tier
 - attestation fraud -> lose all stake and permanent ban
 
 ---
@@ -187,6 +197,7 @@ voting power = stake_amount * reputation_score
 ### next
 - prepaid credits and settlement flow
 - transfers api and spend flow
+- fast failover between boxes (todo)
 - agent proxies (private agents behind control plane)
 - abuse system dashboard (stake-weighted trust)
 - third-party exchange open source release
