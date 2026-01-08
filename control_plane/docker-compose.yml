@@ -5,6 +5,8 @@ services:
     command: >
       bash -c "pip install --no-cache-dir -r /opt/app/control_plane/requirements.txt
       && python /opt/app/control_plane/server.py"
+    env_file:
+      - .env
     environment:
       EE_CONTROL_BIND: 0.0.0.0
       EE_CONTROL_PORT: 8088

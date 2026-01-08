@@ -100,6 +100,7 @@ python control_plane/server.py
 Compose (runs prod + staging + Caddy):
 
 ```bash
+cp control_plane/.env.example control_plane/.env
 docker compose -f control_plane/docker-compose.yml up --build
 ```
 
@@ -133,6 +134,24 @@ The control plane is deployed as an agent-managed workload using
 uses Caddy for TLS termination.
 
 The default GitHub workflow is `.github/workflows/pipeline-dev.yml`.
+
+## DNS + TLS
+
+Caddy terminates TLS and expects:
+
+- `control.easyenclave.com` -> control plane (`:8088`)
+- `*.app.easyenclave.com` -> app proxy (`:9090`)
+
+The Caddyfile is `control_plane/Caddyfile`.
+Point your DNS A/AAAA records at the control plane's public IP for both
+`control.easyenclave.com` and `*.app.easyenclave.com`.
+
+If you use Cloudflare:
+
+- Create A/AAAA records for `control` and `*.app` in your zone.
+- Set Proxy to "Proxied" if you want Cloudflare in front (WebSockets are supported).
+- Use SSL/TLS mode "Full (strict)". If Caddy can't obtain certs while proxied,
+  switch to "DNS only" for issuance or install a Cloudflare Origin Certificate.
 ## Networks
 
 - `forge-1` (sealed-only, production)

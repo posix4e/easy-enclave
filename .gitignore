@@ -49,3 +49,6 @@ Thumbs.db
 # Local control plane artifacts
 control_plane/logs/
 control_plane/*.pid
+.env
+.env.*
+!.env.example

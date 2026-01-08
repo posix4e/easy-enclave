@@ -1,3 +1,7 @@
+control.easyenclave.com {
+  reverse_proxy control-plane-prod:8088
+}
+
 *.app.easyenclave.com {
   reverse_proxy control-plane-prod:9090
 }
