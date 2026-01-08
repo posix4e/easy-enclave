@@ -108,6 +108,12 @@ jobs:
           private-env: |
             EE_GITHUB_TOKEN=${{ secrets.CONTROL_GITHUB_TOKEN }}
             EE_ADMIN_TOKEN=${{ secrets.CONTROL_ADMIN_TOKEN }}
+            EE_DNS_UPDATE_ON_START=true
+            EE_DNS_AUTO_IP=true
+            EE_DNS_PROXIED=true
+            CLOUDFLARE_API_TOKEN=${{ secrets.CLOUDFLARE_API_TOKEN }}
+            CLOUDFLARE_ZONE=${{ secrets.CLOUDFLARE_ZONE }}
+            CLOUDFLARE_ZONE_ID=${{ secrets.CLOUDFLARE_ZONE_ID }}
           endpoint-port: 9090
 
   deploy-contacts:

@@ -11,6 +11,10 @@ Integrated dev pipeline (runs on `main` + manual):
 - deploy control plane
 - deploy contacts example
 
+Control plane DNS auto-update (Cloudflare):
+- requires secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE` (or `CLOUDFLARE_ZONE_ID`)
+- uses `EE_DNS_*` flags passed in `private-env` on deploy
+
 ## pipeline-release.yml
 
 Integrated release pipeline (runs on `v*` tags):
