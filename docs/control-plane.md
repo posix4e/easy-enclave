@@ -172,6 +172,16 @@ export CLOUDFLARE_ZONE=easyenclave.com
 python control_plane/scripts/cloudflare_dns.py --ip 1.2.3.4 --proxied --dry-run
 ```
 
+or enable auto-update on startup:
+
+```bash
+EE_DNS_UPDATE_ON_START=true
+EE_DNS_AUTO_IP=true
+EE_DNS_PROXIED=true
+CLOUDFLARE_API_TOKEN=...
+CLOUDFLARE_ZONE=easyenclave.com
+```
+
 ## proxy setup
 
 the resolve endpoint returns backend status for your proxy:

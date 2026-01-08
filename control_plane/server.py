@@ -4,9 +4,12 @@ import asyncio
 import base64
 import json
 import secrets
+import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 from aiohttp import web
@@ -26,6 +29,14 @@ from control_plane.config import (
     PCCS_URL,
     PROXY_BIND,
     PROXY_PORT,
+    DNS_APP_WILDCARD,
+    DNS_AUTO_IP,
+    DNS_CONTROL_HOST,
+    DNS_IP,
+    DNS_IPV6,
+    DNS_PROXIED,
+    DNS_TTL,
+    DNS_UPDATE_ON_START,
     REGISTRATION_TTL_DAYS,
     REGISTRATION_WARN_DAYS,
     UPTIME_TOKEN,
@@ -672,6 +683,32 @@ def create_proxy_app(control: ControlPlane) -> web.Application:
     return proxy_app
 
 
+def run_dns_update() -> None:
+    if not DNS_UPDATE_ON_START:
+        return
+    if not DNS_AUTO_IP and not DNS_IP and not DNS_IPV6:
+        raise RuntimeError("dns_update_missing_ip")
+
+    script_path = Path(__file__).resolve().parent / "scripts" / "cloudflare_dns.py"
+    cmd = [sys.executable, str(script_path)]
+    if DNS_IP:
+        cmd.extend(["--ip", DNS_IP])
+    elif DNS_AUTO_IP:
+        cmd.append("--auto-ip")
+    if DNS_IPV6:
+        cmd.extend(["--ipv6", DNS_IPV6])
+    if DNS_PROXIED:
+        cmd.append("--proxied")
+    else:
+        cmd.append("--dns-only")
+    cmd.extend(["--ttl", str(DNS_TTL)])
+    cmd.extend(["--control-host", DNS_CONTROL_HOST])
+    cmd.extend(["--app-wildcard", DNS_APP_WILDCARD])
+
+    print("Updating Cloudflare DNS...")
+    subprocess.run(cmd, check=True)
+
+
 async def _run_servers() -> None:
     control = ControlPlane()
     asyncio.create_task(control.health_watchdog())
@@ -692,6 +729,12 @@ async def _run_servers() -> None:
 
 
 def main() -> None:
+    if DNS_UPDATE_ON_START:
+        try:
+            run_dns_update()
+        except Exception as exc:
+            print(f"error: dns_update_failed: {exc}", file=sys.stderr)
+            raise SystemExit(1)
     asyncio.run(_run_servers())
 
 

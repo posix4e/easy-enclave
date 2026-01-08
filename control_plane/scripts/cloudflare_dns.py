@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import os
 import sys
@@ -42,6 +43,35 @@ def api_request(method: str, path: str, token: str, params: dict | None = None, 
         message = "; ".join(err.get("message", "api_error") for err in errors) or "api_error"
         raise CloudflareError(message)
     return payload
+
+
+def fetch_text(url: str) -> str:
+    req = urllib.request.Request(url, headers={"User-Agent": "easy-enclave"})
+    with urllib.request.urlopen(req, timeout=10) as response:
+        return response.read().decode().strip()
+
+
+def detect_public_ipv4() -> str:
+    sources = [
+        ("https://api.ipify.org", lambda text: text.strip()),
+        ("https://ifconfig.me/ip", lambda text: text.strip()),
+        (
+            "https://1.1.1.1/cdn-cgi/trace",
+            lambda text: next(
+                (line.split("=", 1)[1].strip() for line in text.splitlines() if line.startswith("ip=")),
+                "",
+            ),
+        ),
+    ]
+    for url, parser in sources:
+        try:
+            candidate = parser(fetch_text(url))
+            ip = ipaddress.ip_address(candidate)
+            if isinstance(ip, ipaddress.IPv4Address):
+                return candidate
+        except Exception:
+            continue
+    raise CloudflareError("auto_ip_failed")
 
 
 def get_zone_id(token: str, zone_name: str) -> str:
@@ -140,6 +170,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--zone", dest="zone_name", help="Cloudflare zone name (e.g. easyenclave.com)")
     parser.add_argument("--ip", dest="ipv4", help="IPv4 address for A records")
     parser.add_argument("--ipv6", dest="ipv6", help="IPv6 address for AAAA records")
+    parser.add_argument("--auto-ip", action="store_true", help="Auto-detect public IPv4")
     parser.add_argument("--ttl", default="1", help="TTL (1 = auto)")
     parser.add_argument("--control-host", default="control", help="Host for control plane")
     parser.add_argument("--app-wildcard", default="*.app", help="Wildcard host for apps")
@@ -160,6 +191,10 @@ def main() -> int:
         raise CloudflareError("missing_api_token")
     if not zone_id and not zone_name:
         raise CloudflareError("missing_zone")
+    if args.auto_ip and not args.ipv4:
+        args.ipv4 = detect_public_ipv4()
+        print(f"detected_ipv4={args.ipv4}")
+
     if not args.ipv4 and not args.ipv6:
         raise CloudflareError("missing_ip")
 

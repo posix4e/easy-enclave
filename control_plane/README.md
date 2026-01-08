@@ -85,6 +85,17 @@ Set via environment variables:
 - `EE_REGISTRATION_WARN_DAYS` (default `3`)
 - `EE_PROXY_BIND` (default `0.0.0.0`)
 - `EE_PROXY_PORT` (default `9090`)
+- `EE_DNS_UPDATE_ON_START` (default `false`)
+- `EE_DNS_AUTO_IP` (default `false`)
+- `EE_DNS_IP` (optional, IPv4)
+- `EE_DNS_IPV6` (optional)
+- `EE_DNS_PROXIED` (default `true`)
+- `EE_DNS_TTL` (default `1`, auto)
+- `EE_DNS_CONTROL_HOST` (default `control`)
+- `EE_DNS_APP_WILDCARD` (default `*.app`)
+- `CLOUDFLARE_API_TOKEN` (required for DNS updates)
+- `CLOUDFLARE_ZONE` (zone name, e.g. `easyenclave.com`)
+- `CLOUDFLARE_ZONE_ID` (optional, skips zone lookup)
 
 ## Run locally
 
@@ -149,7 +160,18 @@ Point your DNS A/AAAA records at the control plane's public IP for both
 If you proxy through Cloudflare, use SSL/TLS "Full (strict)" so Cloudflare
 connects to Caddy over HTTPS. WebSockets are supported.
 
-Optional: update Cloudflare DNS via API (A/AAAA for `control` and `*.app`):
+Optional: update Cloudflare DNS automatically on startup (fails hard if it
+cannot update):
+
+```
+EE_DNS_UPDATE_ON_START=true
+EE_DNS_AUTO_IP=true
+EE_DNS_PROXIED=true
+CLOUDFLARE_API_TOKEN=...
+CLOUDFLARE_ZONE=easyenclave.com
+```
+
+Manual update via API (A/AAAA for `control` and `*.app`):
 
 ```bash
 export CLOUDFLARE_API_TOKEN=...
@@ -158,7 +180,7 @@ python control_plane/scripts/cloudflare_dns.py --ip 1.2.3.4 --proxied --dry-run
 ```
 
 Use `--dns-only` for gray-cloud records, and `CLOUDFLARE_ZONE_ID` to skip the
-zone lookup.
+zone lookup. Use `--auto-ip` to detect the public IPv4.
 
 ## Networks
 
