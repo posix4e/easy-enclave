@@ -97,7 +97,7 @@ pip install -r control_plane/requirements.txt
 python control_plane/server.py
 ```
 
-Compose (runs prod + staging + Caddy):
+Compose (runs control plane + Caddy):
 
 ```bash
 cp control_plane/.env.example control_plane/.env
@@ -146,12 +146,20 @@ The Caddyfile is `control_plane/Caddyfile`.
 Point your DNS A/AAAA records at the control plane's public IP for both
 `control.easyenclave.com` and `*.app.easyenclave.com`.
 
-If you use Cloudflare:
+If you proxy through Cloudflare, use SSL/TLS "Full (strict)" so Cloudflare
+connects to Caddy over HTTPS. WebSockets are supported.
 
-- Create A/AAAA records for `control` and `*.app` in your zone.
-- Set Proxy to "Proxied" if you want Cloudflare in front (WebSockets are supported).
-- Use SSL/TLS mode "Full (strict)". If Caddy can't obtain certs while proxied,
-  switch to "DNS only" for issuance or install a Cloudflare Origin Certificate.
+Optional: update Cloudflare DNS via API (A/AAAA for `control` and `*.app`):
+
+```bash
+export CLOUDFLARE_API_TOKEN=...
+export CLOUDFLARE_ZONE=easyenclave.com
+python control_plane/scripts/cloudflare_dns.py --ip 1.2.3.4 --proxied --dry-run
+```
+
+Use `--dns-only` for gray-cloud records, and `CLOUDFLARE_ZONE_ID` to skip the
+zone lookup.
+
 ## Networks
 
 - `forge-1` (sealed-only, production)

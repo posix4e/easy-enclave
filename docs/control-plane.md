@@ -164,6 +164,14 @@ with docker:
 docker compose -f control_plane/docker-compose.yml up --build
 ```
 
+optional: update cloudflare dns via api (a/aaaa for `control` + `*.app`):
+
+```bash
+export CLOUDFLARE_API_TOKEN=...
+export CLOUDFLARE_ZONE=easyenclave.com
+python control_plane/scripts/cloudflare_dns.py --ip 1.2.3.4 --proxied --dry-run
+```
+
 ## proxy setup
 
 the resolve endpoint returns backend status for your proxy:
@@ -182,7 +190,10 @@ curl https://control.easyenclave.com/v1/resolve/myapp
 }
 ```
 
-use nginx or caddy to route based on this response.
+use nginx or another proxy to route based on this response.
+
+if you proxy through cloudflare, use ssl/tls "full (strict)" so it connects to
+your origin over https. websockets are supported.
 
 ## agent connection
 
