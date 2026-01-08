@@ -3,149 +3,76 @@ layout: default
 title: whitepaper
 ---
 
-# whitepaper
+# easyenclave
 
-## easyenclave: machine-months as currency
+## compute credits backed by attested usage
 
-attested compute, accounted by usage.
+### abstract
 
----
-
-## abstract
-
-clouds say "trust us." blockchains say "replicate it."
-easyenclave uses intel tdx to prove what runs, and a control plane ledger to account for verified usage.
-machine-months are the unit. users prepay credits to run compute, providers get paid after settlement.
-credits move by transfer and are spent to schedule compute.
-no tokens. no gas. no speculation.
+this paper proposes a system where compute is proven by hardware attestation and paid for with credits.
+credits are issued to users on prepay, locked while compute runs, and settled to providers only after
+strict verification. the unit of account is the machine-month. the control plane is itself a tdx agent
+and keeps the authoritative ledger for usage, stake, and transfers.
 
 ---
 
-## the problem
+## 1. introduction
 
-- waste: 1000 nodes running the same job to agree on state
-- speed: consensus adds seconds or minutes
-- privacy: data is public
-- cloud trust: no proof that code ran as promised
-- tokens: price disconnected from utility
+existing systems fail in different ways.
+
+- cloud requires trust with no proof of execution
+- blockchains require replication, wasting compute
+- tokens decouple price from real work
+
+we want a currency that is always tied to delivered compute, and a network that proves its own work.
 
 ---
 
-## construction
+## 2. model and terms
+
+machine-month
+: one vcpu for 30 days, or an equivalent unit for other skus.
+
+credits
+: ledger balance used to schedule compute. credits are transferable.
+
+node
+: a tdx host that provides capacity and stake.
+
+agent
+: enclave software that runs workloads and connects outbound.
+
+control plane
+: an attested agent that verifies nodes, routes traffic, and maintains the ledger.
+
+---
+
+## 3. system overview
 
 ```
 user/sdk -> control plane (tdx, ledger, routing) -> ws tunnel -> agent (tdx) -> backend
 ```
 
-the control plane is not special infrastructure. it is just another tdx agent with a special role.
-it is verifiable the same way as any workload.
+roles
+- users and sdks discover apps, move credits, and route traffic.
+- nodes register capacity and stake.
+- agents serve workloads and stay private behind outbound tunnels.
+- the control plane attests nodes, meters health, and settles credits.
 
-roles:
-- user or sdk: discovers apps and routes traffic
-- node: a tdx host that provides capacity and stake
-- agent: enclave software that serves an app and connects outbound
-- control plane: attested agent that verifies nodes, tracks usage and credits, and routes traffic
-
-control plane responsibilities:
+control plane responsibilities
 - verify node attestation and health
 - track capacity, stake, usage, credits, transfers
 - route traffic to private agents
 - maintain the authoritative ledger
 
-agent responsibilities:
-- run workloads in tdx
-- register capacity and pricing
-- provide health signals
-- accept proxied requests over an outbound websocket tunnel
-
 ---
 
-## units and credits
+## 4. credits, spending, settlement
 
-- unit of value: machine-month
-- definition: 1 vcpu for 30 days (or equivalent compute for other skus)
-- pricing: node-defined, market decides
-- issuance: credits are minted to users on prepay
-- spend: credits are used to schedule compute and locked during the period
-- settlement: providers receive credits only after passing the period checks
-- transfer: credits are transferable via control plane api
+credits are minted to users on prepay. spending locks credits to a period. settlement happens
+at the end of the period and pays providers only if all checks pass.
 
-credits are a ledger balance, not a token. they represent verified compute delivered by the network.
-
----
-
-## trust model
-
-hardware proves correctness and confidentiality. stake proves availability.
-stake is required to be eligible to earn credits.
-
-rule of thumb:
-- provide 1 month of capacity -> stake 1 day of machine time (about 3 percent)
-
-slashing events:
-- downtime causing migration -> lose 1 day stake
-- attestation fraud -> lose all stake and permanent ban
-
----
-
-## node lifecycle
-
-1) node registers capacity and pricing
-2) control plane attests the node (tdx) and starts health checks
-3) node posts stake
-4) workloads run
-5) usage is reported or metered for a period (ex: monthly)
-6) if eligible, control plane settles the period
-7) provider receives credits, users keep or spend remaining balance
-
-eligibility to earn credits requires active stake, valid attestation, and passing health checks.
-
-example: capacity registration (conceptual)
-
-```json
-{
-  "node_id": "node-abc",
-  "capacity_months": 1,
-  "price_usd": 50.0
-}
-```
-
-example: usage report (conceptual)
-
-```json
-{
-  "usage_id": "usage-123",
-  "node_id": "node-abc",
-  "period_start": "2024-02-01T00:00:00Z",
-  "period_end": "2024-03-01T00:00:00Z",
-  "units": 1.0
-}
-```
-
----
-
-## routing and privacy
-
-agents connect outbound and stay private. no public exposure required.
-the control plane proxies requests to the active agent over the websocket tunnel.
-the sdk resolves apps and routes through the proxy.
-
----
-
-## offline verification
-
-tdx quotes and measurements can be verified offline. no network is required to validate
-that a node is real. transfers, spending, and settlement require the control plane
-ledger to be online.
-
----
-
-## credit flow
-
-providers earn credits only after settlement. clients prepay credits, spend them to schedule compute,
-and transfers move credits between accounts.
-
-settlement is zero tolerance:
+period settlement is zero tolerance:
 - any missed health check fails the period
 - any missed attestation fails the period
 - any abuse report fails the period
@@ -155,21 +82,63 @@ abuse reports can only be filed by the launcher.
 misses are low cost: the period fails and payout is withheld, nothing more.
 if the control plane goes down, checks can misfire and settlement halts. this is accepted.
 
-example: transfer
-
-```
-alice has: 2 machine-months
-bob wants: compute
-
-alice -> control plane api -> bob
-```
+settlement logic
+- pass: locked credits transfer to the provider
+- fail: locked credits return to the user
 
 ---
 
-## governance
+## 5. attestation and offline verification
 
-easyenclave is designed to be replaced. the control plane is open source and forkable.
-eventually, stake-weighted voting can govern parameters and upgrades.
+intel tdx provides a quote and measurements that can be verified offline. no network access
+is required to validate that a node is real. transfers, spending, and settlement require the
+control plane ledger to be online.
+
+---
+
+## 6. pricing
+
+nodes publish a floor price. the control plane computes a suggested price from utilization
+and reliability, and routes traffic by effective price plus trust.
+
+```
+suggested_price =
+  floor_price * (utilization / target_utilization) ^ alpha * reliability_factor
+```
+
+utilization is observed demand vs capacity. target_utilization is a policy constant.
+reliability_factor reflects attestation, health, and abuse history.
+
+stake-weighted gauges can shift target_utilization by region or node class.
+price follows the gauge, but the floor price is always honored.
+
+---
+
+## 7. stake and incentives
+
+hardware proves correctness and confidentiality. stake proves availability.
+stake is required to be eligible for settlement.
+
+rule of thumb
+- provide 1 month of capacity -> stake 1 day of machine time (about 3 percent)
+
+slashing events
+- downtime causing migration -> lose 1 day stake
+- attestation fraud -> lose all stake and permanent ban
+
+---
+
+## 8. routing and privacy
+
+agents connect outbound and stay private. no public exposure required.
+requests are proxied over the websocket tunnel. the sdk resolves apps and routes through the proxy.
+
+---
+
+## 9. governance
+
+the control plane is open source and forkable. eventually, stake-weighted voting can govern
+parameters and upgrades.
 
 ```
 voting power = stake_amount * reputation_score
@@ -177,7 +146,7 @@ voting power = stake_amount * reputation_score
 
 ---
 
-## roadmap
+## 10. roadmap
 
 ### now
 - control plane
@@ -185,7 +154,8 @@ voting power = stake_amount * reputation_score
 - attestation verification
 
 ### next
-- usage-based credits, transfers api, spend flow
+- prepaid credits and settlement flow
+- transfers api and spend flow
 - agent proxies (private agents behind control plane)
 - abuse system dashboard (stake-weighted trust)
 - third-party exchange open source release
@@ -198,7 +168,7 @@ voting power = stake_amount * reputation_score
 
 ---
 
-## comparison
+## 11. comparison
 
 ### vs blockchain
 
@@ -221,7 +191,7 @@ voting power = stake_amount * reputation_score
 
 ---
 
-## use cases
+## 12. use cases
 
 ### confidential compute
 
@@ -252,11 +222,12 @@ response = client.get("/api/private")
 
 ## summary
 
-- machine-months are the currency
-- credits are minted from verified usage
+- machine-months are the unit of account
+- users prepay credits, providers are paid after settlement
 - tdx attestation proves execution
 - stake provides availability guarantees
-- control plane maintains the ledger and routes traffic
+- the control plane maintains the ledger and routes traffic
+
 ---
 
 compute that trades like money
