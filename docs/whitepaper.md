@@ -5,39 +5,30 @@ title: whitepaper
 
 # easyenclave
 
-## compute credits backed by attested usage
+## a network for attested compute
 
 ### abstract
 
-this paper proposes a system where compute is proven by hardware attestation and paid for with credits.
-credits are issued to users on prepay, locked while compute runs, and settled to providers only after
-strict verification. the unit of account is usd credits, where 1 credit = $1. the control plane is
-itself a tdx agent and keeps the authoritative ledger for usage, stake, and transfers.
+easyenclave is a compute network. nodes provide capacity, agents serve workloads, and a control plane
+keeps the ledger and routes traffic. users prepay usd credits to run compute, credits are locked while
+work runs, and settlement pays providers only after strict verification. the control plane is itself a
+tdx agent, so the network can verify its own coordinator.
 
 ---
 
 ## 1. introduction
 
-existing systems fail in different ways.
+we need a network that can prove execution without replication.
 
 - cloud requires trust with no proof of execution
 - blockchains require replication, wasting compute
 - tokens decouple price from real work
 
-we want a currency that is always tied to delivered compute, and a network that proves its own work.
+we want a network where compute is verified by hardware and paid for by delivered work.
 
 ---
 
-## 2. model and terms
-
-usd credit
-: ledger balance denominated in dollars. 1 credit = $1.
-
-vcpu-hour
-: one vcpu for one hour, used for metering and pricing.
-
-credits
-: usd balance used to schedule compute. credits are transferable.
+## 2. network roles
 
 node
 : a tdx host that provides capacity and stake.
@@ -48,19 +39,20 @@ agent
 control plane
 : an attested agent that verifies nodes, routes traffic, and maintains the ledger.
 
+user/sdk
+: discovers apps, moves credits, and routes traffic.
+
 ---
 
-## 3. system overview
+## 3. network flow
 
 ```
 user/sdk -> control plane (tdx, ledger, routing) -> ws tunnel -> agent (tdx) -> backend
 ```
 
-roles
-- users and sdks discover apps, move credits, and route traffic.
-- nodes register capacity and stake.
-- agents serve workloads and stay private behind outbound tunnels.
-- the control plane attests nodes, meters health, and settles credits.
+nodes register capacity and stake.
+agents serve workloads and stay private behind outbound tunnels.
+the control plane attests nodes, meters health, and settles credits.
 
 control plane responsibilities
 - verify node attestation and health
@@ -70,7 +62,13 @@ control plane responsibilities
 
 ---
 
-## 4. credits, spending, settlement
+## 4. credits and settlement
+
+usd credit
+: ledger balance denominated in dollars. 1 credit = $1.
+
+vcpu-hour
+: one vcpu for one hour, used for metering and pricing.
 
 credits are minted to users on prepay. spending locks credits to a period. settlement happens
 at the end of the period and pays providers only if all checks pass.
@@ -99,7 +97,7 @@ control plane ledger to be online.
 
 ---
 
-## 6. pricing
+## 6. pricing and routing
 
 nodes publish a usd price per vcpu-hour.
 the control plane routes traffic to the lowest effective price among eligible nodes,
@@ -216,8 +214,8 @@ response = client.get("/api/private")
 
 ## summary
 
-- usd credits are the unit of account
-- users prepay credits, providers are paid after settlement
+- the network is built from nodes, agents, and an attested control plane
+- users prepay usd credits, providers are paid after settlement
 - tdx attestation proves execution
 - stake provides availability guarantees
 - the control plane maintains the ledger and routes traffic
