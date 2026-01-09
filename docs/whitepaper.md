@@ -140,7 +140,7 @@ requests are proxied over the websocket tunnel. the sdk resolves apps and routes
 ### next
 - prepaid credits and settlement flow
 - transfers api and spend flow
-- fast failover between boxes (todo)
+- fast failover between boxes
 - agent proxies (private agents behind control plane)
 - long-term affinity (1-3 years) with premium pricing
 - abuse system dashboard (stake-weighted trust)

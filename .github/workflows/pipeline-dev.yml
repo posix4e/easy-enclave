@@ -288,3 +288,23 @@ jobs:
           github-developer: posix4e
           seal-vm: 'false'
           github-token: ${{ github.token }}
+      - name: Check contact service health
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEY_FILE=$(mktemp)
+          chmod 600 "$KEY_FILE"
+          printf '%s\n' "${{ secrets.AGENT_SSH_KEY }}" > "$KEY_FILE"
+          ssh -o StrictHostKeyChecking=no -p "${{ secrets.AGENT_SSH_PORT }}" -i "$KEY_FILE" \
+            "${{ secrets.AGENT_SSH_USER }}@${{ secrets.AGENT_SSH_HOST }}" \
+            "set -euo pipefail
+             VM_NAME=\"${{ secrets.AGENT_VM_NAME }}\"
+             VM_IP=\$(sudo virsh domifaddr \"\$VM_NAME\" --source lease | awk '/ipv4/ {print \$4}' | head -n1 | cut -d/ -f1)
+             if [ -z \"\$VM_IP\" ]; then
+               echo \"No VM IP for \$VM_NAME\" >&2
+               exit 1
+             fi
+             curl -fsS --max-time 5 \"http://\$VM_IP:8080/health\" >/dev/null
+             echo \"contact health ok\""
+          rm -f "$KEY_FILE"
