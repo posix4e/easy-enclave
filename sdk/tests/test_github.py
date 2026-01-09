@@ -1,4 +1,4 @@
-"""Live GitHub attestation tests (no mocks)."""
+"""Live GitHub attestation tests."""
 from __future__ import annotations
 
 import os
