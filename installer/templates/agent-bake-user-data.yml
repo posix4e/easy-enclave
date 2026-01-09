@@ -31,6 +31,11 @@ runcmd:
         export https_proxy="http://$proxy_host:3128"
         echo "Acquire::http::Proxy \"http://$proxy_host:3128\";" > /etc/apt/apt.conf.d/99proxy
         echo "Acquire::https::Proxy \"http://$proxy_host:3128\";" >> /etc/apt/apt.conf.d/99proxy
+        mkdir -p /etc/systemd/system/docker.service.d
+        cat >/etc/systemd/system/docker.service.d/http-proxy.conf <<EOF
+[Service]
+Environment="HTTP_PROXY=http://$proxy_host:3128" "HTTPS_PROXY=http://$proxy_host:3128" "NO_PROXY=localhost,127.0.0.1,::1"
+EOF
       fi
       retry() {{
         local attempts=5
@@ -57,8 +62,8 @@ runcmd:
           retry apt-get install -y docker.io docker-compose
         fi
       fi
-      systemctl enable --now docker
       systemctl daemon-reload
+      systemctl enable --now docker
       systemctl enable ee-agent
       touch /etc/easy-enclave/agent-baked
     '
