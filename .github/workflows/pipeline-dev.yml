@@ -35,7 +35,7 @@ jobs:
 
   dev-agent-release:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     needs: lint-test
     outputs:
       agent_release_tag: ${{ steps.tag.outputs.tag }}
@@ -60,6 +60,7 @@ jobs:
           AGENT_IMAGE="/var/lib/easy-enclave/agent-pristine-dev-$(date +%Y%m%d%H%M%S).qcow2"
 
           ALLOWLIST_B64=$(ssh -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o TCPKeepAlive=yes \
             -p "${{ secrets.AGENT_SSH_PORT }}" -i "$KEY_FILE" \
             "${{ secrets.AGENT_SSH_USER }}@${{ secrets.AGENT_SSH_HOST }}" \
             "set -euo pipefail
