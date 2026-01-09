@@ -119,13 +119,13 @@ inputs:
 outputs:
   vm_ip:
     description: 'IP address of the created TD VM'
-    value: ${{ steps.vm.outputs.vm_ip }}
+    value: ${{ steps.set-outputs.outputs.vm_ip }}
   quote:
     description: 'Base64-encoded TDX quote'
-    value: ${{ steps.vm.outputs.quote }}
+    value: ${{ steps.set-outputs.outputs.quote }}
   release_url:
     description: 'URL of the created GitHub release'
-    value: ${{ steps.vm.outputs.release_url }}
+    value: ${{ steps.set-outputs.outputs.release_url }}
 runs:
   using: 'composite'
   steps:
@@ -457,14 +457,26 @@ runs:
         echo "release_url=$(jq -r .release_url /tmp/vm_result.json)" >> $GITHUB_OUTPUT
 
     # Copy agent outputs to vm outputs for unified interface
-    - name: Set outputs from agent
+    - name: Set outputs
       id: set-outputs
-      if: ${{ inputs.agent-url != '' }}
       shell: bash
       run: |
-        echo "vm_ip=${{ steps.agent.outputs.vm_ip }}" >> $GITHUB_OUTPUT
-        echo "quote=${{ steps.agent.outputs.quote }}" >> $GITHUB_OUTPUT
-        echo "release_url=${{ steps.agent.outputs.release_url }}" >> $GITHUB_OUTPUT
+        set -euo pipefail
+        VM_IP="${{ steps.agent.outputs.vm_ip }}"
+        QUOTE="${{ steps.agent.outputs.quote }}"
+        RELEASE_URL="${{ steps.agent.outputs.release_url }}"
+        if [ -z "$VM_IP" ]; then
+          VM_IP="${{ steps.vm.outputs.vm_ip }}"
+        fi
+        if [ -z "$QUOTE" ]; then
+          QUOTE="${{ steps.vm.outputs.quote }}"
+        fi
+        if [ -z "$RELEASE_URL" ]; then
+          RELEASE_URL="${{ steps.vm.outputs.release_url }}"
+        fi
+        echo "vm_ip=$VM_IP" >> $GITHUB_OUTPUT
+        echo "quote=$QUOTE" >> $GITHUB_OUTPUT
+        echo "release_url=$RELEASE_URL" >> $GITHUB_OUTPUT
 
     - name: Verify agent attestation (post)
       if: ${{ inputs.agent-url != '' && inputs.agent-skip-attestation != 'true' }}
