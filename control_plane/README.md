@@ -157,11 +157,10 @@ The Caddyfile is `control_plane/Caddyfile`.
 Point your DNS A/AAAA records at the control plane's public IP for both
 `control.easyenclave.com` and `*.app.easyenclave.com`.
 
-Caddy uses the Cloudflare DNS challenge to issue a wildcard cert for
-`*.app.easyenclave.com`. Set `CLOUDFLARE_API_TOKEN` (DNS edit) in `.env`.
-
-If you proxy through Cloudflare, use SSL/TLS "Full (strict)" so Cloudflare
-connects to Caddy over HTTPS. WebSockets are supported.
+Caddy uses its internal CA (`tls internal`) for HTTPS certificates. If you
+proxy through Cloudflare, set SSL/TLS mode to "Full" so Cloudflare accepts the
+origin cert. WebSockets are supported. For "Full (strict)", install a trusted
+origin cert and update the Caddyfile.
 
 Optional: update Cloudflare DNS automatically on startup (fails hard if it
 cannot update):
