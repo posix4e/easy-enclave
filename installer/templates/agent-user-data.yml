@@ -31,10 +31,10 @@ runcmd:
         echo "Acquire::http::Proxy \"http://$proxy_host:3128\";" > /etc/apt/apt.conf.d/99proxy
         echo "Acquire::https::Proxy \"http://$proxy_host:3128\";" >> /etc/apt/apt.conf.d/99proxy
         mkdir -p /etc/systemd/system/docker.service.d
-        cat >/etc/systemd/system/docker.service.d/http-proxy.conf <<EOF
-[Service]
-Environment="HTTP_PROXY=http://$proxy_host:3128" "HTTPS_PROXY=http://$proxy_host:3128" "NO_PROXY=localhost,127.0.0.1,::1"
-EOF
+        printf "%s\n" \
+          "[Service]" \
+          "Environment=\"HTTP_PROXY=http://$proxy_host:3128\" \"HTTPS_PROXY=http://$proxy_host:3128\" \"NO_PROXY=localhost,127.0.0.1,::1\"" \
+          > /etc/systemd/system/docker.service.d/http-proxy.conf
       fi
       retry() {{
         local attempts=5
