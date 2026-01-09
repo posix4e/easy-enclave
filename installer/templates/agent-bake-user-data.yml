@@ -25,7 +25,7 @@ runcmd:
     bash -euxo pipefail -c '
       export DEBIAN_FRONTEND=noninteractive
       trap "sync; poweroff -f" EXIT
-      retry() {
+      retry() {{
         local attempts=5
         local delay=5
         local n=1
@@ -39,7 +39,7 @@ runcmd:
           n=$((n + 1))
           sleep "$delay"
         done
-      }
+      }}
       mkdir -p /etc/easy-enclave
       retry apt-get update
       retry apt-get install -y python3-venv
