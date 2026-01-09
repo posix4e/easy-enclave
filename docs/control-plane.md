@@ -164,7 +164,7 @@ with docker:
 docker compose -f control_plane/docker-compose.yml up --build
 ```
 
-optional: update cloudflare dns via api (a/aaaa for `control` + `*.app`):
+optional: update cloudflare dns via api (a/aaaa for `control`, `control-direct`, `*.app`):
 
 ```bash
 export CLOUDFLARE_API_TOKEN=...
@@ -213,7 +213,7 @@ for wildcard tls on `*.app`, caddy uses cloudflare dns challenge and requires
 agents connect outbound (no inbound ports needed):
 
 ```bash
-EE_CONTROL_WS=wss://control.easyenclave.com/v1/tunnel \
+EE_CONTROL_WS=wss://control-direct.easyenclave.com:8088/v1/tunnel \
 EE_REPO=owner/repo \
 EE_RELEASE_TAG=v0.1.3 \
 EE_APP_NAME=myapp \

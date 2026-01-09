@@ -173,6 +173,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--auto-ip", action="store_true", help="Auto-detect public IPv4")
     parser.add_argument("--ttl", default="1", help="TTL (1 = auto)")
     parser.add_argument("--control-host", default="control", help="Host for control plane")
+    parser.add_argument("--control-direct-host", default="control-direct", help="DNS-only host for direct control plane")
     parser.add_argument("--app-wildcard", default="*.app", help="Wildcard host for apps")
     parser.add_argument("--dry-run", action="store_true", help="Print changes without applying")
     proxy_group = parser.add_mutually_exclusive_group()
@@ -209,13 +210,16 @@ def main() -> int:
         zone_name = get_zone_name(token, zone_id)
 
     control_name = normalize_record_name(args.control_host, zone_name)
+    direct_name = normalize_record_name(args.control_direct_host, zone_name)
     app_name = normalize_record_name(args.app_wildcard, zone_name)
 
     if args.ipv4:
         ensure_record(token, zone_id, "A", control_name, args.ipv4, ttl, proxied, args.dry_run)
+        ensure_record(token, zone_id, "A", direct_name, args.ipv4, ttl, False, args.dry_run)
         ensure_record(token, zone_id, "A", app_name, args.ipv4, ttl, proxied, args.dry_run)
     if args.ipv6:
         ensure_record(token, zone_id, "AAAA", control_name, args.ipv6, ttl, proxied, args.dry_run)
+        ensure_record(token, zone_id, "AAAA", direct_name, args.ipv6, ttl, False, args.dry_run)
         ensure_record(token, zone_id, "AAAA", app_name, args.ipv6, ttl, proxied, args.dry_run)
     return 0
 

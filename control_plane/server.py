@@ -26,6 +26,7 @@ from control_plane.config import (
     DNS_APP_WILDCARD,
     DNS_AUTO_IP,
     DNS_CONTROL_HOST,
+    DNS_CONTROL_DIRECT_HOST,
     DNS_IP,
     DNS_IPV6,
     DNS_PROXIED,
@@ -39,8 +40,14 @@ from control_plane.config import (
     PROXY_PORT,
     REGISTRATION_TTL_DAYS,
     REGISTRATION_WARN_DAYS,
+    RATLS_CERT_TTL_SEC,
+    RATLS_ENABLED,
+    RATLS_REQUIRE_CLIENT_CERT,
+    RATLS_SKIP_PCCS,
     UPTIME_TOKEN,
 )
+from control_plane.ratls import build_server_ssl_context, ensure_ratls_material, extract_peer_cert
+from easyenclave.ratls import RatlsVerifyResult, match_quote_measurements, verify_ratls_cert
 from control_plane.ledger import LedgerError, LedgerStore, parse_cents, parse_vcpu_hours
 from control_plane.policy import AttestationResult, verify_attestation
 from control_plane.registry import Registry, RegistryConfig
@@ -60,6 +67,7 @@ class Session:
     registered: bool = False
     attesting: bool = False
     pending_proxy: dict[str, asyncio.Future] = field(default_factory=dict)
+    ratls_result: Optional[RatlsVerifyResult] = None
 
     def info(self) -> dict:
         return {
@@ -85,10 +93,23 @@ class ControlPlane:
         self._allowed_networks = {"forge-1"}
 
     async def handle_ws(self, request: web.Request) -> web.WebSocketResponse:
+        ratls_result = None
+        if RATLS_ENABLED:
+            cert_der = extract_peer_cert(request)
+            if cert_der or RATLS_REQUIRE_CLIENT_CERT:
+                ratls_result = verify_ratls_cert(
+                    cert_der,
+                    allowlist=None,
+                    pccs_url=PCCS_URL,
+                    skip_pccs=RATLS_SKIP_PCCS,
+                    require_allowlist=False,
+                )
+                if not ratls_result.verified:
+                    raise web.HTTPUnauthorized(reason=f"ratls_{ratls_result.reason}")
         ws = web.WebSocketResponse(heartbeat=30)
         await ws.prepare(request)
 
-        session = Session(ws=ws)
+        session = Session(ws=ws, ratls_result=ratls_result)
         self._sessions[ws] = session
 
         try:
@@ -143,6 +164,28 @@ class ControlPlane:
         session.network = network
         session.tunnel_id = f"{app_name}:{secrets.token_hex(8)}"
         self.ledger.ensure_node(agent_id)
+
+        if RATLS_ENABLED and RATLS_REQUIRE_CLIENT_CERT:
+            if not session.ratls_result or not session.ratls_result.verified:
+                await session.ws.send_json({"type": "status", "state": "invalid", "reason": "ratls_missing"})
+                await session.ws.close()
+                return
+            allowlist = self.allowlist_cache.get(repo, release_tag)
+            if allowlist is None:
+                try:
+                    allowlist = fetch_allowlist(repo, release_tag, ALLOWLIST_ASSET, GITHUB_TOKEN)
+                    self.allowlist_cache.put(repo, release_tag, allowlist)
+                except Exception as exc:
+                    await session.ws.send_json(
+                        {"type": "status", "state": "invalid", "reason": f"allowlist_fetch_failed:{exc}"}
+                    )
+                    await session.ws.close()
+                    return
+            ok, reason = match_quote_measurements(allowlist, session.ratls_result.measurements or {})
+            if not ok:
+                await session.ws.send_json({"type": "status", "state": "invalid", "reason": f"ratls_{reason}"})
+                await session.ws.close()
+                return
 
         await self._send_attest_request(session, reason="register")
 
@@ -703,6 +746,7 @@ def run_dns_update() -> None:
         cmd.append("--dns-only")
     cmd.extend(["--ttl", str(DNS_TTL)])
     cmd.extend(["--control-host", DNS_CONTROL_HOST])
+    cmd.extend(["--control-direct-host", DNS_CONTROL_DIRECT_HOST])
     cmd.extend(["--app-wildcard", DNS_APP_WILDCARD])
 
     print("Updating Cloudflare DNS...")
@@ -715,7 +759,11 @@ async def _run_servers() -> None:
     control_app = create_app(control)
     control_runner = web.AppRunner(control_app)
     await control_runner.setup()
-    control_site = web.TCPSite(control_runner, BIND_HOST, BIND_PORT)
+    ssl_context = None
+    if RATLS_ENABLED:
+        ratls_material = ensure_ratls_material("easyenclave-control-plane", RATLS_CERT_TTL_SEC)
+        ssl_context = build_server_ssl_context(ratls_material, RATLS_REQUIRE_CLIENT_CERT)
+    control_site = web.TCPSite(control_runner, BIND_HOST, BIND_PORT, ssl_context=ssl_context)
     await control_site.start()
 
     proxy_app = create_proxy_app(control)

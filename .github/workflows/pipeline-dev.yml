@@ -147,7 +147,7 @@ jobs:
           agent-ssh-port: ${{ secrets.AGENT_SSH_PORT }}
           agent-ssh-key: ${{ secrets.AGENT_SSH_KEY }}
           docker-compose: control_plane/docker-compose.yml
-          public-files: control_plane,authorized_keys
+          public-files: control_plane,sdk,authorized_keys
           enable-ssh: 'true'
           private-env: |
             EE_GITHUB_TOKEN=${{ secrets.CONTROL_GITHUB_TOKEN }}

@@ -92,7 +92,12 @@ Set via environment variables:
 - `EE_DNS_PROXIED` (default `true`)
 - `EE_DNS_TTL` (default `1`, auto)
 - `EE_DNS_CONTROL_HOST` (default `control`)
+- `EE_DNS_CONTROL_DIRECT_HOST` (default `control-direct`)
 - `EE_DNS_APP_WILDCARD` (default `*.app`)
+- `EE_RATLS_ENABLED` (default `true`)
+- `EE_RATLS_CERT_TTL_SEC` (default `3600`)
+- `EE_RATLS_REQUIRE_CLIENT_CERT` (default `true`)
+- `EE_RATLS_SKIP_PCCS` (default `false`)
 - `CLOUDFLARE_API_TOKEN` (required for DNS updates)
 - `CLOUDFLARE_ZONE` (zone name, e.g. `easyenclave.com`)
 - `CLOUDFLARE_ZONE_ID` (optional, skips zone lookup)
@@ -115,10 +120,13 @@ cp control_plane/.env.example control_plane/.env
 docker compose -f control_plane/docker-compose.yml up --build
 ```
 
+Note: the compose stack expects the repo root (including `sdk/`) to be mounted.
+When deploying via the agent, include `sdk` in `public-files`.
+
 Agent tunnel (built into the agent process):
 
 ```bash
-EE_CONTROL_WS=ws://127.0.0.1:8088/v1/tunnel \
+EE_CONTROL_WS=wss://control-direct.easyenclave.com:8088/v1/tunnel \
 EE_REPO=owner/repo \
 EE_RELEASE_TAG=v0.1.3 \
 EE_APP_NAME=myapp \
@@ -144,6 +152,9 @@ The control plane is deployed as an agent-managed workload using
 `control_plane/docker-compose.yml`. It runs a sealed-only control plane and
 uses Caddy for TLS termination.
 
+RA-TLS uses configfs-tsm inside the control plane container. The compose file
+mounts `/sys/kernel/config` and runs privileged to allow quote generation.
+
 The default GitHub workflow is `.github/workflows/pipeline-dev.yml`.
 
 ## DNS + TLS
@@ -152,15 +163,19 @@ Caddy terminates TLS and expects:
 
 - `control.easyenclave.com` -> control plane (`:8088`)
 - `*.app.easyenclave.com` -> app proxy (`:9090`)
+- `control-direct.easyenclave.com` -> control plane (`:8088`, DNS-only, RA-TLS)
 
 The Caddyfile is `control_plane/Caddyfile`.
-Point your DNS A/AAAA records at the control plane's public IP for both
-`control.easyenclave.com` and `*.app.easyenclave.com`.
+Point your DNS A/AAAA records at the control plane's public IP for
+`control.easyenclave.com`, `control-direct.easyenclave.com`, and `*.app.easyenclave.com`.
 
 Caddy uses its internal CA (`tls internal`) for HTTPS certificates. If you
 proxy through Cloudflare, set SSL/TLS mode to "Full" so Cloudflare accepts the
 origin cert. WebSockets are supported. For "Full (strict)", install a trusted
 origin cert and update the Caddyfile.
+
+`control-direct` must stay DNS-only so RA-TLS handshakes reach the control
+plane without TLS termination.
 
 Optional: update Cloudflare DNS automatically on startup (fails hard if it
 cannot update):

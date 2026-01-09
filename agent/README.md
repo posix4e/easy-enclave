@@ -52,7 +52,7 @@ The agent combines `.env.public` and `private_env` into `/opt/workload/.env`.
 The agent can return a TDX quote and measurements:
 
 ```bash
-curl http://agent:8000/attestation
+curl https://agent:8000/attestation
 ```
 
 The response includes:
@@ -73,7 +73,7 @@ The agent runs the tunnel client inside the same process. Set the environment
 variables below to enable the WebSocket tunnel and proxy forwarding.
 
 Required:
-- `EE_CONTROL_WS` (e.g. `ws://control-plane:8088/v1/tunnel`)
+- `EE_CONTROL_WS` (e.g. `wss://control-direct.easyenclave.com:8088/v1/tunnel`)
 - `EE_REPO`
 - `EE_RELEASE_TAG`
 - `EE_APP_NAME`
@@ -83,3 +83,14 @@ Optional:
 - `EE_BACKEND_URL` (default `http://127.0.0.1:8080`)
 - `EE_HEALTH_INTERVAL_SEC` (default `60`)
 - `EE_RECONNECT_DELAY_SEC` (default `5`)
+
+RA-TLS:
+- `EE_RATLS_ENABLED` (default `true`)
+- `EE_RATLS_CERT_TTL_SEC` (default `3600`)
+- `EE_RATLS_SKIP_PCCS` (default `false`)
+- `EE_RATLS_PCCS_URL` (optional override for PCCS)
+- `EE_CONTROL_ALLOWLIST_PATH` (optional path to control-plane allowlist JSON)
+- `EE_CONTROL_ALLOWLIST_REPO` / `EE_CONTROL_ALLOWLIST_TAG` (fetch allowlist from GitHub)
+- `EE_CONTROL_ALLOWLIST_ASSET` (default `agent-attestation-allowlist.json`)
+- `EE_CONTROL_ALLOWLIST_REQUIRED` (default `true`)
+- `EE_CONTROL_ALLOWLIST_TOKEN` (optional token for private allowlist)

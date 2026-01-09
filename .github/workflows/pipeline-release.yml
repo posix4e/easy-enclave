@@ -104,7 +104,7 @@ jobs:
           agent-ssh-port: ${{ secrets.AGENT_SSH_PORT }}
           agent-ssh-key: ${{ secrets.AGENT_SSH_KEY }}
           docker-compose: control_plane/docker-compose.yml
-          public-files: control_plane
+          public-files: control_plane,sdk
           private-env: |
             EE_GITHUB_TOKEN=${{ secrets.CONTROL_GITHUB_TOKEN }}
             EE_ADMIN_TOKEN=${{ secrets.CONTROL_ADMIN_TOKEN }}

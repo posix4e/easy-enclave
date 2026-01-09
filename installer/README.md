@@ -111,4 +111,15 @@ Generate a release allowlist on the TDX test node:
 python3 installer/scripts/generate_allowlist.py --release-tag v0.1.0
 ```
 
+If the agent is serving RA-TLS, use the HTTPS URL with `--insecure`:
+
+```bash
+python3 installer/scripts/generate_allowlist.py \
+  --attestation-url https://agent:8000/attestation \
+  --insecure \
+  --release-tag v0.1.0
+```
+
 Upload `agent-attestation-allowlist.json` to the matching GitHub release.
+RA-TLS verification uses the `quote_measurements` field, so regenerate the allowlist
+after upgrading agent builds.

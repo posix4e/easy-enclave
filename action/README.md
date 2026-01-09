@@ -9,6 +9,7 @@ Deploy workloads to a remote Easy Enclave agent and publish an attested release.
 - `agent-allowlist-asset`: allowlist asset name (default: agent-attestation-allowlist.json)
 - `agent-attestation-skip-pccs`: skip PCCS verification (default: false)
 - `agent-skip-attestation`: skip agent attestation checks (default: false)
+- `agent-ratls`: verify the agent via RA-TLS (auto|true|false)
 - `agent-attestation-via-ssh`: fetch attestation via SSH to the host (default: false)
 - `agent-ssh-host`: SSH host for agent VM provisioning
 - `agent-ssh-user`: SSH user (default: ubuntu)
@@ -47,6 +48,9 @@ Deploy workloads to a remote Easy Enclave agent and publish an attested release.
 - When SSH access is requested, `seal-vm` is forced off for that deployment.
 - Status polling prints host QEMU and serial log tails for visibility.
 - Agent attestation is verified before and after deploy using the allowlist asset.
+- When `agent-ratls` is enabled, the action verifies the agent RA-TLS cert using `quote_measurements` in the allowlist.
+- Use an `https://` agent URL when RA-TLS is enabled.
+- RA-TLS mode pins the agent TLS public key after verification and skips hostname checks.
 - `agent-release-tag` must point to a release that includes the allowlist asset.
 - For agent VM provisioning, use `.github/workflows/deploy-agent.yml`.
 - The agent VM starts without a workload and waits for deploy requests.

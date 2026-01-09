@@ -136,7 +136,14 @@ if [ "$MODE" = "host" ]; then
   mkdir -p /var/lib/easy-enclave/deployments
 
   cp "$AGENT_SRC/agent.py" "$INSTALL_DIR/"
+  cp "$AGENT_SRC/verify.py" "$INSTALL_DIR/"
+  cp "$AGENT_SRC/ratls.py" "$INSTALL_DIR/"
   cp -r "$INSTALLER_SRC/templates" "$INSTALL_DIR/"
+
+  apt-get update
+  apt-get install -y python3-venv
+  python3 -m venv "$INSTALL_DIR/venv"
+  "$INSTALL_DIR/venv/bin/pip" install --no-cache-dir aiohttp cryptography requests
 
   cp "$INSTALLER_SRC/systemd/ee-agent.service" /etc/systemd/system/
   systemctl daemon-reload

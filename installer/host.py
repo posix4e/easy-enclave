@@ -535,6 +535,8 @@ def build_vm_image_id_yaml(tag: str, sha256: str) -> str:
 def create_agent_image(
     base_image: str,
     agent_py: str,
+    agent_verify_py: str,
+    agent_ratls_py: str,
     vm_image_tag: str,
     vm_image_sha256: str,
     agent_port: int = 8000,
@@ -557,6 +559,8 @@ def create_agent_image(
 
     user_data = load_template(user_data_template).format(
         agent_py=indent_yaml(agent_py, 6),
+        agent_verify_py=indent_yaml(agent_verify_py, 6),
+        agent_ratls_py=indent_yaml(agent_ratls_py, 6),
         agent_service=indent_yaml(agent_service, 6),
         vm_image_id=vm_image_id,
     )
@@ -611,10 +615,14 @@ def create_agent_vm(
     log(f"Using base image: {base_image}")
 
     agent_py = (Path(__file__).resolve().parent.parent / "agent" / "agent.py").read_text()
+    agent_verify_py = (Path(__file__).resolve().parent.parent / "agent" / "verify.py").read_text()
+    agent_ratls_py = (Path(__file__).resolve().parent.parent / "agent" / "ratls.py").read_text()
     log("Creating agent image...")
     agent_image, cidata_iso, workdir = create_agent_image(
         base_image,
         agent_py,
+        agent_verify_py,
+        agent_ratls_py,
         vm_image_tag,
         vm_image_sha256,
         agent_port=port,
@@ -747,10 +755,14 @@ def build_pristine_agent_image(
         log(f"Computed base image sha256: {vm_image_sha256}")
 
     agent_py = (Path(__file__).resolve().parent.parent / "agent" / "agent.py").read_text()
+    agent_verify_py = (Path(__file__).resolve().parent.parent / "agent" / "verify.py").read_text()
+    agent_ratls_py = (Path(__file__).resolve().parent.parent / "agent" / "ratls.py").read_text()
     log("Creating agent bake image...")
     agent_image, cidata_iso, workdir = create_agent_image(
         base_image,
         agent_py,
+        agent_verify_py,
+        agent_ratls_py,
         vm_image_tag,
         vm_image_sha256,
         agent_port=agent_port,

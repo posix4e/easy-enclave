@@ -14,6 +14,7 @@ import json
 import os
 import shutil
 import socket
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -31,6 +32,10 @@ from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from aiohttp import ClientSession, WSMsgType, web
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+
+from ratls import build_ratls_cert, report_data_for_pubkey, verify_ratls_cert
 
 # Force unbuffered output
 sys.stdout.reconfigure(line_buffering=True)
@@ -65,6 +70,13 @@ def log(msg: str) -> None:
 def load_template(name: str) -> str:
     """Load a template file from the templates directory."""
     return (TEMPLATES_DIR / name).read_text()
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None or value == "":
+        return default
+    return value.lower() in {"1", "true", "yes", "on"}
 
 
 def check_requirements() -> None:
@@ -769,6 +781,15 @@ EE_AGENT_ID = os.getenv("EE_AGENT_ID", str(uuid.uuid4()))
 EE_BACKEND_URL = os.getenv("EE_BACKEND_URL", "http://127.0.0.1:8080")
 EE_HEALTH_INTERVAL_SEC = int(os.getenv("EE_HEALTH_INTERVAL_SEC", "60"))
 EE_RECONNECT_DELAY_SEC = int(os.getenv("EE_RECONNECT_DELAY_SEC", "5"))
+EE_RATLS_ENABLED = env_bool("EE_RATLS_ENABLED", True)
+EE_RATLS_CERT_TTL_SEC = int(os.getenv("EE_RATLS_CERT_TTL_SEC", "3600"))
+EE_RATLS_SKIP_PCCS = env_bool("EE_RATLS_SKIP_PCCS", False)
+EE_CONTROL_ALLOWLIST_PATH = os.getenv("EE_CONTROL_ALLOWLIST_PATH", "")
+EE_CONTROL_ALLOWLIST_REPO = os.getenv("EE_CONTROL_ALLOWLIST_REPO", "")
+EE_CONTROL_ALLOWLIST_TAG = os.getenv("EE_CONTROL_ALLOWLIST_TAG", "")
+EE_CONTROL_ALLOWLIST_ASSET = os.getenv("EE_CONTROL_ALLOWLIST_ASSET", "agent-attestation-allowlist.json")
+EE_CONTROL_ALLOWLIST_REQUIRED = env_bool("EE_CONTROL_ALLOWLIST_REQUIRED", True)
+EE_CONTROL_ALLOWLIST_TOKEN = os.getenv("EE_CONTROL_ALLOWLIST_TOKEN", "")
 
 
 @dataclass
@@ -943,6 +964,121 @@ def build_attestation() -> dict:
         "report_data": report_data.hex(),
         "measurements": measurements,
     }
+
+
+@dataclass
+class RatlsMaterial:
+    cert_path: Path
+    key_path: Path
+
+
+RATLS_MATERIAL: RatlsMaterial | None = None
+
+
+def ensure_ratls_material(common_name: str = "easyenclave-agent") -> RatlsMaterial:
+    global RATLS_MATERIAL
+    if RATLS_MATERIAL:
+        return RATLS_MATERIAL
+
+    ratls_dir = Path("/var/lib/easy-enclave/ratls")
+    ratls_dir.mkdir(parents=True, exist_ok=True)
+    cert_path = ratls_dir / "ratls.crt"
+    key_path = ratls_dir / "ratls.key"
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    report_data = report_data_for_pubkey(key.public_key())
+    quote = get_tdx_quote(report_data)
+    cert_pem = build_ratls_cert(quote, key, common_name=common_name, ttl_seconds=EE_RATLS_CERT_TTL_SEC)
+    key_pem = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+    cert_path.write_bytes(cert_pem)
+    key_path.write_bytes(key_pem)
+    os.chmod(cert_path, 0o600)
+    os.chmod(key_path, 0o600)
+
+    RATLS_MATERIAL = RatlsMaterial(cert_path=cert_path, key_path=key_path)
+    return RATLS_MATERIAL
+
+
+def build_ratls_server_context(material: RatlsMaterial) -> ssl.SSLContext:
+    context = ssl.create_default_context(purpose=ssl.Purpose.CLIENT_AUTH)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    context.load_cert_chain(certfile=str(material.cert_path), keyfile=str(material.key_path))
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return context
+
+
+def build_ratls_client_context(material: RatlsMaterial) -> ssl.SSLContext:
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    context.load_cert_chain(certfile=str(material.cert_path), keyfile=str(material.key_path))
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return context
+
+
+def load_control_allowlist() -> Optional[dict]:
+    if EE_CONTROL_ALLOWLIST_PATH:
+        return json.loads(Path(EE_CONTROL_ALLOWLIST_PATH).read_text(encoding="utf-8"))
+    if not EE_CONTROL_ALLOWLIST_REPO or not EE_CONTROL_ALLOWLIST_TAG:
+        return None
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "easy-enclave-agent",
+    }
+    if EE_CONTROL_ALLOWLIST_TOKEN:
+        headers["Authorization"] = f"Bearer {EE_CONTROL_ALLOWLIST_TOKEN}"
+
+    release_url = f"https://api.github.com/repos/{EE_CONTROL_ALLOWLIST_REPO}/releases/tags/{EE_CONTROL_ALLOWLIST_TAG}"
+    req = Request(release_url, headers=headers)
+    with urllib.request.urlopen(req, timeout=10) as response:
+        release = json.loads(response.read().decode())
+
+    asset_url = None
+    for asset in release.get("assets", []):
+        if asset.get("name") == EE_CONTROL_ALLOWLIST_ASSET:
+            asset_url = asset.get("browser_download_url")
+            break
+    if not asset_url:
+        raise RuntimeError(f"Control allowlist asset not found: {EE_CONTROL_ALLOWLIST_ASSET}")
+
+    req = Request(asset_url, headers=headers)
+    with urllib.request.urlopen(req, timeout=10) as response:
+        return json.loads(response.read().decode())
+
+
+def extract_peer_cert(ws) -> bytes:
+    transport = getattr(getattr(ws, "_response", None), "connection", None)
+    if transport:
+        transport = transport.transport
+    else:
+        transport = getattr(ws, "_transport", None)
+    if not transport:
+        return b""
+    ssl_obj = transport.get_extra_info("ssl_object")
+    if not ssl_obj:
+        return b""
+    return ssl_obj.getpeercert(binary_form=True) or b""
+
+
+def verify_control_plane_ratls(ws) -> None:
+    cert_der = extract_peer_cert(ws)
+    allowlist = load_control_allowlist()
+    result = verify_ratls_cert(
+        cert_der,
+        allowlist,
+        pccs_url=os.getenv("EE_RATLS_PCCS_URL") or None,
+        skip_pccs=EE_RATLS_SKIP_PCCS,
+        require_allowlist=EE_CONTROL_ALLOWLIST_REQUIRED,
+    )
+    if not result.verified:
+        raise RuntimeError(f"control_plane_ratls_failed:{result.reason}")
 
 
 def write_bundle_files(bundle_dir: str, compose_path: str, extra_files: list[dict[str, str]]) -> str:
@@ -1346,10 +1482,22 @@ async def tunnel_client_loop(app: web.Application) -> None:
         log("EE_REPO, EE_RELEASE_TAG, EE_APP_NAME required for tunnel client")
         return
 
+    control_ws = EE_CONTROL_WS
+    ssl_context = None
+    if EE_RATLS_ENABLED:
+        if control_ws.startswith("ws://"):
+            control_ws = "wss://" + control_ws[len("ws://"):]
+        if not control_ws.startswith("wss://"):
+            log("EE_CONTROL_WS must be wss:// when EE_RATLS_ENABLED=true")
+            return
+        ssl_context = build_ratls_client_context(ensure_ratls_material())
+
     while True:
         try:
             async with ClientSession() as session:
-                async with session.ws_connect(EE_CONTROL_WS) as ws:
+                async with session.ws_connect(control_ws, ssl=ssl_context) as ws:
+                    if EE_RATLS_ENABLED:
+                        verify_control_plane_ratls(ws)
                     await ws.send_json(
                         {
                             "type": "register",
@@ -1432,7 +1580,10 @@ def main() -> None:
     log(f"Deployments directory: {DEPLOYMENTS_DIR}")
 
     app = build_app()
-    web.run_app(app, host=args.host, port=args.port)
+    ssl_context = None
+    if EE_RATLS_ENABLED:
+        ssl_context = build_ratls_server_context(ensure_ratls_material())
+    web.run_app(app, host=args.host, port=args.port, ssl_context=ssl_context)
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ Type=simple
 User=root
 Group=root
 WorkingDirectory=/opt/easy-enclave
-ExecStart=/usr/bin/python3 /opt/easy-enclave/agent.py --host 0.0.0.0 --port 8000
+ExecStart=/opt/easy-enclave/venv/bin/python /opt/easy-enclave/agent.py --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=5
 

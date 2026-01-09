@@ -5,6 +5,16 @@ write_files:
     content: |
 {agent_py}
 
+  - path: /opt/ee-agent/verify.py
+    permissions: '0644'
+    content: |
+{agent_verify_py}
+
+  - path: /opt/ee-agent/ratls.py
+    permissions: '0644'
+    content: |
+{agent_ratls_py}
+
   - path: /etc/systemd/system/ee-agent.service
     content: |
 {agent_service}
@@ -17,7 +27,7 @@ runcmd:
       apt-get update
       apt-get install -y python3-venv
       python3 -m venv /opt/ee-agent/venv
-      /opt/ee-agent/venv/bin/pip install --no-cache-dir aiohttp
+      /opt/ee-agent/venv/bin/pip install --no-cache-dir aiohttp cryptography requests
       if ! apt-get install -y docker.io docker-compose-plugin; then
         if ! apt-get install -y docker.io docker-compose-v2; then
           apt-get install -y docker.io docker-compose

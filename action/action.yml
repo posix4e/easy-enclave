@@ -4,6 +4,10 @@ inputs:
   agent-url:
     description: 'URL of the deployment agent (if not provided, runs locally on self-hosted TDX runner)'
     required: false
+  agent-ratls:
+    description: 'Verify the agent via RA-TLS (auto|true|false)'
+    required: false
+    default: 'true'
   docker-compose:
     description: 'Path to docker-compose.yml'
     required: false
@@ -165,26 +169,56 @@ runs:
           URL="http://127.0.0.1:${TUNNEL_PORT}"
         fi
         echo "url=$URL" >> "$GITHUB_OUTPUT"
+    - name: Select agent URL scheme
+      id: agent-url-effective
+      if: ${{ inputs.agent-url != '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        URL="${{ steps.agent-url.outputs.url }}"
+        RATLS_MODE="${{ inputs.agent-ratls }}"
+        if [ "$RATLS_MODE" = "auto" ]; then
+          if [[ "$URL" == https://* ]]; then
+            RATLS_MODE="true"
+          else
+            RATLS_MODE="false"
+          fi
+        fi
+        if [ "$RATLS_MODE" = "true" ] && [[ "$URL" == http://* ]]; then
+          URL="https://${URL#http://}"
+        fi
+        echo "url=$URL" >> "$GITHUB_OUTPUT"
+        echo "ratls=$RATLS_MODE" >> "$GITHUB_OUTPUT"
     - name: Check agent URL
       if: ${{ inputs.agent-url != '' && inputs.agent-attestation-via-ssh != 'true' }}
       shell: bash
       run: |
         set -euo pipefail
-        URL="${{ steps.agent-url.outputs.url }}"
-        if ! curl -sf --connect-timeout 5 --max-time 10 "$URL/health" >/dev/null; then
+        URL="${{ steps.agent-url-effective.outputs.url }}"
+        CURL_OPTS=()
+        if [ "${{ steps.agent-url-effective.outputs.ratls }}" = "true" ]; then
+          CURL_OPTS+=(--insecure)
+        fi
+        if ! curl -sf --connect-timeout 5 --max-time 10 "${CURL_OPTS[@]}" "$URL/health" >/dev/null; then
           echo "::error::Agent URL health check failed: $URL/health" >&2
           exit 1
         fi
-        if ! curl -sf --connect-timeout 5 --max-time 10 "$URL/attestation" >/dev/null; then
-          echo "::error::Agent URL attestation check failed: $URL/attestation" >&2
-          exit 1
+        if [ "${{ steps.agent-url-effective.outputs.ratls }}" != "true" ]; then
+          if ! curl -sf --connect-timeout 5 --max-time 10 "${CURL_OPTS[@]}" "$URL/attestation" >/dev/null; then
+            echo "::error::Agent URL attestation check failed: $URL/attestation" >&2
+            exit 1
+          fi
         fi
     - name: Ensure agent VM
       if: ${{ inputs.agent-url != '' && inputs.agent-ssh-host != '' && inputs.agent-ssh-key != '' }}
       shell: bash
       run: |
         set -euo pipefail
-        if curl -sf "${{ steps.agent-url.outputs.url }}/health" >/dev/null; then
+        CURL_OPTS=()
+        if [ "${{ steps.agent-url-effective.outputs.ratls }}" = "true" ]; then
+          CURL_OPTS+=(--insecure)
+        fi
+        if curl -sf "${CURL_OPTS[@]}" "${{ steps.agent-url-effective.outputs.url }}/health" >/dev/null; then
           echo "Agent reachable"
           exit 0
         fi
@@ -231,13 +265,25 @@ runs:
         fi
         curl -sfL -o /tmp/agent_allowlist.json "$ASSET_URL"
 
-    - name: Verify agent attestation (pre)
+    - name: Setup verification venv
+      id: verify-venv
       if: ${{ inputs.agent-url != '' && inputs.agent-skip-attestation != 'true' }}
       shell: bash
       run: |
         set -euo pipefail
-        python3 -m pip install "${{ github.action_path }}/../sdk"
-        ATTEST_ARGS=(--attestation-url "${{ steps.agent-url.outputs.url }}/attestation")
+        VENV_DIR="${GITHUB_WORKSPACE}/.ee-verify-venv"
+        python3 -m venv "$VENV_DIR"
+        "$VENV_DIR/bin/pip" install --no-cache-dir --upgrade pip
+        "$VENV_DIR/bin/pip" install --no-cache-dir "${{ github.action_path }}/../sdk"
+        echo "python=$VENV_DIR/bin/python" >> "$GITHUB_OUTPUT"
+
+    - name: Verify agent attestation (pre)
+      if: ${{ inputs.agent-url != '' && inputs.agent-skip-attestation != 'true' && steps.agent-url-effective.outputs.ratls != 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        PY="${{ steps.verify-venv.outputs.python }}"
+        ATTEST_ARGS=(--attestation-url "${{ steps.agent-url-effective.outputs.url }}/attestation")
         if [ "${{ inputs.agent-attestation-via-ssh }}" = "true" ] && [ -n "${{ inputs.agent-ssh-host }}" ] && [ -n "${{ inputs.agent-ssh-key }}" ]; then
           KEY_FILE=$(mktemp)
           chmod 600 "$KEY_FILE"
@@ -260,11 +306,31 @@ runs:
           rm -f "$KEY_FILE"
           ATTEST_ARGS=(--attestation-file /tmp/agent_attestation.json)
         fi
-        python3 "${{ github.action_path }}/src/verify_agent_attestation.py" \
+        "$PY" "${{ github.action_path }}/src/verify_agent_attestation.py" \
           --allowlist /tmp/agent_allowlist.json \
           "${ATTEST_ARGS[@]}" \
           --timeout "${{ inputs.agent-attestation-timeout }}" \
           ${{ inputs.agent-attestation-skip-pccs == 'true' && '--skip-pccs' || '' }}
+    - name: Verify agent RA-TLS (pre)
+      id: agent-ratls
+      if: ${{ inputs.agent-url != '' && inputs.agent-skip-attestation != 'true' && steps.agent-url-effective.outputs.ratls == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        PY="${{ steps.verify-venv.outputs.python }}"
+        URL="${{ steps.agent-url-effective.outputs.url }}"
+        CERT_OUT=/tmp/agent_ratls_ca.pem
+        PIN_OUT=/tmp/agent_ratls_pin.txt
+        "$PY" "${{ github.action_path }}/src/verify_ratls_cert.py" \
+          --url "$URL" \
+          --allowlist /tmp/agent_allowlist.json \
+          --timeout "${{ inputs.agent-attestation-timeout }}" \
+          --output-cert "$CERT_OUT" \
+          --output-pin "$PIN_OUT" \
+          ${{ inputs.agent-attestation-skip-pccs == 'true' && '--skip-pccs' || '' }}
+        RATLS_PIN=$(cat "$PIN_OUT")
+        echo "ratls_cert=$CERT_OUT" >> "$GITHUB_OUTPUT"
+        echo "ratls_pin=$RATLS_PIN" >> "$GITHUB_OUTPUT"
     - name: Build public bundle
       id: bundle
       if: ${{ inputs.agent-url != '' }}
@@ -321,7 +387,16 @@ runs:
       if: ${{ inputs.agent-url != '' }}
       shell: bash
       run: |
-        echo "Deploying via agent at ${{ steps.agent-url.outputs.url }}"
+        URL="${{ steps.agent-url-effective.outputs.url }}"
+        echo "Deploying via agent at $URL"
+        CURL_OPTS=()
+        if [ "${{ steps.agent-url-effective.outputs.ratls }}" = "true" ]; then
+          if [ -z "${{ steps.agent-ratls.outputs.ratls_pin }}" ]; then
+            echo "::error::RA-TLS pin missing for agent connection"
+            exit 1
+          fi
+          CURL_OPTS+=(--insecure --pinnedpubkey "${{ steps.agent-ratls.outputs.ratls_pin }}")
+        fi
 
         CLEANUP_PREFIXES_JSON="null"
         if [ -n "${{ inputs.cleanup-prefixes }}" ]; then
@@ -408,7 +483,7 @@ runs:
           rm -f "$BUNDLE_B64_FILE"
         fi
 
-        RESPONSE=$(curl -sf -X POST "${{ steps.agent-url.outputs.url }}/deploy" \
+        RESPONSE=$(curl -sf "${CURL_OPTS[@]}" -X POST "$URL/deploy" \
           -H "Authorization: Bearer ${{ inputs.github-token }}" \
           -H "Content-Type: application/json" \
           -d "$PAYLOAD")
@@ -420,7 +495,7 @@ runs:
         MAX_WAIT=600
         WAITED=0
         while [ $WAITED -lt $MAX_WAIT ]; do
-          STATUS_RESPONSE=$(curl -sf "${{ steps.agent-url.outputs.url }}/status/$DEPLOY_ID")
+          STATUS_RESPONSE=$(curl -sf "${CURL_OPTS[@]}" "$URL/status/$DEPLOY_ID")
           STATUS=$(echo "$STATUS_RESPONSE" | jq -r .status)
           echo "Status: $STATUS (waited ${WAITED}s)"
           SERIAL_LOG=$(echo "$STATUS_RESPONSE" | jq -r '.host_logs.serial // empty')
@@ -512,11 +587,12 @@ runs:
         echo "release_url=$RELEASE_URL" >> $GITHUB_OUTPUT
 
     - name: Verify agent attestation (post)
-      if: ${{ inputs.agent-url != '' && inputs.agent-skip-attestation != 'true' }}
+      if: ${{ inputs.agent-url != '' && inputs.agent-skip-attestation != 'true' && steps.agent-url-effective.outputs.ratls != 'true' }}
       shell: bash
       run: |
         set -euo pipefail
-        ATTEST_ARGS=(--attestation-url "${{ steps.agent-url.outputs.url }}/attestation")
+        PY="${{ steps.verify-venv.outputs.python }}"
+        ATTEST_ARGS=(--attestation-url "${{ steps.agent-url-effective.outputs.url }}/attestation")
         if [ "${{ inputs.agent-attestation-via-ssh }}" = "true" ] && [ -n "${{ inputs.agent-ssh-host }}" ] && [ -n "${{ inputs.agent-ssh-key }}" ]; then
           KEY_FILE=$(mktemp)
           chmod 600 "$KEY_FILE"
@@ -539,7 +615,7 @@ runs:
           rm -f "$KEY_FILE"
           ATTEST_ARGS=(--attestation-file /tmp/agent_attestation.json)
         fi
-        python3 "${{ github.action_path }}/src/verify_agent_attestation.py" \
+        "$PY" "${{ github.action_path }}/src/verify_agent_attestation.py" \
           --allowlist /tmp/agent_allowlist.json \
           "${ATTEST_ARGS[@]}" \
           --timeout "${{ inputs.agent-attestation-timeout }}" \

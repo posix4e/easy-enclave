@@ -2,9 +2,11 @@ services:
   control-plane-prod:
     image: python:3.12-slim
     working_dir: /opt/app
+    privileged: true
     command: >
-      bash -c "pip install --no-cache-dir -r /opt/app/control_plane/requirements.txt
-      && python /opt/app/control_plane/server.py"
+      bash -c "python -m venv /var/lib/easy-enclave/venv
+      && /var/lib/easy-enclave/venv/bin/pip install --no-cache-dir -r /opt/app/control_plane/requirements.txt
+      && /var/lib/easy-enclave/venv/bin/python /opt/app/control_plane/server.py"
     env_file:
       - .env
     environment:
@@ -17,8 +19,9 @@ services:
       EE_GITHUB_TOKEN: ${EE_GITHUB_TOKEN}
       EE_ADMIN_TOKEN: ${EE_ADMIN_TOKEN}
     volumes:
-      - .:/opt/app/control_plane:ro
+      - ..:/opt/app:ro
       - control-plane-data:/var/lib/easy-enclave
+      - /sys/kernel/config:/sys/kernel/config
     ports:
       - "8088:8088"
       - "9090:9090"
