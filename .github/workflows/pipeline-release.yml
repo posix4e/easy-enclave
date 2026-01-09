@@ -63,9 +63,20 @@ jobs:
                echo \"Failed to determine agent VM IP\" >&2
                exit 1
              fi
+             ATT_URL="http://\$IP:${VM_PORT}/attestation"
+             for i in {1..30}; do
+               if curl -fsS --max-time 2 \"\$ATT_URL\" >/tmp/attestation.json; then
+                 break
+               fi
+               sleep 2
+             done
+             if [ ! -s /tmp/attestation.json ]; then
+               echo \"Attestation endpoint not ready: \$ATT_URL\" >&2
+               exit 1
+             fi
              export PYTHONPATH="/opt/easy-enclave/sdk"
              python3 installer/scripts/generate_allowlist.py \
-               --attestation-url \"http://\$IP:\$VM_PORT/attestation\" \
+               --attestation-url \"\$ATT_URL\" \
                --release-tag \"$RELEASE_TAG\" \
                --output /tmp/agent-attestation-allowlist.json 1>&2
              base64 -w0 /tmp/agent-attestation-allowlist.json" 2>/dev/null)
