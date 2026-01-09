@@ -267,7 +267,7 @@ jobs:
         uses: ./action
         with:
           agent-url: ${{ secrets.AGENT_URL_CONTACTS || secrets.AGENT_URL }}
-          agent-ratls: 'auto'
+          agent-ratls: 'true'
           bundle-inline: 'true'
           agent-release-tag: ${{ needs.dev-agent-release.outputs.agent_release_tag || 'dev' }}
           agent-attestation-via-ssh: 'true'

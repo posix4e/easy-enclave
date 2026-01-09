@@ -158,7 +158,7 @@ jobs:
         uses: ./action
         with:
           agent-url: ${{ secrets.AGENT_URL_CONTACTS || secrets.AGENT_URL }}
-          agent-ratls: 'auto'
+          agent-ratls: 'true'
           agent-release-tag: ${{ needs.release-agent.outputs.agent_release_tag }}
           agent-attestation-via-ssh: 'true'
           agent-ssh-host: ${{ secrets.AGENT_SSH_HOST }}
