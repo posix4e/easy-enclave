@@ -154,7 +154,8 @@ jobs:
             "sudo ss -lntp | egrep ':80|:443|:8088|:9090' || true; \
              sudo docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' || true; \
              sudo docker ps -a --format '{{.ID}} {{.Names}} {{.Status}}' | egrep 'caddy|control' || true; \
-             sudo docker ps --filter 'name=caddy' -q | head -n1 | xargs -r sudo docker logs --tail 200 || true"
+             sudo virsh domifaddr ee-workload --source lease || true; \
+             sudo tail -n 200 /var/log/libvirt/qemu/ee-workload-serial.log || true"
           rm -f "$KEY_FILE"
 
   deploy-contacts:
