@@ -1120,6 +1120,11 @@ def run_deployment(deployment: Deployment, token: Optional[str]) -> None:
             with open("/home/ubuntu/.ssh/authorized_keys", "w") as f:
                 f.write(bundle_meta["authorized_keys"])
             os.chmod("/home/ubuntu/.ssh/authorized_keys", 0o600)
+            try:
+                shutil.chown("/home/ubuntu/.ssh", user="ubuntu", group="ubuntu")
+                shutil.chown("/home/ubuntu/.ssh/authorized_keys", user="ubuntu", group="ubuntu")
+            except Exception as exc:
+                log(f"Warning: failed to chown authorized_keys: {exc}")
 
         run_docker_compose(compose_path)
 
