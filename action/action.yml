@@ -20,6 +20,10 @@ inputs:
     description: 'Public file or directory paths to include in the bundle artifact (comma or newline separated)'
     required: false
     default: ''
+  bundle-inline:
+    description: 'Send bundle inline to the agent instead of uploading an artifact'
+    required: false
+    default: 'false'
   seal-vm:
     description: 'Seal VM access after deployment (disable SSH and serial getty)'
     required: false
@@ -305,7 +309,7 @@ runs:
 
     - name: Upload public bundle
       id: bundle-upload
-      if: ${{ inputs.agent-url != '' }}
+      if: ${{ inputs.agent-url != '' && inputs.bundle-inline != 'true' }}
       uses: actions/upload-artifact@v4
       with:
         name: ee-deploy-bundle-${{ github.run_id }}-${{ github.job }}
@@ -357,6 +361,27 @@ runs:
           PRIVATE_ENV_JSON=$(printf '%s' "$PRIVATE_ENV_VALUE" | jq -Rs '.')
         fi
 
+        BUNDLE_B64_FILE="/dev/null"
+        BUNDLE_FORMAT=""
+        if [ "${{ inputs.bundle-inline }}" = "true" ]; then
+          BUNDLE_DIR="${{ steps.bundle.outputs.bundle_dir }}"
+          if [ -z "$BUNDLE_DIR" ]; then
+            echo "::error::bundle_dir missing for inline bundle"
+            exit 1
+          fi
+          ARCHIVE_PATH=$(mktemp)
+          tar -czf "$ARCHIVE_PATH" -C "$BUNDLE_DIR" .
+          BUNDLE_B64_FILE=$(mktemp)
+          base64 -w 0 "$ARCHIVE_PATH" > "$BUNDLE_B64_FILE"
+          BUNDLE_FORMAT="tar.gz"
+          rm -f "$ARCHIVE_PATH"
+        fi
+
+        BUNDLE_ARTIFACT_JSON="null"
+        if [ -n "${{ steps.bundle-upload.outputs.artifact-id }}" ]; then
+          BUNDLE_ARTIFACT_JSON="${{ steps.bundle-upload.outputs.artifact-id }}"
+        fi
+
         # Start deployment
         SEAL_VM_JSON="false"
         if [ "$EFFECTIVE_SEAL" = "true" ]; then
@@ -368,12 +393,20 @@ runs:
           --argjson port ${{ inputs.endpoint-port }} \
           --arg vm_name "${{ inputs.vm-name }}" \
           --argjson cleanup_prefixes "$CLEANUP_PREFIXES_JSON" \
-          --argjson bundle_artifact_id ${{ steps.bundle-upload.outputs.artifact-id }} \
+          --argjson bundle_artifact_id "$BUNDLE_ARTIFACT_JSON" \
+          --rawfile bundle_b64 "$BUNDLE_B64_FILE" \
+          --arg bundle_format "$BUNDLE_FORMAT" \
           --argjson private_env "$PRIVATE_ENV_JSON" \
           --argjson seal_vm "$SEAL_VM_JSON" \
-          '{repo:$repo, port:$port, vm_name:$vm_name, bundle_artifact_id:$bundle_artifact_id, seal_vm:$seal_vm}
+          '{repo:$repo, port:$port, vm_name:$vm_name, seal_vm:$seal_vm}
+           + (if $bundle_artifact_id == null then {} else {bundle_artifact_id:$bundle_artifact_id} end)
+           + (if $bundle_b64 == "" then {} else {bundle_b64:$bundle_b64, bundle_format:$bundle_format} end)
            + (if $cleanup_prefixes == null then {} else {cleanup_prefixes:$cleanup_prefixes} end)
            + (if $private_env == null then {} else {private_env:$private_env} end)')
+
+        if [ "$BUNDLE_B64_FILE" != "/dev/null" ]; then
+          rm -f "$BUNDLE_B64_FILE"
+        fi
 
         RESPONSE=$(curl -sf -X POST "${{ steps.agent-url.outputs.url }}/deploy" \
           -H "Authorization: Bearer ${{ inputs.github-token }}" \

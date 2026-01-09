@@ -17,6 +17,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import tarfile
 import threading
 import time
 import urllib.request
@@ -455,7 +456,7 @@ def get_public_ip() -> str:
                 return ip
     except Exception:
         pass
-    raise RuntimeError("Could not determine public IP address")
+    return ""
 
 
 def setup_port_forward(vm_ip: str, vm_port: int, host_port: int | None = None) -> int:
@@ -780,12 +781,14 @@ class Deployment:
     status: str  # pending, cloning, deploying, complete, failed
     cleanup_prefixes: Optional[list[str]] = None
     bundle_artifact_id: Optional[int] = None
+    bundle_b64: Optional[str] = None
+    bundle_format: Optional[str] = None
     private_env: Optional[str] = None
     seal_vm: bool = False
     vm_name: Optional[str] = None
     vm_ip: Optional[str] = None
     quote: Optional[str] = None
-    release_url: Optional[str] = None
+    release_url: str = ""
     error: Optional[str] = None
     created_at: str = None
     updated_at: str = None
@@ -811,6 +814,7 @@ def save_deployment(deployment: Deployment) -> None:
     path = DEPLOYMENTS_DIR / f"{deployment.id}.json"
     with open(path, "w") as f:
         data = asdict(deployment)
+        data.pop("bundle_b64", None)
         data.pop("private_env", None)
         json.dump(data, f, indent=2)
 
@@ -1034,6 +1038,48 @@ def download_bundle_artifact(repo: str, artifact_id: int, token: Optional[str]) 
     return tmpdir
 
 
+def safe_extract_tar(archive: tarfile.TarFile, dest: str) -> None:
+    dest_path = os.path.abspath(dest)
+    for member in archive.getmembers():
+        member_path = os.path.abspath(os.path.join(dest, member.name))
+        if os.path.commonpath([dest_path, member_path]) != dest_path:
+            raise RuntimeError("Bundle archive contains unsafe path")
+    archive.extractall(dest)
+
+
+def safe_extract_zip(archive: zipfile.ZipFile, dest: str) -> None:
+    dest_path = os.path.abspath(dest)
+    for member in archive.infolist():
+        member_path = os.path.abspath(os.path.join(dest, member.filename))
+        if os.path.commonpath([dest_path, member_path]) != dest_path:
+            raise RuntimeError("Bundle archive contains unsafe path")
+    archive.extractall(dest)
+
+
+def materialize_inline_bundle(bundle_b64: str, bundle_format: Optional[str]) -> str:
+    """Decode an inline bundle into a temp directory."""
+    tmpdir = tempfile.mkdtemp(prefix="ee-bundle-")
+    archive_format = (bundle_format or "tar.gz").lower()
+    archive_bytes = base64.b64decode(bundle_b64.encode("ascii"))
+
+    if archive_format in {"tar.gz", "tgz"}:
+        archive_path = os.path.join(tmpdir, "bundle.tar.gz")
+        with open(archive_path, "wb") as f:
+            f.write(archive_bytes)
+        with tarfile.open(archive_path, "r:gz") as tar:
+            safe_extract_tar(tar, tmpdir)
+        return tmpdir
+    if archive_format == "zip":
+        archive_path = os.path.join(tmpdir, "bundle.zip")
+        with open(archive_path, "wb") as f:
+            f.write(archive_bytes)
+        with zipfile.ZipFile(archive_path) as zf:
+            safe_extract_zip(zf, tmpdir)
+        return tmpdir
+
+    raise ValueError(f"Unsupported bundle_format: {archive_format}")
+
+
 def load_bundle(bundle_dir: str) -> tuple[str, list[dict[str, str]], dict]:
     """Load docker-compose and extra files from the bundle."""
 
@@ -1081,8 +1127,14 @@ def run_deployment(deployment: Deployment, token: Optional[str]) -> None:
         deployment.status = "deploying"
         save_deployment(deployment)
 
-        log(f"Downloading bundle artifact {deployment.bundle_artifact_id} for {deployment.repo}...")
-        bundle_dir = download_bundle_artifact(deployment.repo, deployment.bundle_artifact_id, token)
+        if deployment.bundle_b64:
+            log("Using inline bundle payload...")
+            bundle_dir = materialize_inline_bundle(deployment.bundle_b64, deployment.bundle_format)
+        elif deployment.bundle_artifact_id is not None:
+            log(f"Downloading bundle artifact {deployment.bundle_artifact_id} for {deployment.repo}...")
+            bundle_dir = download_bundle_artifact(deployment.repo, deployment.bundle_artifact_id, token)
+        else:
+            raise RuntimeError("bundle_artifact_id or bundle_b64 is required for deployment")
 
         compose_path, extra_files, bundle_meta = load_bundle(bundle_dir)
 
@@ -1135,8 +1187,18 @@ def run_deployment(deployment: Deployment, token: Optional[str]) -> None:
             log("Warning: unable to determine public IP; using localhost endpoint")
         deployment.vm_ip = public_ip
         endpoint = f"http://{public_ip or '127.0.0.1'}:{deployment.port}"
-        release_url = create_release(deployment.quote, endpoint, repo=deployment.repo, token=token, seal_vm=deployment.seal_vm)
-        deployment.release_url = release_url
+        try:
+            release_url = create_release(
+                deployment.quote,
+                endpoint,
+                repo=deployment.repo,
+                token=token,
+                seal_vm=deployment.seal_vm,
+            )
+            deployment.release_url = release_url
+        except Exception as exc:
+            deployment.release_url = ""
+            log(f"Warning: release creation failed: {exc}")
         deployment.status = "complete"
         save_deployment(deployment)
 
@@ -1202,8 +1264,17 @@ async def handle_deploy(request: web.Request) -> web.Response:
             return web.json_response({"error": "cleanup_prefixes must be a list of strings"}, status=400)
 
     bundle_artifact_id = data.get("bundle_artifact_id")
-    if not isinstance(bundle_artifact_id, int):
-        return web.json_response({"error": "bundle_artifact_id must be an integer"}, status=400)
+    bundle_b64 = data.get("bundle_b64") or None
+    bundle_format = data.get("bundle_format")
+    if bundle_b64 is not None:
+        if not isinstance(bundle_b64, str):
+            return web.json_response({"error": "bundle_b64 must be a string"}, status=400)
+        if bundle_format is not None and not isinstance(bundle_format, str):
+            return web.json_response({"error": "bundle_format must be a string"}, status=400)
+        bundle_artifact_id = None
+    else:
+        if not isinstance(bundle_artifact_id, int):
+            return web.json_response({"error": "bundle_artifact_id must be an integer"}, status=400)
 
     private_env = data.get("private_env")
     if private_env is not None and not isinstance(private_env, str):
@@ -1221,6 +1292,8 @@ async def handle_deploy(request: web.Request) -> web.Response:
         vm_name=data.get("vm_name"),
         cleanup_prefixes=cleanup_prefixes,
         bundle_artifact_id=bundle_artifact_id,
+        bundle_b64=bundle_b64,
+        bundle_format=bundle_format,
         private_env=private_env,
         seal_vm=seal_vm,
     )

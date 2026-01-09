@@ -30,6 +30,7 @@ Deploy workloads to a remote Easy Enclave agent and publish an attested release.
 - `public-env`: newline-separated public env vars (bundled)
 - `private-env`: newline-separated private env vars (sent inline)
 - `public-files`: file or directory paths to bundle (comma or newline separated)
+- `bundle-inline`: send the bundle inline instead of uploading an artifact (default: false)
 - `cleanup-prefixes`: ignored in single-VM agent deployments
 - `seal-vm`: seal VM access after deployment (default: true unless SSH enabled)
 
@@ -41,7 +42,7 @@ Deploy workloads to a remote Easy Enclave agent and publish an attested release.
 
 ## Notes
 
-- The action uploads a public bundle artifact (docker-compose + public files/env).
+- The action uploads a public bundle artifact (docker-compose + public files/env) unless `bundle-inline` is enabled.
 - Private env values are sent inline to the agent and never stored on disk.
 - When SSH access is requested, `seal-vm` is forced off for that deployment.
 - Status polling prints host QEMU and serial log tails for visibility.
