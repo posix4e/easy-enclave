@@ -126,8 +126,10 @@ jobs:
           ssh -o StrictHostKeyChecking=no -p "${{ secrets.AGENT_SSH_PORT }}" -i "$KEY_FILE" \
             "${{ secrets.AGENT_SSH_USER }}@${{ secrets.AGENT_SSH_HOST }}" \
             "sudo ss -lntp | egrep ':80|:443|:8088|:9090' || true; \
-             sudo docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' || true; \
-             sudo docker ps -a --format '{{.ID}} {{.Names}} {{.Status}}' | egrep 'caddy|control' || true; \
+             command -v docker || true; \
+             docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' || true; \
+             sudo env PATH=\"$PATH\" docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' || true; \
+             sudo env PATH=\"$PATH\" docker ps -a --format '{{.ID}} {{.Names}} {{.Status}}' | egrep 'caddy|control' || true; \
              sudo virsh domifaddr ee-workload --source lease || true; \
              sudo tail -n 200 /var/log/libvirt/qemu/ee-workload-serial.log || true"
           rm -f "$KEY_FILE"
