@@ -157,6 +157,9 @@ The Caddyfile is `control_plane/Caddyfile`.
 Point your DNS A/AAAA records at the control plane's public IP for both
 `control.easyenclave.com` and `*.app.easyenclave.com`.
 
+Caddy uses the Cloudflare DNS challenge to issue a wildcard cert for
+`*.app.easyenclave.com`. Set `CLOUDFLARE_API_TOKEN` (DNS edit) in `.env`.
+
 If you proxy through Cloudflare, use SSL/TLS "Full (strict)" so Cloudflare
 connects to Caddy over HTTPS. WebSockets are supported.
 

@@ -24,8 +24,12 @@ services:
       - "9090:9090"
 
   caddy:
-    image: caddy:2
+    build:
+      context: .
+      dockerfile: Caddy.Dockerfile
     restart: unless-stopped
+    env_file:
+      - .env
     ports:
       - "80:80"
       - "443:443"

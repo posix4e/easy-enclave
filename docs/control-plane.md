@@ -205,6 +205,9 @@ use nginx or another proxy to route based on this response.
 if you proxy through cloudflare, use ssl/tls "full (strict)" so it connects to
 your origin over https. websockets are supported.
 
+for wildcard tls on `*.app`, caddy uses cloudflare dns challenge and requires
+`CLOUDFLARE_API_TOKEN` (dns edit) in the control plane env.
+
 ## agent connection
 
 agents connect outbound (no inbound ports needed):

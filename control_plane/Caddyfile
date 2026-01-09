@@ -1,7 +1,13 @@
 control.easyenclave.com {
   reverse_proxy control-plane-prod:8088
+  tls {
+    dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+  }
 }
 
 *.app.easyenclave.com {
   reverse_proxy control-plane-prod:9090
+  tls {
+    dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+  }
 }
