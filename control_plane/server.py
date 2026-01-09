@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from aiohttp import web
+from easyenclave.ratls import RatlsVerifyResult, match_quote_measurements, verify_ratls_cert
 
 from control_plane.allowlist import AllowlistCache, fetch_allowlist
 from control_plane.config import (
@@ -25,8 +26,8 @@ from control_plane.config import (
     DB_PATH,
     DNS_APP_WILDCARD,
     DNS_AUTO_IP,
-    DNS_CONTROL_HOST,
     DNS_CONTROL_DIRECT_HOST,
+    DNS_CONTROL_HOST,
     DNS_IP,
     DNS_IPV6,
     DNS_PROXIED,
@@ -38,18 +39,17 @@ from control_plane.config import (
     PCCS_URL,
     PROXY_BIND,
     PROXY_PORT,
-    REGISTRATION_TTL_DAYS,
-    REGISTRATION_WARN_DAYS,
     RATLS_CERT_TTL_SEC,
     RATLS_ENABLED,
     RATLS_REQUIRE_CLIENT_CERT,
     RATLS_SKIP_PCCS,
+    REGISTRATION_TTL_DAYS,
+    REGISTRATION_WARN_DAYS,
     UPTIME_TOKEN,
 )
-from control_plane.ratls import build_server_ssl_context, ensure_ratls_material, extract_peer_cert
-from easyenclave.ratls import RatlsVerifyResult, match_quote_measurements, verify_ratls_cert
 from control_plane.ledger import LedgerError, LedgerStore, parse_cents, parse_vcpu_hours
 from control_plane.policy import AttestationResult, verify_attestation
+from control_plane.ratls import build_server_ssl_context, ensure_ratls_material, extract_peer_cert
 from control_plane.registry import Registry, RegistryConfig
 
 

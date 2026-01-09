@@ -10,7 +10,6 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID, ObjectIdentifier
-
 from verify import DCAPError, verify_quote
 
 RATLS_QUOTE_OID = ObjectIdentifier("1.3.6.1.4.1.57264.1.1")

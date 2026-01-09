@@ -17,8 +17,8 @@ import socket
 import ssl
 import subprocess
 import sys
-import tempfile
 import tarfile
+import tempfile
 import threading
 import time
 import urllib.request
@@ -34,7 +34,6 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from aiohttp import ClientSession, WSMsgType, web
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-
 from ratls import build_ratls_cert, report_data_for_pubkey, verify_ratls_cert
 
 # Force unbuffered output

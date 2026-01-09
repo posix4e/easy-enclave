@@ -8,7 +8,6 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-
 from easyenclave.ratls import build_ratls_cert, report_data_for_pubkey
 
 
