@@ -63,6 +63,7 @@ jobs:
                echo \"Failed to determine agent VM IP\" >&2
                exit 1
              fi
+             export PYTHONPATH="/opt/easy-enclave/sdk"
              python3 installer/scripts/generate_allowlist.py \
                --attestation-url \"http://\$IP:\$VM_PORT/attestation\" \
                --release-tag \"$RELEASE_TAG\" \
