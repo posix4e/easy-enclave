@@ -1254,8 +1254,15 @@ def load_bundle(bundle_dir: str) -> tuple[str, list[dict[str, str]], dict]:
             "bundle.tgz",
         }:
             continue
+        if "__pycache__" in path.parts:
+            continue
         rel = path.relative_to(root).as_posix()
-        extra_files.append({"path": rel, "content": path.read_text(encoding="utf-8")})
+        try:
+            content = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            log(f"Skipping non-text bundle file: {rel}")
+            continue
+        extra_files.append({"path": rel, "content": content})
 
     return str(compose_path), extra_files, {
         "env_public": env_public,
