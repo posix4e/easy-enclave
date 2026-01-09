@@ -150,6 +150,35 @@ jobs:
             CLOUDFLARE_ZONE=${{ secrets.CLOUDFLARE_ZONE }}
             CLOUDFLARE_ZONE_ID=${{ secrets.CLOUDFLARE_ZONE_ID }}
           endpoint-port: 9090
+      - name: Forward control plane ports
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEY_FILE=$(mktemp)
+          chmod 600 "$KEY_FILE"
+          printf '%s\n' "${{ secrets.AGENT_SSH_KEY }}" > "$KEY_FILE"
+          ssh -o StrictHostKeyChecking=no -p "${{ secrets.AGENT_SSH_PORT }}" -i "$KEY_FILE" \
+            "${{ secrets.AGENT_SSH_USER }}@${{ secrets.AGENT_SSH_HOST }}" \
+            "set -euo pipefail
+             VM_NAME=ee-attestor
+             VM_IP=\$(sudo virsh domifaddr \"$VM_NAME\" --source lease | awk '/ipv4/ {print \$4}' | head -n1 | cut -d/ -f1)
+             if [ -z \"\$VM_IP\" ]; then
+               echo \"No VM IP for \$VM_NAME\" >&2
+               exit 1
+             fi
+             sudo -E PYTHONPATH=/opt/easy-enclave VM_IP=\"\$VM_IP\" python3 - <<'PY'
+import os
+from installer.host import setup_port_forward
+
+vm_ip = os.environ.get(\"VM_IP\")
+if not vm_ip:
+    raise SystemExit(\"VM_IP missing\")
+for port in (80, 443, 8088, 9090):
+    setup_port_forward(vm_ip, port, port)
+    print(f\"forwarded {port} -> {vm_ip}:{port}\")
+PY"
+          rm -f "$KEY_FILE"
       - name: Inspect control plane VM
         if: ${{ always() }}
         shell: bash
