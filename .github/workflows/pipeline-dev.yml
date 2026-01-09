@@ -125,7 +125,7 @@ jobs:
         run: |
           set -euo pipefail
           ssh-keygen -t ed25519 -f /tmp/control_plane_debug -N ""
-          cp /tmp/control_plane_debug.pub control_plane/authorized_keys
+          cp /tmp/control_plane_debug.pub authorized_keys
       - name: Deploy control plane
         id: deploy-control
         uses: ./action
@@ -138,7 +138,7 @@ jobs:
           agent-ssh-port: ${{ secrets.AGENT_SSH_PORT }}
           agent-ssh-key: ${{ secrets.AGENT_SSH_KEY }}
           docker-compose: control_plane/docker-compose.yml
-          public-files: control_plane
+          public-files: control_plane,authorized_keys
           enable-ssh: 'true'
           private-env: |
             EE_GITHUB_TOKEN=${{ secrets.CONTROL_GITHUB_TOKEN }}
