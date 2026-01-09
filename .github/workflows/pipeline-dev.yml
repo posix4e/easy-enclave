@@ -160,12 +160,14 @@ jobs:
             echo "vm_ip missing; skipping ssh inspection"
             exit 0
           fi
-          ssh -o StrictHostKeyChecking=no -i /tmp/control_plane_debug "ubuntu@${VM_IP}" \
+          if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i /tmp/control_plane_debug "ubuntu@${VM_IP}" \
             "sudo ss -lntp | egrep ':80|:443|:8088|:9090' || true; \
              command -v docker || true; \
              docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' || true; \
              docker ps -a --format '{{.ID}} {{.Names}} {{.Status}}' | egrep 'caddy|control' || true; \
-             docker ps --filter 'name=caddy' -q | head -n1 | xargs -r docker logs --tail 200 || true"
+             docker ps --filter 'name=caddy' -q | head -n1 | xargs -r docker logs --tail 200 || true"; then
+            echo "ssh inspection failed"
+          fi
       - name: Inspect control plane ports
         if: ${{ always() }}
         shell: bash
@@ -176,12 +178,16 @@ jobs:
           printf '%s\n' "${{ secrets.AGENT_SSH_KEY }}" > "$KEY_FILE"
           ssh -o StrictHostKeyChecking=no -p "${{ secrets.AGENT_SSH_PORT }}" -i "$KEY_FILE" \
             "${{ secrets.AGENT_SSH_USER }}@${{ secrets.AGENT_SSH_HOST }}" \
-            "sudo ss -lntp | egrep ':80|:443|:8088|:9090' || true; \
+            "sudo ss -lntp | egrep ':80|:443|:8000|:8088|:9090' || true; \
              command -v docker || true; \
              docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' || true; \
              sudo env PATH=\"$PATH\" docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' || true; \
              sudo env PATH=\"$PATH\" docker ps -a --format '{{.ID}} {{.Names}} {{.Status}}' | egrep 'caddy|control' || true; \
-             sudo virsh domifaddr ee-workload --source lease || true; \
+             echo '=== virsh list ==='; sudo virsh list --all || true; \
+             echo '=== domifaddr ee-attestor ==='; sudo virsh domifaddr ee-attestor --source lease || true; \
+             echo '=== domifaddr ee-workload ==='; sudo virsh domifaddr ee-workload --source lease || true; \
+             echo '=== iptables nat prerouting ==='; sudo iptables -t nat -L PREROUTING -n --line-numbers | egrep ':(80|443|8000|8088|9090)' || true; \
+             sudo tail -n 200 /var/log/libvirt/qemu/ee-attestor-serial.log || true; \
              sudo tail -n 200 /var/log/libvirt/qemu/ee-workload-serial.log || true"
           rm -f "$KEY_FILE"
 
