@@ -2,6 +2,11 @@ name: Pipeline Dev
 
 on:
   workflow_dispatch:
+    inputs:
+      skip_agent_release:
+        description: "Skip dev-agent-release bake (use existing dev allowlist)"
+        required: false
+        default: "true"
   push:
     branches: [main]
 
@@ -35,6 +40,7 @@ jobs:
 
   dev-agent-release:
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_agent_release != 'true' }}
     timeout-minutes: 45
     needs: lint-test
     outputs:
@@ -117,7 +123,8 @@ jobs:
   deploy-control-plane:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: dev-agent-release
+    needs: [lint-test, dev-agent-release]
+    if: ${{ always() && needs.lint-test.result == 'success' && (needs.dev-agent-release.result == 'success' || inputs.skip_agent_release == 'true') }}
     steps:
       - uses: actions/checkout@v4
       - name: Generate control plane debug SSH key
@@ -132,7 +139,7 @@ jobs:
         uses: ./action
         with:
           agent-url: ${{ secrets.AGENT_URL_CONTROL || secrets.AGENT_URL }}
-          agent-release-tag: ${{ needs.dev-agent-release.outputs.agent_release_tag }}
+          agent-release-tag: ${{ needs.dev-agent-release.outputs.agent_release_tag || 'dev' }}
           agent-attestation-via-ssh: 'true'
           agent-ssh-host: ${{ secrets.AGENT_SSH_HOST }}
           agent-ssh-user: ${{ secrets.AGENT_SSH_USER }}
@@ -238,13 +245,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: [dev-agent-release, deploy-control-plane]
+    if: ${{ always() && needs.deploy-control-plane.result == 'success' && (needs.dev-agent-release.result == 'success' || inputs.skip_agent_release == 'true') }}
     steps:
       - uses: actions/checkout@v4
       - name: Deploy contacts example
         uses: ./action
         with:
           agent-url: ${{ secrets.AGENT_URL_CONTACTS || secrets.AGENT_URL }}
-          agent-release-tag: ${{ needs.dev-agent-release.outputs.agent_release_tag }}
+          agent-release-tag: ${{ needs.dev-agent-release.outputs.agent_release_tag || 'dev' }}
           agent-attestation-via-ssh: 'true'
           agent-ssh-host: ${{ secrets.AGENT_SSH_HOST }}
           agent-ssh-user: ${{ secrets.AGENT_SSH_USER }}
