@@ -24,6 +24,13 @@ runcmd:
   - |
     bash -euxo pipefail -c '
       export DEBIAN_FRONTEND=noninteractive
+      proxy_host=$(ip route show default | cut -d " " -f3 | head -n1)
+      if [ -n "$proxy_host" ] && timeout 1 bash -c "</dev/tcp/$proxy_host/3128" 2>/dev/null; then
+        export http_proxy="http://$proxy_host:3128"
+        export https_proxy="http://$proxy_host:3128"
+        echo "Acquire::http::Proxy \"http://$proxy_host:3128\";" > /etc/apt/apt.conf.d/99proxy
+        echo "Acquire::https::Proxy \"http://$proxy_host:3128\";" >> /etc/apt/apt.conf.d/99proxy
+      fi
       retry() {{
         local attempts=5
         local delay=5
