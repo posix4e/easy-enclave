@@ -152,7 +152,8 @@ jobs:
           ssh -o StrictHostKeyChecking=no -p "${{ secrets.AGENT_SSH_PORT }}" -i "$KEY_FILE" \
             "${{ secrets.AGENT_SSH_USER }}@${{ secrets.AGENT_SSH_HOST }}" \
             "sudo ss -lntp | egrep ':80|:443|:8088|:9090' || true; \
-             sudo docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' | egrep 'caddy|control' || true; \
+             sudo docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' || true; \
+             sudo docker ps -a --format '{{.ID}} {{.Names}} {{.Status}}' | egrep 'caddy|control' || true; \
              sudo docker ps --filter 'name=caddy' -q | head -n1 | xargs -r sudo docker logs --tail 200 || true"
           rm -f "$KEY_FILE"
 
