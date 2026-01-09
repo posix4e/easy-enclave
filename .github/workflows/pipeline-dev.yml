@@ -119,7 +119,15 @@ jobs:
     needs: dev-agent-release
     steps:
       - uses: actions/checkout@v4
+      - name: Generate control plane debug SSH key
+        id: control-ssh
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh-keygen -t ed25519 -f /tmp/control_plane_debug -N ""
+          cp /tmp/control_plane_debug.pub control_plane/authorized_keys
       - name: Deploy control plane
+        id: deploy-control
         uses: ./action
         with:
           agent-url: ${{ secrets.AGENT_URL_CONTROL || secrets.AGENT_URL }}
@@ -131,6 +139,7 @@ jobs:
           agent-ssh-key: ${{ secrets.AGENT_SSH_KEY }}
           docker-compose: control_plane/docker-compose.yml
           public-files: control_plane
+          enable-ssh: 'true'
           private-env: |
             EE_GITHUB_TOKEN=${{ secrets.CONTROL_GITHUB_TOKEN }}
             EE_ADMIN_TOKEN=${{ secrets.CONTROL_ADMIN_TOKEN }}
@@ -141,6 +150,22 @@ jobs:
             CLOUDFLARE_ZONE=${{ secrets.CLOUDFLARE_ZONE }}
             CLOUDFLARE_ZONE_ID=${{ secrets.CLOUDFLARE_ZONE_ID }}
           endpoint-port: 9090
+      - name: Inspect control plane VM
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VM_IP="${{ steps.deploy-control.outputs.vm_ip }}"
+          if [ -z "$VM_IP" ] || [ "$VM_IP" = "null" ]; then
+            echo "vm_ip missing; skipping ssh inspection"
+            exit 0
+          fi
+          ssh -o StrictHostKeyChecking=no -i /tmp/control_plane_debug "ubuntu@${VM_IP}" \
+            "sudo ss -lntp | egrep ':80|:443|:8088|:9090' || true; \
+             command -v docker || true; \
+             docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' || true; \
+             docker ps -a --format '{{.ID}} {{.Names}} {{.Status}}' | egrep 'caddy|control' || true; \
+             docker ps --filter 'name=caddy' -q | head -n1 | xargs -r docker logs --tail 200 || true"
       - name: Inspect control plane ports
         if: ${{ always() }}
         shell: bash
