@@ -721,6 +721,25 @@ def wait_for_vm_shutdown(name: str, timeout: int = 1200) -> None:
     raise TimeoutError(f"Timed out waiting for {name} to shut down")
 
 
+def log_serial_tail(name: str, lines: int = 200) -> None:
+    path = Path(f"/var/log/libvirt/qemu/{name}-serial.log")
+    if not path.exists():
+        log(f"No serial log found at {path}")
+        return
+    try:
+        content = path.read_text(errors="replace").splitlines()
+    except Exception as exc:
+        log(f"Failed to read serial log: {exc}")
+        return
+    tail_lines = content[-lines:] if lines > 0 else content
+    if not tail_lines:
+        log("Serial log is empty")
+        return
+    log("=== Serial log tail ===")
+    for line in tail_lines:
+        log(line)
+
+
 def cleanup_vm_definition(name: str) -> None:
     """Remove VM definition without deleting disk."""
     subprocess.run(['sudo', 'virsh', 'destroy', name], capture_output=True)
@@ -774,7 +793,13 @@ def build_pristine_agent_image(
     log(f"Bake VM IP: {ip}")
 
     log("Waiting for bake VM to shut down...")
-    wait_for_vm_shutdown(name, timeout=timeout)
+    try:
+        wait_for_vm_shutdown(name, timeout=timeout)
+    except TimeoutError as exc:
+        log(str(exc))
+        log_serial_tail(name)
+        cleanup_vm_definition(name)
+        raise
     cleanup_vm_definition(name)
 
     os.makedirs(IMAGE_DIR, exist_ok=True)

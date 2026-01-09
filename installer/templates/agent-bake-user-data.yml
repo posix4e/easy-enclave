@@ -23,19 +23,35 @@ write_files:
 runcmd:
   - |
     bash -euxo pipefail -c '
+      export DEBIAN_FRONTEND=noninteractive
+      trap "sync; poweroff -f" EXIT
+      retry() {
+        local attempts=5
+        local delay=5
+        local n=1
+        while true; do
+          if "$@"; then
+            return 0
+          fi
+          if [ "$n" -ge "$attempts" ]; then
+            return 1
+          fi
+          n=$((n + 1))
+          sleep "$delay"
+        done
+      }
       mkdir -p /etc/easy-enclave
-      apt-get update
-      apt-get install -y python3-venv
+      retry apt-get update
+      retry apt-get install -y python3-venv
       python3 -m venv /opt/ee-agent/venv
-      /opt/ee-agent/venv/bin/pip install --no-cache-dir aiohttp cryptography requests
-      if ! apt-get install -y docker.io docker-compose-plugin; then
-        if ! apt-get install -y docker.io docker-compose-v2; then
-          apt-get install -y docker.io docker-compose
+      retry /opt/ee-agent/venv/bin/pip install --no-cache-dir aiohttp cryptography requests
+      if ! retry apt-get install -y docker.io docker-compose-plugin; then
+        if ! retry apt-get install -y docker.io docker-compose-v2; then
+          retry apt-get install -y docker.io docker-compose
         fi
       fi
       systemctl enable --now docker
       systemctl daemon-reload
       systemctl enable ee-agent
       touch /etc/easy-enclave/agent-baked
-      poweroff
     '
