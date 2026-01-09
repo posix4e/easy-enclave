@@ -162,22 +162,31 @@ jobs:
             "${{ secrets.AGENT_SSH_USER }}@${{ secrets.AGENT_SSH_HOST }}" \
             "set -euo pipefail
              VM_NAME=ee-attestor
-             VM_IP=\$(sudo virsh domifaddr \"$VM_NAME\" --source lease | awk '/ipv4/ {print \$4}' | head -n1 | cut -d/ -f1)
+             VM_IP=\$(sudo virsh domifaddr \"\$VM_NAME\" --source lease | awk '/ipv4/ {print \$4}' | head -n1 | cut -d/ -f1)
              if [ -z \"\$VM_IP\" ]; then
                echo \"No VM IP for \$VM_NAME\" >&2
                exit 1
              fi
-             sudo -E PYTHONPATH=/opt/easy-enclave VM_IP=\"\$VM_IP\" python3 - <<'PY'
-import os
-from installer.host import setup_port_forward
-
-vm_ip = os.environ.get(\"VM_IP\")
-if not vm_ip:
-    raise SystemExit(\"VM_IP missing\")
-for port in (80, 443, 8088, 9090):
-    setup_port_forward(vm_ip, port, port)
-    print(f\"forwarded {port} -> {vm_ip}:{port}\")
-PY"
+             ensure_rule() {
+               local table=\$1
+               shift
+               if [ \"\$table\" = \"filter\" ]; then
+                 if ! sudo iptables -C \"\$@\" 2>/dev/null; then
+                   sudo iptables -A \"\$@\"
+                 fi
+               else
+                 if ! sudo iptables -t \"\$table\" -C \"\$@\" 2>/dev/null; then
+                   sudo iptables -t \"\$table\" -A \"\$@\"
+                 fi
+               fi
+             }
+             for port in 80 443 8088 9090; do
+               ensure_rule nat PREROUTING -p tcp --dport \"\$port\" -j DNAT --to-destination \"\$VM_IP:\$port\"
+               ensure_rule nat OUTPUT -p tcp -d 127.0.0.1 --dport \"\$port\" -j DNAT --to-destination \"\$VM_IP:\$port\"
+               ensure_rule filter LIBVIRT_FWI -p tcp -d \"\$VM_IP\" --dport \"\$port\" -j ACCEPT
+               ensure_rule filter FORWARD -p tcp -d \"\$VM_IP\" --dport \"\$port\" -j ACCEPT
+               echo \"forwarded \$port -> \$VM_IP:\$port\"
+             done"
           rm -f "$KEY_FILE"
       - name: Inspect control plane VM
         if: ${{ always() }}
