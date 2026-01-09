@@ -186,6 +186,10 @@ jobs:
                ensure_rule filter LIBVIRT_FWI -p tcp -d \"\$VM_IP\" --dport \"\$port\" -j ACCEPT
                ensure_rule filter FORWARD -p tcp -d \"\$VM_IP\" --dport \"\$port\" -j ACCEPT
                echo \"forwarded \$port -> \$VM_IP:\$port\"
+             done
+             for port in 80 443 8088 9090; do
+               echo \"vm \$VM_IP port \$port\"
+               curl -sS --max-time 2 \"http://\$VM_IP:\$port/health\" || echo \"vm port \$port failed\"
              done"
           rm -f "$KEY_FILE"
       - name: Inspect control plane VM
