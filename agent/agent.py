@@ -1244,7 +1244,15 @@ def load_bundle(bundle_dir: str) -> tuple[str, list[dict[str, str]], dict]:
     for path in root.rglob("*"):
         if path.is_dir():
             continue
-        if path.name in {"docker-compose.yml", "docker-compose.yaml", ".env.public", "authorized_keys", "bundle.zip"}:
+        if path.name in {
+            "docker-compose.yml",
+            "docker-compose.yaml",
+            ".env.public",
+            "authorized_keys",
+            "bundle.zip",
+            "bundle.tar.gz",
+            "bundle.tgz",
+        }:
             continue
         rel = path.relative_to(root).as_posix()
         extra_files.append({"path": rel, "content": path.read_text(encoding="utf-8")})
