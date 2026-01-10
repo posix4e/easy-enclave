@@ -52,14 +52,15 @@ runcmd:
           sleep "$delay"
         done
       }}
+      APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
       mkdir -p /etc/easy-enclave
-      retry apt-get update
-      retry apt-get install -y python3-venv
+      retry apt-get update $APT_OPTS
+      retry apt-get install -y $APT_OPTS python3-venv
       python3 -m venv /opt/ee-agent/venv
       retry /opt/ee-agent/venv/bin/pip install --no-cache-dir aiohttp cryptography requests
-      if ! retry apt-get install -y docker.io docker-compose-plugin; then
-        if ! retry apt-get install -y docker.io docker-compose-v2; then
-          retry apt-get install -y docker.io docker-compose
+      if ! retry apt-get install -y $APT_OPTS docker.io docker-compose-plugin; then
+        if ! retry apt-get install -y $APT_OPTS docker.io docker-compose-v2; then
+          retry apt-get install -y $APT_OPTS docker.io docker-compose
         fi
       fi
       systemctl daemon-reload
