@@ -27,9 +27,7 @@ services:
       - "9090:9090"
 
   caddy:
-    build:
-      context: .
-      dockerfile: Caddy.Dockerfile
+    image: caddy:2.8.4
     restart: unless-stopped
     env_file:
       - .env
