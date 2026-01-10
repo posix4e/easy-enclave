@@ -4,7 +4,6 @@ from __future__ import annotations
 import os
 
 import pytest
-
 from easyenclave.exceptions import AttestationNotFoundError
 from easyenclave.github import get_latest_attestation, list_attestations
 
