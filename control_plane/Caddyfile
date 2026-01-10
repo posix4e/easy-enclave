@@ -10,12 +10,18 @@
   reverse_proxy control-plane-prod:9090
 }
 
+(public_tls) {
+  tls {
+    dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+  }
+}
+
 control.easyenclave.com {
-  tls internal
+  import public_tls
   import control_internal
 }
 
 *.app.easyenclave.com {
-  tls internal
+  import public_tls
   import app_internal
 }
