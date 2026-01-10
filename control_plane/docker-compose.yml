@@ -1,12 +1,10 @@
 services:
   control-plane-prod:
     image: python:3.12-slim
-    working_dir: /opt/app
+    working_dir: /opt/app/control_plane
     privileged: true
     command: >
-      bash -c "python -m venv /var/lib/easy-enclave/venv
-      && /var/lib/easy-enclave/venv/bin/pip install --no-cache-dir -r /opt/app/control_plane/requirements.txt
-      && /var/lib/easy-enclave/venv/bin/python /opt/app/control_plane/server.py"
+      bash -c "python -m venv /var/lib/easy-enclave/venv && if [ -d /opt/app/control_plane/wheels ] && ls /opt/app/control_plane/wheels/*.whl >/dev/null 2>&1; then /var/lib/easy-enclave/venv/bin/pip install --no-index --find-links /opt/app/control_plane/wheels -r /opt/app/control_plane/requirements.runtime.txt; else /var/lib/easy-enclave/venv/bin/pip install --no-cache-dir -r /opt/app/control_plane/requirements.txt; fi && PYTHONPATH=/opt/app:/opt/app/sdk /var/lib/easy-enclave/venv/bin/python /opt/app/control_plane/server.py"
     env_file:
       - .env
     environment:

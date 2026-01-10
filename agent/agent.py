@@ -1100,7 +1100,11 @@ def write_bundle_files(bundle_dir: str, compose_path: str, extra_files: list[dic
             continue
         dest_path = target_root / rel_path.lstrip("/")
         dest_path.parent.mkdir(parents=True, exist_ok=True)
-        dest_path.write_text(entry.get("content", ""), encoding="utf-8")
+        content_b64 = entry.get("content_b64")
+        if content_b64 is not None:
+            dest_path.write_bytes(base64.b64decode(content_b64))
+        else:
+            dest_path.write_text(entry.get("content", ""), encoding="utf-8")
         if entry.get("permissions"):
             os.chmod(dest_path, int(entry["permissions"], 8))
     return str(target_compose)
@@ -1127,7 +1131,7 @@ def run_docker_compose(compose_path: str) -> None:
     compose_cmd = resolve_compose_command()
     compose_dir = str(Path(compose_path).parent)
     result = subprocess.run(
-        [*compose_cmd, "-f", compose_path, "up", "-d", "--remove-orphans"],
+        [*compose_cmd, "-f", compose_path, "up", "-d", "--remove-orphans", "--force-recreate"],
         capture_output=True,
         text=True,
         cwd=compose_dir,
@@ -1260,7 +1264,8 @@ def load_bundle(bundle_dir: str) -> tuple[str, list[dict[str, str]], dict]:
         try:
             content = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
-            log(f"Skipping non-text bundle file: {rel}")
+            content_b64 = base64.b64encode(path.read_bytes()).decode("ascii")
+            extra_files.append({"path": rel, "content_b64": content_b64})
             continue
         extra_files.append({"path": rel, "content": content})
 
@@ -1554,7 +1559,7 @@ async def tunnel_client_loop(app: web.Application) -> None:
 
 
 def build_app() -> web.Application:
-    app = web.Application()
+    app = web.Application(client_max_size=200 * 1024**2)
     app.add_routes(
         [
             web.get("/health", handle_health),

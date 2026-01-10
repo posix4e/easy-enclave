@@ -28,6 +28,7 @@ from control_plane.config import (
     DNS_AUTO_IP,
     DNS_CONTROL_DIRECT_HOST,
     DNS_CONTROL_HOST,
+    DNS_FAIL_ON_ERROR,
     DNS_IP,
     DNS_IPV6,
     DNS_PROXIED,
@@ -782,7 +783,8 @@ def main() -> None:
             run_dns_update()
         except Exception as exc:
             print(f"error: dns_update_failed: {exc}", file=sys.stderr)
-            raise SystemExit(1)
+            if DNS_FAIL_ON_ERROR:
+                raise SystemExit(1)
     asyncio.run(_run_servers())
 
 

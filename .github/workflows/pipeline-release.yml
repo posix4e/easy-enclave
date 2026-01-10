@@ -106,6 +106,12 @@ jobs:
     needs: release-agent
     steps:
       - uses: actions/checkout@v4
+      - name: Download control plane wheels
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control_plane/wheels
+          python -m pip download --only-binary=:all: --dest control_plane/wheels -r control_plane/requirements.runtime.txt
       - name: Deploy control plane
         uses: ./action
         with:
@@ -122,8 +128,10 @@ jobs:
           private-env: |
             EE_GITHUB_TOKEN=${{ secrets.CONTROL_GITHUB_TOKEN }}
             EE_ADMIN_TOKEN=${{ secrets.CONTROL_ADMIN_TOKEN }}
+            EE_RATLS_REQUIRE_CLIENT_CERT=false
             EE_DNS_UPDATE_ON_START=true
             EE_DNS_AUTO_IP=true
+            EE_DNS_FAIL_ON_ERROR=false
             EE_DNS_PROXIED=false
             CLOUDFLARE_API_TOKEN=${{ secrets.CLOUDFLARE_API_TOKEN }}
             CLOUDFLARE_ZONE=${{ secrets.CLOUDFLARE_ZONE }}

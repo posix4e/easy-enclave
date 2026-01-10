@@ -12,8 +12,10 @@
 
 control.easyenclave.com {
   import control_internal
+  tls internal
 }
 
 contact.app.easyenclave.com {
   import app_internal
+  tls internal
 }

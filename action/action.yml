@@ -463,7 +463,8 @@ runs:
           SEAL_VM_JSON="true"
         fi
 
-        PAYLOAD=$(jq -n \
+        PAYLOAD_FILE=$(mktemp)
+        jq -n \
           --arg repo "${{ github.repository }}" \
           --argjson port ${{ inputs.endpoint-port }} \
           --arg vm_name "${{ inputs.vm-name }}" \
@@ -477,7 +478,8 @@ runs:
            + (if $bundle_artifact_id == null then {} else {bundle_artifact_id:$bundle_artifact_id} end)
            + (if $bundle_b64 == "" then {} else {bundle_b64:$bundle_b64, bundle_format:$bundle_format} end)
            + (if $cleanup_prefixes == null then {} else {cleanup_prefixes:$cleanup_prefixes} end)
-           + (if $private_env == null then {} else {private_env:$private_env} end)')
+           + (if $private_env == null then {} else {private_env:$private_env} end)' \
+          > "$PAYLOAD_FILE"
 
         if [ "$BUNDLE_B64_FILE" != "/dev/null" ]; then
           rm -f "$BUNDLE_B64_FILE"
@@ -486,7 +488,8 @@ runs:
         RESPONSE=$(curl -sf "${CURL_OPTS[@]}" -X POST "$URL/deploy" \
           -H "Authorization: Bearer ${{ inputs.github-token }}" \
           -H "Content-Type: application/json" \
-          -d "$PAYLOAD")
+          --data-binary "@$PAYLOAD_FILE")
+        rm -f "$PAYLOAD_FILE"
 
         DEPLOY_ID=$(echo "$RESPONSE" | jq -r .deployment_id)
         echo "Deployment started: $DEPLOY_ID"
