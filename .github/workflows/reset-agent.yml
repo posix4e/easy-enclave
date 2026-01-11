@@ -3,26 +3,38 @@ name: Reset Agent VM
 on:
   workflow_dispatch:
     inputs:
-      vm_name:
-        description: "Agent VM name to recreate"
+      control_vm_name:
+        description: "Control-plane agent VM name"
         required: false
-        default: "ee-attestor"
-      vm_port:
-        description: "Agent VM port (inside VM)"
-        required: false
-        default: "8000"
-      host_port:
-        description: "Host port to forward to the agent"
+        default: "ee-control"
+      control_vm_port:
+        description: "Control-plane agent port (inside VM)"
         required: false
         default: "8000"
+      control_host_port:
+        description: "Host port to forward to the control agent"
+        required: false
+        default: "8000"
+      contact_vm_name:
+        description: "Contacts agent VM name"
+        required: false
+        default: "ee-contacts"
+      contact_vm_port:
+        description: "Contacts agent port (inside VM)"
+        required: false
+        default: "8001"
+      contact_host_port:
+        description: "Host port to forward to the contacts agent"
+        required: false
+        default: "8001"
       vm_image_tag:
-        description: "Tag for the new pristine agent image"
+        description: "Tag for the new pristine agent images"
         required: false
         default: "reset-${{ github.run_id }}"
       cleanup_vms:
-        description: "Space-separated VM names to destroy/undefine"
+        description: "Space-separated VM names to destroy/undefine (will add control/contact automatically)"
         required: false
-        default: "ee-attestor ee-workload ee-attestor-apps"
+        default: "ee-control ee-contacts ee-workload"
 
 permissions:
   contents: read
@@ -47,17 +59,21 @@ jobs:
       - name: Cleanup old agent VMs and port forwards
         env:
           SSH_KEY: ${{ steps.ssh-key.outputs.file }}
-          VM_NAME: ${{ github.event.inputs.vm_name || 'ee-attestor' }}
-          VM_PORT: ${{ github.event.inputs.vm_port || '8000' }}
-          HOST_PORT: ${{ github.event.inputs.host_port || '8000' }}
-          CLEANUP_VMS: ${{ github.event.inputs.cleanup_vms || 'ee-attestor ee-workload ee-attestor-apps' }}
+          CONTROL_VM_NAME: ${{ github.event.inputs.control_vm_name || 'ee-control' }}
+          CONTROL_VM_PORT: ${{ github.event.inputs.control_vm_port || '8000' }}
+          CONTROL_HOST_PORT: ${{ github.event.inputs.control_host_port || '8000' }}
+          CONTACT_VM_NAME: ${{ github.event.inputs.contact_vm_name || 'ee-contacts' }}
+          CONTACT_VM_PORT: ${{ github.event.inputs.contact_vm_port || '8001' }}
+          CONTACT_HOST_PORT: ${{ github.event.inputs.contact_host_port || '8001' }}
+          CLEANUP_VMS: ${{ github.event.inputs.cleanup_vms || 'ee-control ee-contacts ee-workload' }}
         run: |
           set -euo pipefail
           ssh -o StrictHostKeyChecking=no -p "${{ secrets.AGENT_SSH_PORT }}" -i "$SSH_KEY" \
             "${{ secrets.AGENT_SSH_USER }}@${{ secrets.AGENT_SSH_HOST }}" <<EOF
 set -euo pipefail
-echo "Cleaning up VMs: ${CLEANUP_VMS}"
-for vm in ${CLEANUP_VMS}; do
+ALL_VMS="${CLEANUP_VMS} ${CONTROL_VM_NAME} ${CONTACT_VM_NAME}"
+echo "Cleaning up VMs: ${ALL_VMS}"
+for vm in ${ALL_VMS}; do
   sudo virsh destroy "$vm" >/dev/null 2>&1 || true
   sudo virsh undefine "$vm" --nvram --managed-save --remove-all-storage >/dev/null 2>&1 || \
     sudo virsh undefine "$vm" --nvram --remove-all-storage >/dev/null 2>&1 || true
@@ -66,10 +82,12 @@ done
 python3 - <<'PY'
 import subprocess
 
-host_port = int("${HOST_PORT}")
-vm_port = int("${VM_PORT}")
+ports = [
+    (int("${CONTROL_HOST_PORT}"), int("${CONTROL_VM_PORT}")),
+    (int("${CONTACT_HOST_PORT}"), int("${CONTACT_VM_PORT}")),
+]
 
-def delete_nat(chain: str) -> None:
+def delete_nat(chain: str, host_port: int) -> None:
     result = subprocess.run(
         ["sudo", "iptables", "-t", "nat", "-L", chain, "--line-numbers"],
         capture_output=True,
@@ -87,7 +105,7 @@ def delete_nat(chain: str) -> None:
     for num in reversed(nums):
         subprocess.run(["sudo", "iptables", "-t", "nat", "-D", chain, str(num)])
 
-def delete_forward(chain: str) -> None:
+def delete_forward(chain: str, vm_port: int) -> None:
     result = subprocess.run(
         ["sudo", "iptables", "-L", chain, "--line-numbers"],
         capture_output=True,
@@ -105,10 +123,11 @@ def delete_forward(chain: str) -> None:
     for num in reversed(nums):
         subprocess.run(["sudo", "iptables", "-D", chain, str(num)])
 
-delete_nat("PREROUTING")
-delete_nat("OUTPUT")
-delete_forward("FORWARD")
-delete_forward("LIBVIRT_FWI")
+for host_port, vm_port in ports:
+    delete_nat("PREROUTING", host_port)
+    delete_nat("OUTPUT", host_port)
+    delete_forward("FORWARD", vm_port)
+    delete_forward("LIBVIRT_FWI", vm_port)
 PY
 
 echo "Cleanup complete."
@@ -117,9 +136,12 @@ EOF
       - name: Install fresh agent VM
         env:
           SSH_KEY: ${{ steps.ssh-key.outputs.file }}
-          VM_NAME: ${{ github.event.inputs.vm_name || 'ee-attestor' }}
-          VM_PORT: ${{ github.event.inputs.vm_port || '8000' }}
-          HOST_PORT: ${{ github.event.inputs.host_port || '8000' }}
+          CONTROL_VM_NAME: ${{ github.event.inputs.control_vm_name || 'ee-control' }}
+          CONTROL_VM_PORT: ${{ github.event.inputs.control_vm_port || '8000' }}
+          CONTROL_HOST_PORT: ${{ github.event.inputs.control_host_port || '8000' }}
+          CONTACT_VM_NAME: ${{ github.event.inputs.contact_vm_name || 'ee-contacts' }}
+          CONTACT_VM_PORT: ${{ github.event.inputs.contact_vm_port || '8001' }}
+          CONTACT_HOST_PORT: ${{ github.event.inputs.contact_host_port || '8001' }}
           VM_IMAGE_TAG: ${{ github.event.inputs.vm_image_tag || format('reset-{0}', github.run_id) }}
         run: |
           set -euo pipefail
@@ -131,19 +153,29 @@ sudo git clone https://github.com/${{ github.repository }}.git /opt/easy-enclave
 cd /opt/easy-enclave
 sudo git fetch --tags origin
 sudo git checkout "${GITHUB_SHA}"
+echo "Installing control agent ${CONTROL_VM_NAME}:${CONTROL_VM_PORT} -> host ${CONTROL_HOST_PORT}"
 sudo ./install-agent.sh --non-interactive \
-  --vm-name "${VM_NAME}" \
-  --vm-port "${VM_PORT}" \
-  --host-port "${HOST_PORT}" \
+  --vm-name "${CONTROL_VM_NAME}" \
+  --vm-port "${CONTROL_VM_PORT}" \
+  --host-port "${CONTROL_HOST_PORT}" \
+  --vm-image-tag "${VM_IMAGE_TAG}"
+echo "Installing contacts agent ${CONTACT_VM_NAME}:${CONTACT_VM_PORT} -> host ${CONTACT_HOST_PORT}"
+sudo ./install-agent.sh --non-interactive \
+  --vm-name "${CONTACT_VM_NAME}" \
+  --vm-port "${CONTACT_VM_PORT}" \
+  --host-port "${CONTACT_HOST_PORT}" \
   --vm-image-tag "${VM_IMAGE_TAG}"
 EOF
 
       - name: Verify agent is reachable
         env:
           SSH_KEY: ${{ steps.ssh-key.outputs.file }}
-          HOST_PORT: ${{ github.event.inputs.host_port || '8000' }}
+          CONTROL_HOST_PORT: ${{ github.event.inputs.control_host_port || '8000' }}
+          CONTACT_HOST_PORT: ${{ github.event.inputs.contact_host_port || '8001' }}
         run: |
           set -euo pipefail
           ssh -o StrictHostKeyChecking=no -p "${{ secrets.AGENT_SSH_PORT }}" -i "$SSH_KEY" \
             "${{ secrets.AGENT_SSH_USER }}@${{ secrets.AGENT_SSH_HOST }}" \
-            "curl -fsS --max-time 10 http://127.0.0.1:${HOST_PORT}/health || (sudo ss -lntp && exit 1)"
+            "for port in ${CONTROL_HOST_PORT} ${CONTACT_HOST_PORT}; do
+               curl -fsS --max-time 10 http://127.0.0.1:${port}/health || (sudo ss -lntp && exit 1)
+             done"
