@@ -84,7 +84,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Uninstall contacts agent
-        uses: ./.github/actions/uninstall-agent
+        uses: ./action/uninstall-agent
         with:
           ssh-host: ${{ inputs.contact_ssh_host || secrets.CONTACT_SSH_HOST || secrets.AGENT_SSH_HOST }}
           ssh-port: ${{ inputs.contact_ssh_port || secrets.CONTACT_SSH_PORT || secrets.AGENT_SSH_PORT || '22' }}
@@ -96,7 +96,7 @@ jobs:
           public-ip: ${{ inputs.contact_public_ip || '57.130.34.193' }}
 
       - name: Uninstall control-plane agent
-        uses: ./.github/actions/uninstall-agent
+        uses: ./action/uninstall-agent
         with:
           ssh-host: ${{ inputs.control_ssh_host || secrets.AGENT_SSH_HOST }}
           ssh-port: ${{ inputs.control_ssh_port || secrets.AGENT_SSH_PORT || '22' }}
@@ -108,7 +108,7 @@ jobs:
           public-ip: ${{ inputs.control_public_ip || '57.130.10.246' }}
 
       - name: Install control-plane agent
-        uses: ./.github/actions/install-control-agent
+        uses: ./action/install-control-agent
         with:
           ssh-host: ${{ inputs.control_ssh_host || secrets.AGENT_SSH_HOST }}
           ssh-port: ${{ inputs.control_ssh_port || secrets.AGENT_SSH_PORT || '22' }}
@@ -121,7 +121,7 @@ jobs:
           vm-image-tag: ${{ inputs.vm_image_tag || '' }}
 
       - name: Install contacts agent
-        uses: ./.github/actions/install-contacts-agent
+        uses: ./action/install-contacts-agent
         with:
           ssh-host: ${{ inputs.contact_ssh_host || secrets.CONTACT_SSH_HOST || secrets.AGENT_SSH_HOST }}
           ssh-port: ${{ inputs.contact_ssh_port || secrets.CONTACT_SSH_PORT || secrets.AGENT_SSH_PORT || '22' }}
