@@ -58,20 +58,20 @@ runs:
       run: |
         set -euo pipefail
         ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" -i "$SSH_KEY_FILE" \
-          "$SSH_USER@$SSH_HOST" <<EOF
-set -euo pipefail
-sudo rm -rf /opt/easy-enclave
-sudo git clone https://github.com/${{ github.repository }}.git /opt/easy-enclave
-cd /opt/easy-enclave
-sudo git fetch --tags origin
-sudo git checkout "${GITHUB_SHA}"
-sudo chmod +x installer/uninstall_agent.sh
-ARGS=(--vm-name "${VM_NAME}" --vm-port "${VM_PORT}")
-if [ -n "${HOST_PORT}" ]; then
-  ARGS+=(--host-port "${HOST_PORT}")
-fi
-if [ -n "${PUBLIC_IP}" ]; then
-  ARGS+=(--public-ip "${PUBLIC_IP}")
-fi
-sudo ./installer/uninstall_agent.sh "${ARGS[@]}"
-EOF
+          "$SSH_USER@$SSH_HOST" "
+            set -euo pipefail
+            sudo rm -rf /opt/easy-enclave
+            sudo git clone https://github.com/${{ github.repository }}.git /opt/easy-enclave
+            cd /opt/easy-enclave
+            sudo git fetch --tags origin
+            sudo git checkout '${GITHUB_SHA}'
+            sudo chmod +x installer/uninstall_agent.sh
+            ARGS=(--vm-name '${VM_NAME}' --vm-port '${VM_PORT}')
+            if [ -n '${HOST_PORT}' ]; then
+              ARGS+=(--host-port '${HOST_PORT}')
+            fi
+            if [ -n '${PUBLIC_IP}' ]; then
+              ARGS+=(--public-ip '${PUBLIC_IP}')
+            fi
+            sudo ./installer/uninstall_agent.sh \"${ARGS[@]}\"
+          "
