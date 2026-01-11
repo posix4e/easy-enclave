@@ -15,6 +15,7 @@ HOST_PORT=""
 VM_IMAGE_TAG=""
 VM_IMAGE_SHA256=""
 AGENT_IMAGE=""
+PUBLIC_IP=""
 TDX_GUEST_VERSION="24.04"
 TDX_REPO_REF="main"
 TDX_REPO_DIR=""
@@ -35,6 +36,7 @@ Options:
   --vm-name NAME           Agent VM name (default: ee-attestor)
   --vm-port PORT           Agent VM port inside the VM (default: 8000)
   --host-port PORT         Host port to forward to the agent (default: same as --vm-port)
+  --public-ip IP           Public IP to bind DNAT rules (optional; defaults to all)
   --agent-image PATH       Use an existing pristine agent image
   --vm-image-tag TAG       Tag for pristine image/attestation
   --vm-image-sha256 SHA    Base image sha256 for vm_image_id (optional)
@@ -55,6 +57,7 @@ while [ "$#" -gt 0 ]; do
     --vm-name) VM_NAME="$2"; shift 2;;
     --vm-port) VM_PORT="$2"; shift 2;;
     --host-port) HOST_PORT="$2"; shift 2;;
+    --public-ip) PUBLIC_IP="$2"; shift 2;;
     --agent-image) AGENT_IMAGE="$2"; shift 2;;
     --vm-image-tag) VM_IMAGE_TAG="$2"; shift 2;;
     --vm-image-sha256) VM_IMAGE_SHA256="$2"; shift 2;;
@@ -201,4 +204,8 @@ HOST_PORT_ARGS=()
 if [ -n "$HOST_PORT" ]; then
   HOST_PORT_ARGS+=(--host-port "$HOST_PORT")
 fi
-python3 "$INSTALLER_SRC/host.py" --agent --agent-image "$AGENT_IMAGE" --name "$VM_NAME" --port "$VM_PORT" "${HOST_PORT_ARGS[@]}"
+PUBLIC_IP_ARGS=()
+if [ -n "$PUBLIC_IP" ]; then
+  PUBLIC_IP_ARGS+=(--public-ip "$PUBLIC_IP")
+fi
+python3 "$INSTALLER_SRC/host.py" --agent --agent-image "$AGENT_IMAGE" --name "$VM_NAME" --port "$VM_PORT" "${HOST_PORT_ARGS[@]}" "${PUBLIC_IP_ARGS[@]}"

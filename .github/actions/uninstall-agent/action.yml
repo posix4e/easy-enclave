@@ -1,0 +1,77 @@
+name: "Uninstall Agent"
+description: "Destroy/undefine an agent VM and remove port forwards"
+
+inputs:
+  ssh-host:
+    description: "SSH host"
+    required: true
+  ssh-port:
+    description: "SSH port"
+    required: false
+    default: "22"
+  ssh-user:
+    description: "SSH user"
+    required: false
+    default: "ubuntu"
+  ssh-key:
+    description: "SSH private key"
+    required: true
+  vm-name:
+    description: "VM name to remove"
+    required: true
+  vm-port:
+    description: "VM port (used to clean forward rules)"
+    required: true
+  host-port:
+    description: "Host port forwarded to this VM"
+    required: false
+    default: ""
+  public-ip:
+    description: "Public IP mapped to this VM (optional)"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Prepare SSH key
+      id: ssh
+      shell: bash
+      run: |
+        set -euo pipefail
+        KEY_FILE=$(mktemp)
+        chmod 600 "$KEY_FILE"
+        printf '%s\n' "${{ inputs.ssh-key }}" > "$KEY_FILE"
+        echo "file=$KEY_FILE" >> "$GITHUB_OUTPUT"
+
+    - name: Uninstall agent
+      shell: bash
+      env:
+        SSH_KEY_FILE: ${{ steps.ssh.outputs.file }}
+        SSH_HOST: ${{ inputs.ssh-host }}
+        SSH_PORT: ${{ inputs.ssh-port }}
+        SSH_USER: ${{ inputs.ssh-user }}
+        VM_NAME: ${{ inputs.vm-name }}
+        VM_PORT: ${{ inputs.vm-port }}
+        HOST_PORT: ${{ inputs.host-port }}
+        PUBLIC_IP: ${{ inputs.public-ip }}
+      run: |
+        set -euo pipefail
+        ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" -i "$SSH_KEY_FILE" \
+          "$SSH_USER@$SSH_HOST" <<EOF
+set -euo pipefail
+sudo rm -rf /opt/easy-enclave
+sudo git clone https://github.com/${{ github.repository }}.git /opt/easy-enclave
+cd /opt/easy-enclave
+sudo git fetch --tags origin
+sudo git checkout "${GITHUB_SHA}"
+sudo chmod +x installer/uninstall_agent.sh
+ARGS=(--vm-name "${VM_NAME}" --vm-port "${VM_PORT}")
+if [ -n "${HOST_PORT}" ]; then
+  ARGS+=(--host-port "${HOST_PORT}")
+fi
+if [ -n "${PUBLIC_IP}" ]; then
+  ARGS+=(--public-ip "${PUBLIC_IP}")
+fi
+sudo ./installer/uninstall_agent.sh "${ARGS[@]}"
+EOF

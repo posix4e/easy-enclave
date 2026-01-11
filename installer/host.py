@@ -600,6 +600,7 @@ def create_agent_vm(
     vm_image_tag: str = "",
     vm_image_sha256: str = "",
     base_image: str | None = None,
+    public_ip: str | None = None,
 ) -> dict:
     """Create an agent VM with no workload compose."""
     log("Checking requirements...")
@@ -636,7 +637,7 @@ def create_agent_vm(
     wait_for_ready(ip, port=port, timeout=300)
 
     log("Setting up port forwarding...")
-    host_port = setup_port_forward(ip, port, host_port)
+    host_port = setup_port_forward(ip, port, host_port, public_ip)
 
     return {
         "name": name,
@@ -680,6 +681,7 @@ def start_agent_vm_from_image(
     name: str = "ee-attestor",
     port: int = 8000,
     host_port: int | None = None,
+    public_ip: str | None = None,
 ) -> dict:
     """Start an agent VM from a pre-baked image."""
     log("Checking requirements...")
@@ -698,7 +700,7 @@ def start_agent_vm_from_image(
     wait_for_ready(ip, port=port, timeout=300)
 
     log("Setting up port forwarding...")
-    host_port = setup_port_forward(ip, port, host_port)
+    host_port = setup_port_forward(ip, port, host_port, public_ip)
 
     return {
         "name": name,
@@ -1081,7 +1083,12 @@ def get_public_ip() -> str:
     raise RuntimeError("Could not determine public IP address")
 
 
-def setup_port_forward(vm_ip: str, vm_port: int, host_port: int = None) -> int:
+def setup_port_forward(
+    vm_ip: str,
+    vm_port: int,
+    host_port: int = None,
+    public_ip: str | None = None,
+) -> int:
     """
     Set up iptables port forwarding from host to VM.
 
@@ -1089,11 +1096,13 @@ def setup_port_forward(vm_ip: str, vm_port: int, host_port: int = None) -> int:
         vm_ip: VM's private IP address
         vm_port: Port on the VM to forward to
         host_port: Port on the host (defaults to vm_port)
+        public_ip: Optional public IP to bind DNAT rules to
 
     Returns:
         The host port that was configured
     """
     host_port = host_port or vm_port
+    public_ip = public_ip or None
 
     def remove_nat_rules(chain: str) -> None:
         result = subprocess.run(
@@ -1112,6 +1121,7 @@ def setup_port_forward(vm_ip: str, vm_port: int, host_port: int = None) -> int:
                 f"dpt:{host_port}" in line
                 and "DNAT" in line
                 and f"to:{vm_ip}:{vm_port}" in line
+                and (not public_ip or public_ip in line)
             ):
                 rule_numbers.append(int(parts[0]))
         for number in reversed(rule_numbers):
@@ -1142,28 +1152,32 @@ def setup_port_forward(vm_ip: str, vm_port: int, host_port: int = None) -> int:
                     capture_output=True,
                 )
 
+    def add_nat_rule(chain: str, destination: str | None) -> None:
+        cmd = ['sudo', 'iptables', '-t', 'nat', '-A', chain, '-p', 'tcp']
+        if destination:
+            cmd.extend(['-d', destination])
+        cmd.extend([
+            '--dport', str(host_port),
+            '-j', 'DNAT', '--to-destination', f'{vm_ip}:{vm_port}',
+        ])
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to add {chain} rule: {result.stderr}")
+
     # Remove any existing rules for this port first
     remove_nat_rules('PREROUTING')
     remove_nat_rules('OUTPUT')
     remove_forward_rules()
 
     # Add PREROUTING rule for incoming traffic
-    result = subprocess.run([
-        'sudo', 'iptables', '-t', 'nat', '-A', 'PREROUTING',
-        '-p', 'tcp', '--dport', str(host_port),
-        '-j', 'DNAT', '--to-destination', f'{vm_ip}:{vm_port}'
-    ], capture_output=True, text=True)
-    if result.returncode != 0:
-        raise RuntimeError(f"Failed to add PREROUTING rule: {result.stderr}")
+    add_nat_rule('PREROUTING', public_ip)
 
-    # Add OUTPUT rule so localhost traffic can reach the VM (used by SSH attestation)
-    result = subprocess.run([
-        'sudo', 'iptables', '-t', 'nat', '-A', 'OUTPUT',
-        '-p', 'tcp', '-d', '127.0.0.1', '--dport', str(host_port),
-        '-j', 'DNAT', '--to-destination', f'{vm_ip}:{vm_port}'
-    ], capture_output=True, text=True)
-    if result.returncode != 0:
-        log(f"Warning: Failed to add OUTPUT rule: {result.stderr}")
+    # Add OUTPUT rule so local traffic can reach the VM (used by SSH attestation)
+    output_destination = public_ip if public_ip else '127.0.0.1'
+    try:
+        add_nat_rule('OUTPUT', output_destination)
+    except RuntimeError as exc:
+        log(f"Warning: Failed to add OUTPUT rule: {exc}")
 
     # Allow inbound traffic to virbr0 before libvirt's default reject.
     result = subprocess.run([
@@ -1174,7 +1188,8 @@ def setup_port_forward(vm_ip: str, vm_port: int, host_port: int = None) -> int:
     if result.returncode != 0:
         log(f"Warning: Failed to add LIBVIRT_FWI rule: {result.stderr}")
 
-    log(f"Port forwarding configured: *:{host_port} -> {vm_ip}:{vm_port}")
+    destination_desc = public_ip if public_ip else '*'
+    log(f"Port forwarding configured: {destination_desc}:{host_port} -> {vm_ip}:{vm_port}")
     return host_port
 
 
@@ -1436,6 +1451,7 @@ if __name__ == '__main__':
     parser.add_argument('--name', default='ee-workload', help='VM name (default: ee-workload)')
     parser.add_argument('--port', type=int, default=None, help='HTTP port for workload or agent')
     parser.add_argument('--host-port', type=int, default=None, help='Host port to forward to agent (default: same as --port)')
+    parser.add_argument('--public-ip', default='', help='Public IP to bind DNAT rules to (optional)')
     parser.add_argument('--enable-ssh', action='store_true', help='Enable SSH access (default: off)')
     parser.add_argument('--create-release', action='store_true', help='Create GitHub release with attestation')
     parser.add_argument('--endpoint', help='Endpoint URL for release (default: http://{vm_ip}:{port})')
@@ -1481,6 +1497,7 @@ if __name__ == '__main__':
                 name=args.name,
                 port=port,
                 host_port=args.host_port,
+                public_ip=args.public_ip or None,
             )
         else:
             result = create_agent_vm(
@@ -1490,6 +1507,7 @@ if __name__ == '__main__':
                 vm_image_tag=args.vm_image_tag,
                 vm_image_sha256=args.vm_image_sha256,
                 base_image=args.base_image or None,
+                public_ip=args.public_ip or None,
             )
         print(json.dumps(result, indent=2))
         sys.exit(0)

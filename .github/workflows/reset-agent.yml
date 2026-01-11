@@ -1,4 +1,4 @@
-name: Reset Agent VM
+name: Installer Agents
 
 on:
   workflow_dispatch:
@@ -15,6 +15,26 @@ on:
         description: "Host port to forward to the control agent"
         required: false
         default: "443"
+      control_public_ip:
+        description: "Public IP to map to control agent (optional)"
+        required: false
+        default: "57.130.10.246"
+      control_ssh_host:
+        description: "SSH host for the control-plane VM host (fallback: AGENT_SSH_HOST)"
+        required: false
+        default: ""
+      control_ssh_port:
+        description: "SSH port for the control-plane VM host (fallback: AGENT_SSH_PORT)"
+        required: false
+        default: ""
+      control_ssh_user:
+        description: "SSH user for the control-plane VM host (fallback: AGENT_SSH_USER)"
+        required: false
+        default: ""
+      control_ssh_key:
+        description: "SSH private key for the control-plane VM host (fallback: AGENT_SSH_KEY)"
+        required: false
+        default: ""
       contact_vm_name:
         description: "Contacts agent VM name"
         required: false
@@ -27,47 +47,88 @@ on:
         description: "Host port to forward to the contacts agent"
         required: false
         default: "443"
-      control_public_ip:
-        description: "Public IP to map to control agent (optional)"
-        required: false
-        default: "57.130.10.246"
       contact_public_ip:
         description: "Public IP to map to contacts agent (optional)"
         required: false
         default: "57.130.34.193"
+      contact_ssh_host:
+        description: "SSH host for the contacts VM host (fallback: CONTACT_SSH_HOST or AGENT_SSH_HOST)"
+        required: false
+        default: ""
+      contact_ssh_port:
+        description: "SSH port for the contacts VM host (fallback: CONTACT_SSH_PORT or AGENT_SSH_PORT)"
+        required: false
+        default: ""
+      contact_ssh_user:
+        description: "SSH user for the contacts VM host (fallback: CONTACT_SSH_USER or AGENT_SSH_USER)"
+        required: false
+        default: ""
+      contact_ssh_key:
+        description: "SSH private key for the contacts VM host (fallback: CONTACT_SSH_KEY or AGENT_SSH_KEY)"
+        required: false
+        default: ""
       vm_image_tag:
         description: "Tag for the new pristine agent images"
         required: false
-        default: "reset-${{ github.run_id }}"
-      cleanup_vms:
-        description: "Space-separated VM names to destroy/undefine (will add control/contact automatically)"
-        required: false
-        default: "ee-control ee-contacts ee-workload"
+        default: ""
 
 permissions:
   contents: read
 
 jobs:
-  reset-agent:
+  install-agents:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Reset agents (uninstall + install control/contacts)
-        uses: ./.github/actions/reset-agents
+
+      - name: Uninstall contacts agent
+        uses: ./.github/actions/uninstall-agent
         with:
-          ssh-host: ${{ secrets.AGENT_SSH_HOST }}
-          ssh-port: ${{ secrets.AGENT_SSH_PORT }}
-          ssh-user: ${{ secrets.AGENT_SSH_USER }}
-          ssh-key: ${{ secrets.AGENT_SSH_KEY }}
-          control-vm-name: ${{ github.event.inputs.control_vm_name || 'ee-control' }}
-          control-vm-port: ${{ github.event.inputs.control_vm_port || '8000' }}
-          control-host-port: ${{ github.event.inputs.control_host_port || '443' }}
-          control-public-ip: ${{ github.event.inputs.control_public_ip || '57.130.10.246' }}
-          contact-vm-name: ${{ github.event.inputs.contact_vm_name || 'ee-contacts' }}
-          contact-vm-port: ${{ github.event.inputs.contact_vm_port || '8001' }}
-          contact-host-port: ${{ github.event.inputs.contact_host_port || '443' }}
-          contact-public-ip: ${{ github.event.inputs.contact_public_ip || '57.130.34.193' }}
-          vm-image-tag: ${{ github.event.inputs.vm_image_tag || format('reset-{0}', github.run_id) }}
-          cleanup-vms: ${{ github.event.inputs.cleanup_vms || 'ee-control ee-contacts ee-workload' }}
+          ssh-host: ${{ inputs.contact_ssh_host || secrets.CONTACT_SSH_HOST || secrets.AGENT_SSH_HOST }}
+          ssh-port: ${{ inputs.contact_ssh_port || secrets.CONTACT_SSH_PORT || secrets.AGENT_SSH_PORT || '22' }}
+          ssh-user: ${{ inputs.contact_ssh_user || secrets.CONTACT_SSH_USER || secrets.AGENT_SSH_USER || 'ubuntu' }}
+          ssh-key: ${{ inputs.contact_ssh_key || secrets.CONTACT_SSH_KEY || secrets.AGENT_SSH_KEY }}
+          vm-name: ${{ inputs.contact_vm_name || 'ee-contacts' }}
+          vm-port: ${{ inputs.contact_vm_port || '8001' }}
+          host-port: ${{ inputs.contact_host_port || '443' }}
+          public-ip: ${{ inputs.contact_public_ip || '57.130.34.193' }}
+
+      - name: Uninstall control-plane agent
+        uses: ./.github/actions/uninstall-agent
+        with:
+          ssh-host: ${{ inputs.control_ssh_host || secrets.AGENT_SSH_HOST }}
+          ssh-port: ${{ inputs.control_ssh_port || secrets.AGENT_SSH_PORT || '22' }}
+          ssh-user: ${{ inputs.control_ssh_user || secrets.AGENT_SSH_USER || 'ubuntu' }}
+          ssh-key: ${{ inputs.control_ssh_key || secrets.AGENT_SSH_KEY }}
+          vm-name: ${{ inputs.control_vm_name || 'ee-control' }}
+          vm-port: ${{ inputs.control_vm_port || '8000' }}
+          host-port: ${{ inputs.control_host_port || '443' }}
+          public-ip: ${{ inputs.control_public_ip || '57.130.10.246' }}
+
+      - name: Install control-plane agent
+        uses: ./.github/actions/install-control-agent
+        with:
+          ssh-host: ${{ inputs.control_ssh_host || secrets.AGENT_SSH_HOST }}
+          ssh-port: ${{ inputs.control_ssh_port || secrets.AGENT_SSH_PORT || '22' }}
+          ssh-user: ${{ inputs.control_ssh_user || secrets.AGENT_SSH_USER || 'ubuntu' }}
+          ssh-key: ${{ inputs.control_ssh_key || secrets.AGENT_SSH_KEY }}
+          vm-name: ${{ inputs.control_vm_name || 'ee-control' }}
+          vm-port: ${{ inputs.control_vm_port || '8000' }}
+          host-port: ${{ inputs.control_host_port || '443' }}
+          public-ip: ${{ inputs.control_public_ip || '57.130.10.246' }}
+          vm-image-tag: ${{ inputs.vm_image_tag || '' }}
+
+      - name: Install contacts agent
+        uses: ./.github/actions/install-contacts-agent
+        with:
+          ssh-host: ${{ inputs.contact_ssh_host || secrets.CONTACT_SSH_HOST || secrets.AGENT_SSH_HOST }}
+          ssh-port: ${{ inputs.contact_ssh_port || secrets.CONTACT_SSH_PORT || secrets.AGENT_SSH_PORT || '22' }}
+          ssh-user: ${{ inputs.contact_ssh_user || secrets.CONTACT_SSH_USER || secrets.AGENT_SSH_USER || 'ubuntu' }}
+          ssh-key: ${{ inputs.contact_ssh_key || secrets.CONTACT_SSH_KEY || secrets.AGENT_SSH_KEY }}
+          vm-name: ${{ inputs.contact_vm_name || 'ee-contacts' }}
+          vm-port: ${{ inputs.contact_vm_port || '8001' }}
+          host-port: ${{ inputs.contact_host_port || '443' }}
+          public-ip: ${{ inputs.contact_public_ip || '57.130.34.193' }}
+          vm-image-tag: ${{ inputs.vm_image_tag || '' }}

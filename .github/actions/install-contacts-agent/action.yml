@@ -1,0 +1,87 @@
+name: "Install Contacts Agent"
+description: "Install contacts agent VM and set up port forwarding"
+
+inputs:
+  ssh-host:
+    description: "SSH host"
+    required: true
+  ssh-port:
+    description: "SSH port"
+    required: false
+    default: "22"
+  ssh-user:
+    description: "SSH user"
+    required: false
+    default: "ubuntu"
+  ssh-key:
+    description: "SSH private key"
+    required: true
+  vm-name:
+    description: "Contacts agent VM name"
+    required: false
+    default: "ee-contacts"
+  vm-port:
+    description: "Contacts agent VM port"
+    required: false
+    default: "8001"
+  host-port:
+    description: "Host port forwarded to contacts agent"
+    required: false
+    default: "443"
+  public-ip:
+    description: "Public IP mapped to contacts agent"
+    required: false
+    default: "57.130.34.193"
+  vm-image-tag:
+    description: "Tag for pristine image build"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Prepare SSH key
+      id: ssh
+      shell: bash
+      run: |
+        set -euo pipefail
+        KEY_FILE=$(mktemp)
+        chmod 600 "$KEY_FILE"
+        printf '%s\n' "${{ inputs.ssh-key }}" > "$KEY_FILE"
+        echo "file=$KEY_FILE" >> "$GITHUB_OUTPUT"
+
+    - name: Install contacts agent
+      shell: bash
+      env:
+        SSH_KEY_FILE: ${{ steps.ssh.outputs.file }}
+        SSH_HOST: ${{ inputs.ssh-host }}
+        SSH_PORT: ${{ inputs.ssh-port }}
+        SSH_USER: ${{ inputs.ssh-user }}
+        VM_NAME: ${{ inputs.vm-name }}
+        VM_PORT: ${{ inputs.vm-port }}
+        HOST_PORT: ${{ inputs.host-port }}
+        PUBLIC_IP: ${{ inputs.public-ip }}
+        VM_IMAGE_TAG: ${{ inputs.vm-image-tag }}
+      run: |
+        set -euo pipefail
+        ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" -i "$SSH_KEY_FILE" \
+          "$SSH_USER@$SSH_HOST" <<EOF
+set -euo pipefail
+sudo rm -rf /opt/easy-enclave
+sudo git clone https://github.com/${{ github.repository }}.git /opt/easy-enclave
+cd /opt/easy-enclave
+sudo git fetch --tags origin
+sudo git checkout "${GITHUB_SHA}"
+sudo chmod +x install-agent.sh installer/install.sh
+ARGS=(--non-interactive --vm-name "${VM_NAME}" --vm-port "${VM_PORT}")
+if [ -n "${HOST_PORT}" ]; then
+  ARGS+=(--host-port "${HOST_PORT}")
+fi
+if [ -n "${PUBLIC_IP}" ]; then
+  ARGS+=(--public-ip "${PUBLIC_IP}")
+fi
+if [ -n "${VM_IMAGE_TAG}" ]; then
+  ARGS+=(--vm-image-tag "${VM_IMAGE_TAG}")
+fi
+sudo ./install-agent.sh "${ARGS[@]}"
+EOF
