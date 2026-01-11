@@ -53,6 +53,8 @@ from control_plane.policy import AttestationResult, verify_attestation
 from control_plane.ratls import build_server_ssl_context, ensure_ratls_material, extract_peer_cert
 from control_plane.registry import Registry, RegistryConfig
 
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+
 
 @dataclass
 class Session:
@@ -515,6 +517,10 @@ def create_app(control: ControlPlane) -> web.Application:
         )
         return web.Response(text=html, content_type="text/html")
 
+    async def admin_page(request: web.Request) -> web.Response:
+        await require_admin(request)
+        return web.FileResponse(STATIC_DIR / "admin.html")
+
     async def purchase_credits(request: web.Request) -> web.Response:
         await require_admin(request)
         try:
@@ -687,6 +693,7 @@ def create_app(control: ControlPlane) -> web.Application:
             web.post("/v1/abuse/reports/{report_id}/authorize", authorize_abuse),
             web.post("/v1/nodes/register", register_node),
             web.get("/v1/nodes/{node_id}", get_node),
+            web.get("/admin", admin_page),
         ]
     )
     return app

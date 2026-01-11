@@ -42,6 +42,7 @@ sys.stderr.reconfigure(line_buffering=True)
 
 # VM + host utilities (embedded to avoid separate vm.py dependency).
 DEPLOYMENTS_DIR = Path("/var/lib/easy-enclave/deployments")
+WEBADMIN_PATH = Path(__file__).resolve().with_name("webadmin.html")
 
 _script_dir = Path(__file__).parent
 _possible_template_dirs = [
@@ -826,6 +827,19 @@ def ensure_deployments_dir() -> None:
     DEPLOYMENTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def list_deployments() -> list[Deployment]:
+    """List saved deployments sorted by update time (descending)."""
+
+    ensure_deployments_dir()
+    deployments: list[Deployment] = []
+    for path in DEPLOYMENTS_DIR.glob("*.json"):
+        deployment = load_deployment(path.stem)
+        if deployment:
+            deployments.append(deployment)
+    deployments.sort(key=lambda d: d.updated_at or "", reverse=True)
+    return deployments
+
+
 def save_deployment(deployment: Deployment) -> None:
     """Save deployment state to file."""
 
@@ -1375,6 +1389,11 @@ def require_bearer_token(request: web.Request) -> Optional[str]:
     return None
 
 
+async def handle_deployments(_: web.Request) -> web.Response:
+    deployments = [asdict(d) for d in list_deployments()]
+    return web.json_response({"deployments": deployments})
+
+
 async def handle_health(_: web.Request) -> web.Response:
     return web.json_response({"status": "ok"})
 
@@ -1401,6 +1420,10 @@ async def handle_status(request: web.Request) -> web.Response:
             "serial": read_tail(serial_log),
         }
     return web.json_response(payload)
+
+
+async def handle_admin_page(_: web.Request) -> web.Response:
+    return web.FileResponse(WEBADMIN_PATH)
 
 
 async def handle_deploy(request: web.Request) -> web.Response:
@@ -1564,8 +1587,10 @@ def build_app() -> web.Application:
         [
             web.get("/health", handle_health),
             web.get("/attestation", handle_attestation),
+            web.get("/deployments", handle_deployments),
             web.get("/status/{deployment_id}", handle_status),
             web.post("/deploy", handle_deploy),
+            web.get("/admin", handle_admin_page),
         ]
     )
 

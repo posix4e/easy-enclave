@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Contacts Admin</title>
+  <style>
+    :root {
+      --bg: #0d111c;
+      --panel: #121a2d;
+      --accent: #14b8a6;
+      --accent-2: #7c3aed;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --danger: #f87171;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 22px;
+      font-family: "Manrope", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      background: radial-gradient(circle at 20% 10%, rgba(20,184,166,0.15), transparent 30%),
+                  radial-gradient(circle at 80% 0%, rgba(124,58,237,0.18), transparent 35%),
+                  var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    h1 { margin: 0 0 4px; letter-spacing: -0.02em; }
+    .sub { color: var(--muted); margin-bottom: 16px; }
+    .card {
+      background: linear-gradient(135deg, var(--panel), #0f172a);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.35);
+      margin-bottom: 14px;
+    }
+    label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    input, textarea, button {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+      font: inherit;
+      padding: 10px 12px;
+    }
+    input:focus, textarea:focus { outline: 2px solid var(--accent); }
+    textarea { min-height: 110px; resize: vertical; }
+    button {
+      background: linear-gradient(120deg, var(--accent), var(--accent-2));
+      border: none;
+      color: #0b1021;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 8px 24px rgba(20,184,166,0.3);
+      transition: transform 120ms ease, box-shadow 120ms ease;
+      margin-top: 10px;
+    }
+    button:active { transform: translateY(1px); box-shadow: 0 6px 12px rgba(20,184,166,0.2); }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .muted { color: var(--muted); font-size: 12px; }
+    .pill { display:inline-block; padding:6px 10px; border-radius:999px; font-weight:700; }
+    .pill.ok { background: rgba(20,184,166,0.18); color: var(--accent); }
+    .pill.bad { background: rgba(248,113,113,0.18); color: var(--danger); }
+    ul { padding-left: 18px; }
+  </style>
+</head>
+<body>
+  <h1>Contacts Admin</h1>
+  <div class="sub">Register or lookup contact hashes through the service.</div>
+
+  <div class="card">
+    <label>API Token</label>
+    <div class="row" style="margin-top:6px;">
+      <input id="token" type="password" placeholder="CONTACT_API_TOKEN">
+      <button id="save" style="width:auto;">Save</button>
+    </div>
+    <div id="hint" class="muted" style="margin-top:6px;"></div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content: space-between;">
+      <div>
+        <label>Register Contacts</label><br>
+        <span class="muted">One email/phone per line.</span>
+      </div>
+      <button id="register" style="width:auto;">Register</button>
+    </div>
+    <textarea id="register-contacts" placeholder="alice@example.com&#10;bob@example.com"></textarea>
+    <div id="register-msg" class="muted" style="margin-top:6px;"></div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content: space-between;">
+      <div>
+        <label>Lookup Contacts</label><br>
+        <span class="muted">Check if contacts are registered.</span>
+      </div>
+      <button id="lookup" style="width:auto;">Lookup</button>
+    </div>
+    <textarea id="lookup-contacts" placeholder="carol@example.com&#10;dave@example.com"></textarea>
+    <div id="lookup-msg" class="muted" style="margin-top:6px;"></div>
+    <ul id="lookup-results"></ul>
+  </div>
+
+  <script>
+    const tokenEl = document.getElementById("token");
+    const saveEl = document.getElementById("save");
+    const hint = document.getElementById("hint");
+    const regEl = document.getElementById("register-contacts");
+    const regMsg = document.getElementById("register-msg");
+    const lookupEl = document.getElementById("lookup-contacts");
+    const lookupMsg = document.getElementById("lookup-msg");
+    const lookupResults = document.getElementById("lookup-results");
+
+    tokenEl.value = localStorage.getItem("contact_api_token") || "";
+    saveEl.onclick = () => {
+      localStorage.setItem("contact_api_token", tokenEl.value.trim());
+      hint.textContent = "Saved.";
+      setTimeout(() => hint.textContent = "", 1200);
+    };
+
+    function headers() {
+      const h = { "Content-Type": "application/json" };
+      const t = tokenEl.value.trim();
+      if (t) h["Authorization"] = "Bearer " + t;
+      return h;
+    }
+
+    function parseLines(text) {
+      return text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    }
+
+    document.getElementById("register").onclick = async () => {
+      const contacts = parseLines(regEl.value);
+      if (!contacts.length) { regMsg.textContent = "Add at least one contact."; return; }
+      regMsg.textContent = "Submitting...";
+      try {
+        const res = await fetch("/register", { method: "POST", headers: headers(), body: JSON.stringify({ contacts }) });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        regMsg.textContent = `Registered ${data.registered} contact(s).`;
+      } catch (err) {
+        regMsg.textContent = "Error: " + err.message;
+      }
+    };
+
+    document.getElementById("lookup").onclick = async () => {
+      const contacts = parseLines(lookupEl.value);
+      if (!contacts.length) { lookupMsg.textContent = "Add contacts to lookup."; return; }
+      lookupMsg.textContent = "Checking...";
+      lookupResults.innerHTML = "";
+      try {
+        const res = await fetch("/lookup", { method: "POST", headers: headers(), body: JSON.stringify({ contacts }) });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        lookupMsg.textContent = "";
+        lookupResults.innerHTML = (data.results || []).map(r => {
+          const cls = r.registered ? "ok" : "bad";
+          const text = r.registered ? "registered" : "not found";
+          return `<li><span class="pill ${cls}">${text}</span> ${r.contact}</li>`;
+        }).join("");
+      } catch (err) {
+        lookupMsg.textContent = "Error: " + err.message;
+      }
+    };
+  </script>
+</body>
+</html>

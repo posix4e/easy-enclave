@@ -14,6 +14,7 @@ DATA_DIR = Path(os.getenv("CONTACT_DATA_DIR", "/var/lib/easy-enclave/contact-ser
 DB_PATH = Path(os.getenv("CONTACT_DB_PATH", str(DATA_DIR / "contacts.db")))
 KEY_PATH = Path(os.getenv("CONTACT_KEY_PATH", str(DATA_DIR / "hmac.key")))
 API_TOKEN = os.getenv("CONTACT_API_TOKEN", "")
+ADMIN_PATH = Path(__file__).with_name("contact_admin.html")
 
 
 def ensure_storage() -> None:
@@ -73,9 +74,24 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _send_file(self, path: Path) -> None:
+        if not path.exists():
+            self.send_response(404)
+            self.end_headers()
+            return
+        data = path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_GET(self) -> None:
         if self.path == "/health":
             self._send_json({"status": "ok"})
+            return
+        if self.path == "/admin":
+            self._send_file(ADMIN_PATH)
             return
         self.send_response(404)
         self.end_headers()

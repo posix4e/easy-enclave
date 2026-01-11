@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Easy Enclave Control Admin</title>
+  <style>
+    :root {
+      --bg: #0b1021;
+      --panel: #11172e;
+      --panel-2: #0f1a3a;
+      --accent: #6ee7ff;
+      --accent-2: #a78bfa;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --danger: #f87171;
+      --success: #34d399;
+      --warn: #fbbf24;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: "Manrope", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      background: radial-gradient(circle at 10% 20%, rgba(86,152,255,0.12), transparent 25%),
+                  radial-gradient(circle at 80% 0%, rgba(167,139,250,0.15), transparent 30%),
+                  var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    h1 { margin: 0 0 8px; letter-spacing: -0.02em; }
+    .sub { color: var(--muted); margin-bottom: 24px; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 16px;
+    }
+    .card {
+      background: linear-gradient(135deg, var(--panel), var(--panel-2));
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.35);
+    }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    label { font-size: 12px; text-transform: uppercase; color: var(--muted); letter-spacing: 0.08em; }
+    input, button, select {
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.03);
+      color: var(--text);
+      font: inherit;
+    }
+    input:focus, button:focus, select:focus { outline: 2px solid var(--accent); }
+    button {
+      background: linear-gradient(120deg, var(--accent), var(--accent-2));
+      border: none;
+      color: #0b1021;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 8px 24px rgba(110,231,255,0.28);
+      transition: transform 120ms ease, box-shadow 120ms ease;
+    }
+    button:active { transform: translateY(1px); box-shadow: 0 4px 12px rgba(110,231,255,0.2); }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: 0.02em;
+    }
+    .pill.pass { background: rgba(52,211,153,0.15); color: var(--success); }
+    .pill.fail { background: rgba(248,113,113,0.15); color: var(--danger); }
+    .pill.warn { background: rgba(251,191,36,0.15); color: var(--warn); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      font-size: 14px;
+    }
+    th, td {
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      padding: 10px 8px;
+      text-align: left;
+    }
+    th { color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; font-size: 12px; }
+    tr:hover td { background: rgba(255,255,255,0.03); }
+    .muted { color: var(--muted); }
+    .tiny { font-size: 12px; color: var(--muted); }
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      display: inline-block;
+      margin-right: 6px;
+      background: var(--muted);
+    }
+    .dot-ok { background: var(--success); box-shadow: 0 0 12px rgba(52,211,153,0.7); }
+    .dot-fail { background: var(--danger); box-shadow: 0 0 12px rgba(248,113,113,0.7); }
+    .dot-warn { background: var(--warn); box-shadow: 0 0 12px rgba(251,191,36,0.7); }
+    #apps-empty { padding: 8px 0; color: var(--muted); }
+    .tag { background: rgba(255,255,255,0.08); padding: 4px 8px; border-radius: 8px; font-size: 12px; }
+    a { color: var(--accent); text-decoration: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Control Plane Admin</h1>
+    <div class="sub">Live view of registered apps, health, and attestation.</div>
+  </header>
+
+  <div class="grid" style="margin-bottom:16px;">
+    <div class="card">
+      <div class="row" style="margin-bottom:8px;">
+        <div>
+          <label>Admin Token</label>
+          <div class="tiny">Stored locally; sent as Bearer for API calls.</div>
+        </div>
+        <button id="refresh">Refresh</button>
+      </div>
+      <div class="row" style="gap:12px;">
+        <input id="token" type="password" placeholder="EE_ADMIN_TOKEN" style="flex:1;">
+        <button id="save">Save</button>
+      </div>
+      <div id="hint" class="tiny" style="margin-top:6px;"></div>
+    </div>
+    <div class="card">
+      <label>Summary</label>
+      <div id="summary" class="row" style="margin-top:8px; gap:12px; flex-wrap:wrap;"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <label>Registered Apps</label>
+    <div id="apps-empty" class="muted">Loading...</div>
+    <table id="apps-table" style="display:none;">
+      <thead>
+        <tr>
+          <th>App</th><th>Repo</th><th>Release</th><th>Network</th><th>TTL</th><th>Attestation</th><th>Health</th><th>Sealed</th><th>WS</th><th>Expires</th>
+        </tr>
+      </thead>
+      <tbody id="apps-body"></tbody>
+    </table>
+  </div>
+
+  <script>
+    const tokenInput = document.getElementById("token");
+    const saveBtn = document.getElementById("save");
+    const refreshBtn = document.getElementById("refresh");
+    const appsBody = document.getElementById("apps-body");
+    const appsTable = document.getElementById("apps-table");
+    const appsEmpty = document.getElementById("apps-empty");
+    const summary = document.getElementById("summary");
+    const hint = document.getElementById("hint");
+
+    function storedToken() { return localStorage.getItem("ee_admin_token") || ""; }
+    function setToken(t) { localStorage.setItem("ee_admin_token", t); }
+
+    tokenInput.value = storedToken();
+
+    saveBtn.onclick = () => {
+      setToken(tokenInput.value.trim());
+      hint.textContent = "Saved.";
+      setTimeout(() => hint.textContent = "", 1200);
+    };
+
+    refreshBtn.onclick = fetchApps;
+
+    function pill(text, cls) {
+      return `<span class="pill ${cls}">${text}</span>`;
+    }
+    function dot(cls) {
+      return `<span class="status-dot ${cls}"></span>`;
+    }
+
+    async function fetchApps() {
+      appsEmpty.textContent = "Loading...";
+      appsTable.style.display = "none";
+      const headers = {};
+      const t = tokenInput.value.trim();
+      if (t) headers["Authorization"] = "Bearer " + t;
+      try {
+        const res = await fetch("/v1/apps", { headers });
+        if (res.status === 401) {
+          appsEmpty.textContent = "Unauthorized. Set EE_ADMIN_TOKEN.";
+          return;
+        }
+        if (!res.ok) throw new Error(`API error ${res.status}`);
+        const data = await res.json();
+        renderSummary(data.apps || []);
+        renderApps(data.apps || []);
+      } catch (err) {
+        appsEmpty.textContent = `Error: ${err.message}`;
+      }
+    }
+
+    function renderSummary(apps) {
+      const total = apps.length;
+      const connected = apps.filter(a => a.ws_connected).length;
+      const healthy = apps.filter(a => a.health_status === "pass").length;
+      const attested = apps.filter(a => a.attestation_status === "valid").length;
+      summary.innerHTML = `
+        <div class="tag"><strong>${total}</strong> apps</div>
+        <div class="tag"><strong>${connected}</strong> connected</div>
+        <div class="tag"><strong>${healthy}</strong> healthy</div>
+        <div class="tag"><strong>${attested}</strong> attested</div>
+      `;
+    }
+
+    function renderApps(apps) {
+      if (!apps.length) {
+        appsEmpty.textContent = "No apps registered.";
+        appsTable.style.display = "none";
+        return;
+      }
+      appsEmpty.textContent = "";
+      appsTable.style.display = "";
+      appsBody.innerHTML = apps
+        .map(app => {
+          const att = app.attestation_status || "unknown";
+          const health = app.health_status || "unknown";
+          const attCls = att === "valid" ? "pass" : att === "warn" ? "warn" : "fail";
+          const healthCls = health === "pass" ? "pass" : health === "warn" ? "warn" : "fail";
+          const sealed = app.sealed ? "yes" : "no";
+          const ws = app.ws_connected ? "yes" : "no";
+          return `<tr>
+            <td><strong>${app.app_name}</strong><div class="tiny">${app.agent_id || ""}</div></td>
+            <td>${app.repo}</td>
+            <td>${app.release_tag}</td>
+            <td>${app.network}</td>
+            <td>${app.registration_state}</td>
+            <td>${dot(attCls === "pass" ? "dot-ok" : attCls === "warn" ? "dot-warn" : "dot-fail")}${att}</td>
+            <td>${dot(healthCls === "pass" ? "dot-ok" : healthCls === "warn" ? "dot-warn" : "dot-fail")}${health}</td>
+            <td>${sealed}</td>
+            <td>${ws}</td>
+            <td class="tiny">${app.registration_expires_at || ""}</td>
+          </tr>`;
+        })
+        .join("");
+    }
+
+    fetchApps();
+  </script>
+</body>
+</html>

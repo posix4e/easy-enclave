@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Easy Enclave Agent Admin</title>
+  <style>
+    :root {
+      --bg: #0a0f1f;
+      --panel: #11182f;
+      --panel-2: #0f243e;
+      --accent: #22d3ee;
+      --accent-2: #7c3aed;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --danger: #f87171;
+      --success: #34d399;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      background: radial-gradient(circle at 20% 20%, rgba(34,211,238,0.12), transparent 25%),
+                  radial-gradient(circle at 80% 10%, rgba(124,58,237,0.18), transparent 30%),
+                  var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    h1 { margin: 0 0 4px; letter-spacing: -0.02em; }
+    .sub { color: var(--muted); margin-bottom: 18px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+    .card {
+      background: linear-gradient(135deg, var(--panel), var(--panel-2));
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.35);
+    }
+    label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    input, button, select {
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+      font: inherit;
+      padding: 10px 12px;
+    }
+    input:focus, select:focus { outline: 2px solid var(--accent); }
+    button {
+      background: linear-gradient(120deg, var(--accent), var(--accent-2));
+      border: none;
+      color: #0b1021;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 8px 24px rgba(34,211,238,0.3);
+      transition: transform 120ms ease, box-shadow 120ms ease;
+    }
+    button:active { transform: translateY(1px); box-shadow: 0 6px 12px rgba(34,211,238,0.2); }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .pill {
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      background: rgba(255,255,255,0.06);
+    }
+    .pill.ok { background: rgba(52,211,153,0.18); color: var(--success); }
+    .pill.bad { background: rgba(248,113,113,0.18); color: var(--danger); }
+    .muted { color: var(--muted); }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { padding: 8px 6px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: left; font-size: 14px; }
+    th { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 12px; letter-spacing: 0.06em; }
+    tr:hover td { background: rgba(255,255,255,0.03); }
+    .tiny { font-size: 12px; color: var(--muted); }
+    .section-title { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+    .badge { background: rgba(255,255,255,0.08); padding: 4px 8px; border-radius: 8px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Agent Admin</h1>
+  <div class="sub">Inspect attestation, deployments, and launch new bundles.</div>
+
+  <div class="grid" style="margin-bottom:10px;">
+    <div class="card">
+      <div class="section-title">
+        <div>
+          <label>API Token</label><br>
+          <span class="tiny">Optional Bearer token for deploy (stored locally).</span>
+        </div>
+        <button id="refresh">Refresh</button>
+      </div>
+      <div class="row" style="gap:10px;">
+        <input id="token" type="password" placeholder="Bearer token" style="flex:1;">
+        <button id="save">Save</button>
+      </div>
+      <div id="hint" class="tiny" style="margin-top:6px;"></div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">
+        <div><label>Start Deploy</label></div>
+      </div>
+      <div class="row" style="gap:10px; margin-bottom:8px;">
+        <input id="repo" placeholder="repo (owner/name)" style="flex:2;">
+        <input id="port" type="number" min="1" max="65535" value="8080" style="width:100px;">
+      </div>
+      <div class="row" style="gap:10px; margin-bottom:10px;">
+        <label><input id="seal" type="checkbox"> Seal VM</label>
+      </div>
+      <button id="deploy">Launch</button>
+      <div id="deploy-msg" class="tiny" style="margin-top:8px;"></div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="section-title">
+        <label>Attestation</label>
+        <span id="att-status" class="pill">...</span>
+      </div>
+      <div class="tiny" id="att-updated"></div>
+      <div style="margin-top:10px;" id="att-body" class="muted">Loading...</div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">
+        <label>Deployments</label>
+        <span id="deploy-count" class="badge">0</span>
+      </div>
+      <div id="deploy-empty" class="muted">Loading...</div>
+      <table id="deploy-table" style="display:none;">
+        <thead>
+          <tr><th>Repo</th><th>Status</th><th>Port</th><th>VM</th><th>Updated</th></tr>
+        </thead>
+        <tbody id="deploy-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const tokenEl = document.getElementById("token");
+    const saveEl = document.getElementById("save");
+    const refreshEl = document.getElementById("refresh");
+    const attBody = document.getElementById("att-body");
+    const attStatus = document.getElementById("att-status");
+    const attUpdated = document.getElementById("att-updated");
+    const deployEmpty = document.getElementById("deploy-empty");
+    const deployTable = document.getElementById("deploy-table");
+    const deployBody = document.getElementById("deploy-body");
+    const deployCount = document.getElementById("deploy-count");
+    const repoEl = document.getElementById("repo");
+    const portEl = document.getElementById("port");
+    const sealEl = document.getElementById("seal");
+    const deployBtn = document.getElementById("deploy");
+    const deployMsg = document.getElementById("deploy-msg");
+    const hint = document.getElementById("hint");
+
+    const storeKey = "ee_agent_token";
+    tokenEl.value = localStorage.getItem(storeKey) || "";
+
+    saveEl.onclick = () => {
+      localStorage.setItem(storeKey, tokenEl.value.trim());
+      hint.textContent = "Saved.";
+      setTimeout(() => hint.textContent = "", 1200);
+    };
+
+    refreshEl.onclick = () => { loadAttestation(); loadDeployments(); };
+
+    function setStatus(el, status, ok=true) {
+      el.textContent = status;
+      el.className = "pill " + (ok ? "ok" : "bad");
+    }
+
+    async function loadAttestation() {
+      attBody.textContent = "Loading...";
+      attStatus.textContent = "...";
+      try {
+        const res = await fetch("/attestation");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const sealed = data.measurements?.sealed;
+        setStatus(attStatus, sealed ? "Sealed" : "Unsealed", !!sealed);
+        attUpdated.textContent = "Report data hash: " + (data.report_data || "").slice(0, 18) + "…";
+        const lines = [
+          ["Agent dir", data.measurements?.agent_dir_sha256],
+          ["Agent py", data.measurements?.agent_py_sha256],
+          ["VM image", data.measurements?.vm_image_id],
+          ["Quote len", data.quote ? data.quote.length + " bytes" : "n/a"],
+        ].map(([k,v]) => `<div><strong>${k}:</strong> <span class="muted">${v || "n/a"}</span></div>`);
+        attBody.innerHTML = lines.join("") || "No attestation data.";
+      } catch (err) {
+        setStatus(attStatus, "Error", false);
+        attBody.textContent = "Error: " + err.message;
+      }
+    }
+
+    async function loadDeployments() {
+      deployEmpty.textContent = "Loading...";
+      deployTable.style.display = "none";
+      try {
+        const res = await fetch("/deployments");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const list = data.deployments || [];
+        deployCount.textContent = list.length;
+        if (!list.length) {
+          deployEmpty.textContent = "No deployments yet.";
+          return;
+        }
+        deployEmpty.textContent = "";
+        deployTable.style.display = "";
+        deployBody.innerHTML = list.map(d => {
+          const statusClass = d.status === "complete" ? "ok" : d.status === "failed" ? "bad" : "";
+          return `<tr>
+            <td>${d.repo}</td>
+            <td><span class="pill ${statusClass}">${d.status}</span></td>
+            <td>${d.port || ""}</td>
+            <td>${d.vm_ip || d.vm_name || ""}</td>
+            <td class="tiny">${d.updated_at || ""}</td>
+          </tr>`;
+        }).join("");
+      } catch (err) {
+        deployEmpty.textContent = "Error: " + err.message;
+      }
+    }
+
+    async function launchDeploy() {
+      const repo = repoEl.value.trim();
+      const port = parseInt(portEl.value, 10) || 8080;
+      const seal = sealEl.checked;
+      if (!repo) {
+        deployMsg.textContent = "Repo is required.";
+        return;
+      }
+      deployMsg.textContent = "Starting...";
+      const headers = { "Content-Type": "application/json" };
+      const token = tokenEl.value.trim();
+      if (token) headers["Authorization"] = "Bearer " + token;
+      try {
+        const res = await fetch("/deploy", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ repo, port, seal_vm: seal })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        deployMsg.textContent = `Deployment ${data.deployment_id} queued (${data.status}).`;
+        loadDeployments();
+      } catch (err) {
+        deployMsg.textContent = "Error: " + err.message;
+      }
+    }
+
+    deployBtn.onclick = launchDeploy;
+
+    loadAttestation();
+    loadDeployments();
+  </script>
+</body>
+</html>
