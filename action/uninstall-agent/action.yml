@@ -57,7 +57,7 @@ runs:
         PUBLIC_IP: ${{ inputs.public-ip }}
       run: |
         set -euo pipefail
-        ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" -i "$SSH_KEY_FILE" "$SSH_USER@$SSH_HOST" <<'EOF'
+        ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" -i "$SSH_KEY_FILE" "$SSH_USER@$SSH_HOST" <<EOF
         set -euo pipefail
         sudo rm -rf /opt/easy-enclave
         sudo git clone https://github.com/${{ github.repository }}.git /opt/easy-enclave
