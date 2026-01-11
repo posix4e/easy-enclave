@@ -1,0 +1,149 @@
+name: Reset Agent VM
+
+on:
+  workflow_dispatch:
+    inputs:
+      vm_name:
+        description: "Agent VM name to recreate"
+        required: false
+        default: "ee-attestor"
+      vm_port:
+        description: "Agent VM port (inside VM)"
+        required: false
+        default: "8000"
+      host_port:
+        description: "Host port to forward to the agent"
+        required: false
+        default: "8000"
+      vm_image_tag:
+        description: "Tag for the new pristine agent image"
+        required: false
+        default: "reset-${{ github.run_id }}"
+      cleanup_vms:
+        description: "Space-separated VM names to destroy/undefine"
+        required: false
+        default: "ee-attestor ee-workload ee-attestor-apps"
+
+permissions:
+  contents: read
+
+jobs:
+  reset-agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare SSH key
+        id: ssh-key
+        run: |
+          set -euo pipefail
+          KEY_FILE=$(mktemp)
+          chmod 600 "$KEY_FILE"
+          printf '%s\n' "${{ secrets.AGENT_SSH_KEY }}" > "$KEY_FILE"
+          echo "file=$KEY_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Cleanup old agent VMs and port forwards
+        env:
+          SSH_KEY: ${{ steps.ssh-key.outputs.file }}
+          VM_NAME: ${{ github.event.inputs.vm_name || 'ee-attestor' }}
+          VM_PORT: ${{ github.event.inputs.vm_port || '8000' }}
+          HOST_PORT: ${{ github.event.inputs.host_port || '8000' }}
+          CLEANUP_VMS: ${{ github.event.inputs.cleanup_vms || 'ee-attestor ee-workload ee-attestor-apps' }}
+        run: |
+          set -euo pipefail
+          ssh -o StrictHostKeyChecking=no -p "${{ secrets.AGENT_SSH_PORT }}" -i "$SSH_KEY" \
+            "${{ secrets.AGENT_SSH_USER }}@${{ secrets.AGENT_SSH_HOST }}" <<EOF
+set -euo pipefail
+echo "Cleaning up VMs: ${CLEANUP_VMS}"
+for vm in ${CLEANUP_VMS}; do
+  sudo virsh destroy "$vm" >/dev/null 2>&1 || true
+  sudo virsh undefine "$vm" --nvram --managed-save --remove-all-storage >/dev/null 2>&1 || \
+    sudo virsh undefine "$vm" --nvram --remove-all-storage >/dev/null 2>&1 || true
+done
+
+python3 - <<'PY'
+import subprocess
+
+host_port = int("${HOST_PORT}")
+vm_port = int("${VM_PORT}")
+
+def delete_nat(chain: str) -> None:
+    result = subprocess.run(
+        ["sudo", "iptables", "-t", "nat", "-L", chain, "--line-numbers"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return
+    nums = []
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if not parts or not parts[0].isdigit():
+            continue
+        if f"dpt:{host_port}" in line and "DNAT" in line:
+            nums.append(int(parts[0]))
+    for num in reversed(nums):
+        subprocess.run(["sudo", "iptables", "-t", "nat", "-D", chain, str(num)])
+
+def delete_forward(chain: str) -> None:
+    result = subprocess.run(
+        ["sudo", "iptables", "-L", chain, "--line-numbers"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return
+    nums = []
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if not parts or not parts[0].isdigit():
+            continue
+        if f"dpt:{vm_port}" in line and "ACCEPT" in line:
+            nums.append(int(parts[0]))
+    for num in reversed(nums):
+        subprocess.run(["sudo", "iptables", "-D", chain, str(num)])
+
+delete_nat("PREROUTING")
+delete_nat("OUTPUT")
+delete_forward("FORWARD")
+delete_forward("LIBVIRT_FWI")
+PY
+
+echo "Cleanup complete."
+EOF
+
+      - name: Install fresh agent VM
+        env:
+          SSH_KEY: ${{ steps.ssh-key.outputs.file }}
+          VM_NAME: ${{ github.event.inputs.vm_name || 'ee-attestor' }}
+          VM_PORT: ${{ github.event.inputs.vm_port || '8000' }}
+          HOST_PORT: ${{ github.event.inputs.host_port || '8000' }}
+          VM_IMAGE_TAG: ${{ github.event.inputs.vm_image_tag || format('reset-{0}', github.run_id) }}
+        run: |
+          set -euo pipefail
+          ssh -o StrictHostKeyChecking=no -p "${{ secrets.AGENT_SSH_PORT }}" -i "$SSH_KEY" \
+            "${{ secrets.AGENT_SSH_USER }}@${{ secrets.AGENT_SSH_HOST }}" <<EOF
+set -euo pipefail
+sudo rm -rf /opt/easy-enclave
+sudo git clone https://github.com/${{ github.repository }}.git /opt/easy-enclave
+cd /opt/easy-enclave
+sudo git fetch --tags origin
+sudo git checkout "${GITHUB_SHA}"
+sudo ./install-agent.sh --non-interactive \
+  --vm-name "${VM_NAME}" \
+  --vm-port "${VM_PORT}" \
+  --host-port "${HOST_PORT}" \
+  --vm-image-tag "${VM_IMAGE_TAG}"
+EOF
+
+      - name: Verify agent is reachable
+        env:
+          SSH_KEY: ${{ steps.ssh-key.outputs.file }}
+          HOST_PORT: ${{ github.event.inputs.host_port || '8000' }}
+        run: |
+          set -euo pipefail
+          ssh -o StrictHostKeyChecking=no -p "${{ secrets.AGENT_SSH_PORT }}" -i "$SSH_KEY" \
+            "${{ secrets.AGENT_SSH_USER }}@${{ secrets.AGENT_SSH_HOST }}" \
+            "curl -fsS --max-time 10 http://127.0.0.1:${HOST_PORT}/health || (sudo ss -lntp && exit 1)"
