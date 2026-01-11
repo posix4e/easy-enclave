@@ -27,6 +27,14 @@ on:
         description: "Host port to forward to the contacts agent"
         required: false
         default: "8001"
+      control_public_ip:
+        description: "Public IP to map to control agent (optional)"
+        required: false
+        default: "57.130.10.246"
+      contact_public_ip:
+        description: "Public IP to map to contacts agent (optional)"
+        required: false
+        default: "57.130.34.193"
       vm_image_tag:
         description: "Tag for the new pristine agent images"
         required: false
@@ -65,6 +73,8 @@ jobs:
           CONTACT_VM_NAME: ${{ github.event.inputs.contact_vm_name || 'ee-contacts' }}
           CONTACT_VM_PORT: ${{ github.event.inputs.contact_vm_port || '8001' }}
           CONTACT_HOST_PORT: ${{ github.event.inputs.contact_host_port || '8001' }}
+          CONTROL_PUBLIC_IP: ${{ github.event.inputs.control_public_ip || '57.130.10.246' }}
+          CONTACT_PUBLIC_IP: ${{ github.event.inputs.contact_public_ip || '57.130.34.193' }}
           CLEANUP_VMS: ${{ github.event.inputs.cleanup_vms || 'ee-control ee-contacts ee-workload' }}
         run: |
           set -euo pipefail
@@ -83,11 +93,11 @@ python3 - <<'PY'
 import subprocess
 
 ports = [
-    (int("${CONTROL_HOST_PORT}"), int("${CONTROL_VM_PORT}")),
-    (int("${CONTACT_HOST_PORT}"), int("${CONTACT_VM_PORT}")),
+    (int("${CONTROL_HOST_PORT}"), int("${CONTROL_VM_PORT}"), "${CONTROL_PUBLIC_IP}"),
+    (int("${CONTACT_HOST_PORT}"), int("${CONTACT_VM_PORT}"), "${CONTACT_PUBLIC_IP}"),
 ]
 
-def delete_nat(chain: str, host_port: int) -> None:
+def delete_nat(chain: str, host_port: int, ip: str) -> None:
     result = subprocess.run(
         ["sudo", "iptables", "-t", "nat", "-L", chain, "--line-numbers"],
         capture_output=True,
@@ -100,7 +110,7 @@ def delete_nat(chain: str, host_port: int) -> None:
         parts = line.split()
         if not parts or not parts[0].isdigit():
             continue
-        if f"dpt:{host_port}" in line and "DNAT" in line:
+        if f"dpt:{host_port}" in line and "DNAT" in line and (not ip or ip in line):
             nums.append(int(parts[0]))
     for num in reversed(nums):
         subprocess.run(["sudo", "iptables", "-t", "nat", "-D", chain, str(num)])
@@ -123,9 +133,9 @@ def delete_forward(chain: str, vm_port: int) -> None:
     for num in reversed(nums):
         subprocess.run(["sudo", "iptables", "-D", chain, str(num)])
 
-for host_port, vm_port in ports:
-    delete_nat("PREROUTING", host_port)
-    delete_nat("OUTPUT", host_port)
+for host_port, vm_port, ip in ports:
+    delete_nat("PREROUTING", host_port, ip)
+    delete_nat("OUTPUT", host_port, ip)
     delete_forward("FORWARD", vm_port)
     delete_forward("LIBVIRT_FWI", vm_port)
 PY
@@ -142,6 +152,8 @@ EOF
           CONTACT_VM_NAME: ${{ github.event.inputs.contact_vm_name || 'ee-contacts' }}
           CONTACT_VM_PORT: ${{ github.event.inputs.contact_vm_port || '8001' }}
           CONTACT_HOST_PORT: ${{ github.event.inputs.contact_host_port || '8001' }}
+          CONTROL_PUBLIC_IP: ${{ github.event.inputs.control_public_ip || '57.130.10.246' }}
+          CONTACT_PUBLIC_IP: ${{ github.event.inputs.contact_public_ip || '57.130.34.193' }}
           VM_IMAGE_TAG: ${{ github.event.inputs.vm_image_tag || format('reset-{0}', github.run_id) }}
         run: |
           set -euo pipefail
@@ -165,6 +177,37 @@ sudo ./install-agent.sh --non-interactive \
   --vm-port "${CONTACT_VM_PORT}" \
   --host-port "${CONTACT_HOST_PORT}" \
   --vm-image-tag "${VM_IMAGE_TAG}"
+
+get_ip() {
+  local name="$1"
+  ip=$(sudo virsh domifaddr "$name" --source lease | awk '/ipv4/ {print $4}' | head -n1 | cut -d/ -f1)
+  echo "$ip"
+}
+
+CONTROL_VM_IP=$(get_ip "${CONTROL_VM_NAME}")
+CONTACT_VM_IP=$(get_ip "${CONTACT_VM_NAME}")
+
+echo "Control VM IP: ${CONTROL_VM_IP}"
+echo "Contacts VM IP: ${CONTACT_VM_IP}"
+
+configure_forward() {
+  local pub_ip="$1"
+  local host_port="$2"
+  local vm_ip="$3"
+  local vm_port="$4"
+  if [ -z "$pub_ip" ] || [ -z "$vm_ip" ]; then
+    echo "Skipping forward for pub_ip=$pub_ip vm_ip=$vm_ip"
+    return
+  fi
+  sudo iptables -t nat -A PREROUTING -d "$pub_ip" -p tcp --dport "$host_port" -j DNAT --to-destination "${vm_ip}:${vm_port}"
+  sudo iptables -t nat -A OUTPUT -d "$pub_ip" -p tcp --dport "$host_port" -j DNAT --to-destination "${vm_ip}:${vm_port}"
+  sudo iptables -I LIBVIRT_FWI -p tcp -d "$vm_ip" --dport "$vm_port" -j ACCEPT
+  sudo iptables -A FORWARD -p tcp -d "$vm_ip" --dport "$vm_port" -j ACCEPT
+  echo "Forwarded ${pub_ip}:${host_port} -> ${vm_ip}:${vm_port}"
+}
+
+configure_forward "${CONTROL_PUBLIC_IP}" "${CONTROL_HOST_PORT}" "${CONTROL_VM_IP}" "${CONTROL_VM_PORT}"
+configure_forward "${CONTACT_PUBLIC_IP}" "${CONTACT_HOST_PORT}" "${CONTACT_VM_IP}" "${CONTACT_VM_PORT}"
 EOF
 
       - name: Verify agent is reachable
