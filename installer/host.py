@@ -645,6 +645,7 @@ def create_agent_vm(
         "port": port,
         "host_port": host_port,
         "workdir": workdir,
+        "image": vm_image,
     }
 
 
@@ -690,8 +691,33 @@ def start_agent_vm_from_image(
     workdir = tempfile.mkdtemp(prefix="ee-agent-boot-")
     cidata_iso = create_minimal_cidata(workdir, hostname=name)
 
-    log(f"Starting agent VM from image: {image_path}")
-    ip = start_td_vm(image_path, cidata_iso, name)
+    # Create a VM-specific overlay so multiple VMs are not competing for write
+    # access to the same pristine image.
+    os.makedirs("/var/lib/easy-enclave", exist_ok=True)
+    vm_image = f"/var/lib/easy-enclave/{name}.qcow2"
+    try:
+        os.remove(vm_image)
+    except FileNotFoundError:
+        pass
+    subprocess.run(
+        [
+            "qemu-img",
+            "create",
+            "-f",
+            "qcow2",
+            "-F",
+            "qcow2",
+            "-b",
+            image_path,
+            vm_image,
+        ],
+        check=True,
+        capture_output=True,
+    )
+    os.chmod(vm_image, 0o666)
+
+    log(f"Starting agent VM from image: {vm_image} (base: {image_path})")
+    ip = start_td_vm(vm_image, cidata_iso, name)
     log(f"Agent VM IP: {ip}")
 
     log("Waiting for agent to be ready...")
