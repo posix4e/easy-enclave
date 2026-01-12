@@ -66,7 +66,7 @@ jobs:
           if [ -n "${ADMIN_TOKEN:-}" ]; then
             AUTH+=( -H "Authorization: Bearer ${ADMIN_TOKEN}" )
           fi
-          curl --max-time 30 -sS -X POST "${AUTH[@]}" "${CONTROL_URL}/admin/undeploy" || true
+          curl --max-time 30 -sS -X POST "${AUTH[@]}" "${CONTROL_URL}/admin/undeploy" || { echo "undeploy control timeout/failed, continuing"; }
 
       - name: Undeploy contacts agent
         shell: bash
@@ -76,7 +76,7 @@ jobs:
           if [ -n "${ADMIN_TOKEN:-}" ]; then
             AUTH+=( -H "Authorization: Bearer ${ADMIN_TOKEN}" )
           fi
-          curl --max-time 30 -sS -X POST "${AUTH[@]}" "${CONTACTS_URL}/admin/undeploy" || true
+          curl --max-time 30 -sS -X POST "${AUTH[@]}" "${CONTACTS_URL}/admin/undeploy" || { echo "undeploy contacts timeout/failed, continuing"; }
 
       - name: Deploy control plane
         uses: ./action
