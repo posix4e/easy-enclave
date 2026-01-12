@@ -135,12 +135,35 @@ jobs:
               local rest="${url#*:8000}"
               url="${url%:8000*}:443${rest}"
             fi
+            if [[ "$url" == http://*:443* ]]; then
+              url="https://${url#http://}"
+            fi
             echo "$url"
           }
           CONTROL_URL=$(normalize "${CONTROL_URL:-}" "https://control.easyenclave.com")
           CONTACTS_URL=$(normalize "${CONTACTS_URL:-}" "https://contacts.easyenclave.com")
           echo "CONTROL_URL=$CONTROL_URL" >> "$GITHUB_ENV"
           echo "CONTACTS_URL=$CONTACTS_URL" >> "$GITHUB_ENV"
+
+      - name: Wait for control agent health
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="${CONTROL_URL}"
+          CURL_OPTS=(--silent --show-error --connect-timeout 5 --max-time 15)
+          if [[ "$URL" == https://* ]]; then
+            CURL_OPTS+=(--insecure)
+          fi
+          for i in {1..8}; do
+            if curl "${CURL_OPTS[@]}" "$URL/health" >/dev/null 2>&1; then
+              echo "control agent healthy"
+              exit 0
+            fi
+            echo "waiting for control agent health ($i/8)..."
+            sleep 10
+          done
+          echo "::error::Control agent did not respond to /health"
+          exit 1
 
       - name: Reset control-plane agent
         shell: bash
