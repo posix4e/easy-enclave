@@ -192,6 +192,7 @@ jobs:
         with:
           agent-url: ${{ env.CONTROL_URL }}
           agent-ratls: 'true'
+          agent-release-tag: dev-latest
           bundle-inline: 'true'
           docker-compose: control_plane/docker-compose.yml
           public-files: control_plane,sdk
@@ -214,6 +215,7 @@ jobs:
         with:
           agent-url: ${{ env.CONTACTS_URL }}
           agent-ratls: 'true'
+          agent-release-tag: dev-latest
           bundle-inline: 'true'
           docker-compose: ./example/contact-compose.yml
           public-env: |
