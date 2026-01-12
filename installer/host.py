@@ -645,7 +645,7 @@ def create_agent_vm(
         "port": port,
         "host_port": host_port,
         "workdir": workdir,
-        "image": vm_image,
+        "image": agent_image,
     }
 
 
