@@ -101,8 +101,8 @@ jobs:
     timeout-minutes: 15
     needs: [lint-test, reset-agents]
     env:
-      CONTROL_URL: ${{ secrets.AGENT_URL_CONTROL || secrets.AGENT_URL }}
-      CONTACTS_URL: ${{ secrets.AGENT_URL_CONTACTS || secrets.AGENT_URL }}
+      CONTROL_URL: ${{ secrets.AGENT_URL_CONTROL || secrets.AGENT_URL || 'https://control.easyenclave.com' }}
+      CONTACTS_URL: ${{ secrets.AGENT_URL_CONTACTS || 'https://contacts.easyenclave.com' }}
       ADMIN_TOKEN: ${{ secrets.AGENT_ADMIN_TOKEN }}
     steps:
       - uses: actions/checkout@v4
@@ -127,6 +127,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          DEFAULT_CONTROL="https://control.easyenclave.com"
+          DEFAULT_CONTACTS="https://contacts.easyenclave.com"
           normalize() {
             local url="$1"
             local fallback="$2"
@@ -142,8 +144,15 @@ jobs:
             fi
             echo "$url"
           }
-          CONTROL_URL=$(normalize "${CONTROL_URL:-}" "https://control.easyenclave.com")
-          CONTACTS_URL=$(normalize "${CONTACTS_URL:-}" "https://contacts.easyenclave.com")
+          CONTROL_URL=$(normalize "${CONTROL_URL:-}" "$DEFAULT_CONTROL")
+          CONTACTS_URL=$(normalize "${CONTACTS_URL:-}" "$DEFAULT_CONTACTS")
+
+          control_host=${CONTROL_URL#*://}; control_host=${control_host%%/*}; control_base=${control_host%%:*}
+          contacts_host=${CONTACTS_URL#*://}; contacts_host=${contacts_host%%/*}; contacts_base=${contacts_host%%:*}
+          if [ "$control_base" = "$contacts_base" ]; then
+            echo "CONTACTS_URL matches control host; using $DEFAULT_CONTACTS instead"
+            CONTACTS_URL="$DEFAULT_CONTACTS"
+          fi
           echo "CONTROL_URL=$CONTROL_URL" >> "$GITHUB_ENV"
           echo "CONTACTS_URL=$CONTACTS_URL" >> "$GITHUB_ENV"
 
