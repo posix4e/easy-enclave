@@ -734,6 +734,7 @@ def start_agent_vm_from_image(
         "port": port,
         "host_port": host_port,
         "workdir": workdir,
+        "image": vm_image,
     }
 
 
