@@ -56,6 +56,7 @@ jobs:
           vm-port: 8000
           host-port: 443
           public-ip: 57.130.10.246
+          vm-image-tag: dev-latest
           dns-name: control.easyenclave.com
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           cloudflare-zone: ${{ secrets.CLOUDFLARE_ZONE || 'easyenclave.com' }}
@@ -72,6 +73,7 @@ jobs:
           vm-port: 8000
           host-port: 443
           public-ip: 57.130.34.193
+          vm-image-tag: dev-latest
           dns-name: contacts.easyenclave.com
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           cloudflare-zone: ${{ secrets.CLOUDFLARE_ZONE || 'easyenclave.com' }}
