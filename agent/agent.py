@@ -79,6 +79,26 @@ def env_bool(name: str, default: bool = False) -> bool:
     return value.lower() in {"1", "true", "yes", "on"}
 
 
+def start_embedded_control_plane() -> None:
+    """Start control-plane in-process for unsealed/self-contained mode."""
+    os.environ.setdefault("EE_RATLS_ENABLED", "false")
+    os.environ.setdefault("EE_RATLS_REQUIRE_CLIENT_CERT", "false")
+    os.environ.setdefault("EE_DNS_UPDATE_ON_START", "false")
+    try:
+        from control_plane import server as control_server
+    except Exception as exc:  # pragma: no cover - best-effort for optional mode
+        log(f"embedded_control_plane_import_failed: {exc}")
+        return
+
+    def _run() -> None:
+        try:
+            control_server.main()
+        except Exception as exc:
+            log(f"embedded_control_plane_failed: {exc}")
+
+    threading.Thread(target=_run, name="ee-control-plane", daemon=True).start()
+
+
 def check_requirements() -> None:
     """Check that TDX and libvirt are available. Fails fast if not."""
     result = subprocess.run(["uname", "-r"], capture_output=True, text=True)
@@ -772,7 +792,11 @@ client = connect("{repo}")
 
     return release_data.get("html_url") or f"https://github.com/{repo}/releases/tag/{tag}"
 
-EE_CONTROL_WS = os.getenv("EE_CONTROL_WS", "")
+EE_MODE = os.getenv("EE_MODE", "sealed").lower()
+DEFAULT_CONTROL_WS = "wss://control.easyenclave.com:8088/v1/tunnel"
+if EE_MODE == "unsealed":
+    DEFAULT_CONTROL_WS = ""
+EE_CONTROL_WS = os.getenv("EE_CONTROL_WS", DEFAULT_CONTROL_WS)
 EE_REPO = os.getenv("EE_REPO", "")
 EE_RELEASE_TAG = os.getenv("EE_RELEASE_TAG", "")
 EE_APP_NAME = os.getenv("EE_APP_NAME", "")
@@ -781,7 +805,7 @@ EE_AGENT_ID = os.getenv("EE_AGENT_ID", str(uuid.uuid4()))
 EE_BACKEND_URL = os.getenv("EE_BACKEND_URL", "http://127.0.0.1:8080")
 EE_HEALTH_INTERVAL_SEC = int(os.getenv("EE_HEALTH_INTERVAL_SEC", "60"))
 EE_RECONNECT_DELAY_SEC = int(os.getenv("EE_RECONNECT_DELAY_SEC", "5"))
-EE_RATLS_ENABLED = env_bool("EE_RATLS_ENABLED", True)
+EE_RATLS_ENABLED = env_bool("EE_RATLS_ENABLED", EE_MODE != "unsealed")
 EE_RATLS_CERT_TTL_SEC = int(os.getenv("EE_RATLS_CERT_TTL_SEC", "3600"))
 EE_RATLS_SKIP_PCCS = env_bool("EE_RATLS_SKIP_PCCS", False)
 EE_CONTROL_ALLOWLIST_PATH = os.getenv("EE_CONTROL_ALLOWLIST_PATH", "")
@@ -1723,6 +1747,10 @@ def main() -> None:
         except Exception as e:
             print(f"Requirements check failed: {e}")
             sys.exit(1)
+
+    if EE_MODE == "unsealed":
+        log("EE_MODE=unsealed: starting embedded control-plane (no RA-TLS required)")
+        start_embedded_control_plane()
 
     ensure_deployments_dir()
     log(f"Starting agent on {args.host}:{args.port}")

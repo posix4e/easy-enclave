@@ -31,3 +31,4 @@ This repo ships three GitHub workflows and a reusable composite action under `ac
 1. Run `reset-agent.yml` once to provision a host.
 2. For daily work, trigger `pipeline-dev` (or `pipeline-release` on tags); both talk to the agent over HTTPS and avoid SSH.
 3. Inspect attestation from the deployment release created by the composite action; clients validate via the SDK.
+4. For local/self-contained testing, set `EE_MODE=unsealed` so the agent runs its own control plane (RA-TLS off by default) instead of dialing the production control plane.

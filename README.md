@@ -77,6 +77,8 @@ Single-VM design (current):
 - **Python SDK** (`sdk/README.md`) - Client verification and usage
 - **Examples** (`example/README.md`) - Sample workloads and workflow wiring
 
+Agents now run in two modes: **sealed** (default, RA-TLS on, auto-connects to the production control plane at `wss://control.easyenclave.com:8088/v1/tunnel`) and **unsealed** (`EE_MODE=unsealed`, starts an embedded control plane locally with RA-TLS off by default).
+
 ## Quick Start
 
 ### 1. Set Up TDX Agent

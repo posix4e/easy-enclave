@@ -58,6 +58,8 @@ sudo systemctl status ee-agent
 sudo ./installer/install.sh --mode vm --non-interactive --vm-name ee-agent
 ```
 
+The agent starts in **sealed** mode by default (RA-TLS on, auto-connects to the production control plane). To run self-contained for local testing, set `EE_MODE=unsealed` in `/etc/systemd/system/ee-agent.service` so it hosts its own control plane with RA-TLS off.
+
 ## Agent VM
 
 To run the agent inside a dedicated VM, use `installer/host.py --agent` on a TDX host.
