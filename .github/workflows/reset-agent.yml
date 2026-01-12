@@ -42,7 +42,7 @@ on:
       contact_vm_port:
         description: "Contacts agent port (inside VM)"
         required: false
-        default: "8001"
+        default: "8000"
       contact_host_port:
         description: "Host port to forward to the contacts agent"
         required: false
@@ -118,6 +118,10 @@ jobs:
           vm-port: ${{ inputs.control_vm_port || '8000' }}
           host-port: ${{ inputs.control_host_port || '443' }}
           public-ip: ${{ inputs.control_public_ip || '57.130.10.246' }}
+          dns-name: ${{ 'control.easyenclave.com' }}
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          cloudflare-zone: ${{ secrets.CLOUDFLARE_ZONE || 'easyenclave.com' }}
+          cloudflare-zone-id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
           vm-image-tag: ${{ inputs.vm_image_tag || '' }}
 
       - name: Install contacts agent
@@ -131,4 +135,8 @@ jobs:
           vm-port: ${{ inputs.contact_vm_port || '8001' }}
           host-port: ${{ inputs.contact_host_port || '443' }}
           public-ip: ${{ inputs.contact_public_ip || '57.130.34.193' }}
+          dns-name: ${{ 'contacts.easyenclave.com' }}
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          cloudflare-zone: ${{ secrets.CLOUDFLARE_ZONE || 'easyenclave.com' }}
+          cloudflare-zone-id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
           vm-image-tag: ${{ inputs.vm_image_tag || '' }}

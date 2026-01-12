@@ -790,6 +790,7 @@ EE_CONTROL_ALLOWLIST_TAG = os.getenv("EE_CONTROL_ALLOWLIST_TAG", "")
 EE_CONTROL_ALLOWLIST_ASSET = os.getenv("EE_CONTROL_ALLOWLIST_ASSET", "agent-attestation-allowlist.json")
 EE_CONTROL_ALLOWLIST_REQUIRED = env_bool("EE_CONTROL_ALLOWLIST_REQUIRED", True)
 EE_CONTROL_ALLOWLIST_TOKEN = os.getenv("EE_CONTROL_ALLOWLIST_TOKEN", "")
+EE_ADMIN_TOKEN = os.getenv("EE_ADMIN_TOKEN", "")
 
 
 @dataclass
@@ -806,6 +807,7 @@ class Deployment:
     bundle_format: Optional[str] = None
     private_env: Optional[str] = None
     seal_vm: bool = False
+    compose_path: Optional[str] = None
     vm_name: Optional[str] = None
     vm_ip: Optional[str] = None
     quote: Optional[str] = None
@@ -1154,6 +1156,21 @@ def run_docker_compose(compose_path: str) -> None:
         raise RuntimeError(f"docker compose failed: {result.stderr.strip()}")
 
 
+def docker_compose_down(compose_path: str) -> None:
+    """Run docker compose down -v for the provided compose file."""
+
+    compose_cmd = resolve_compose_command()
+    compose_dir = str(Path(compose_path).parent)
+    result = subprocess.run(
+        [*compose_cmd, "-f", compose_path, "down", "-v"],
+        capture_output=True,
+        text=True,
+        cwd=compose_dir,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"docker compose down failed: {result.stderr.strip()}")
+
+
 def download_bundle_artifact(repo: str, artifact_id: int, token: Optional[str]) -> str:
     """Download and extract a bundle artifact, returning the extract directory."""
 
@@ -1313,6 +1330,8 @@ def run_deployment(deployment: Deployment, token: Optional[str]) -> None:
             log("vm_name ignored in single-VM mode")
 
         compose_path = write_bundle_files(bundle_dir, compose_path, extra_files)
+        deployment.compose_path = compose_path
+        save_deployment(deployment)
         compose_dir = Path(compose_path).parent
         env_public_path = None
         if bundle_meta.get("env_public"):
@@ -1389,6 +1408,63 @@ def require_bearer_token(request: web.Request) -> Optional[str]:
     return None
 
 
+def ensure_admin(request: web.Request) -> Optional[web.Response]:
+    """Enforce admin token when configured."""
+
+    if not EE_ADMIN_TOKEN:
+        return None
+    token = require_bearer_token(request)
+    if token != EE_ADMIN_TOKEN:
+        return web.json_response({"error": "unauthorized"}, status=401)
+    return None
+
+
+def cleanup_deployment_state(deployment: Deployment) -> None:
+    """Tear down a deployment and remove saved state."""
+
+    if deployment.compose_path:
+        compose_path = Path(deployment.compose_path)
+        if compose_path.exists():
+            try:
+                docker_compose_down(str(compose_path))
+            except Exception as exc:
+                log(f"compose_down_failed:{exc}")
+            parent = compose_path.parent
+            if parent.is_dir() and str(parent).startswith("/opt/workload"):
+                shutil.rmtree(parent, ignore_errors=True)
+    record = DEPLOYMENTS_DIR / f"{deployment.id}.json"
+    if record.exists():
+        try:
+            record.unlink()
+        except Exception as exc:
+            log(f"deploy_record_cleanup_failed:{exc}")
+
+
+def cleanup_all_deployments() -> list[str]:
+    """Cleanup all stored deployments; returns list of warnings."""
+
+    warnings: list[str] = []
+    for deployment in list_deployments():
+        try:
+            cleanup_deployment_state(deployment)
+        except Exception as exc:
+            warnings.append(f"{deployment.id}:{exc}")
+    # Remove any stray files if list_deployments missed them
+    for path in DEPLOYMENTS_DIR.glob("*.json"):
+        try:
+            path.unlink()
+        except Exception as exc:
+            warnings.append(f"{path.name}:{exc}")
+    # Also clear /opt/workload to reset to undeployed state
+    workload_root = Path("/opt/workload")
+    if workload_root.is_dir():
+        try:
+            shutil.rmtree(workload_root, ignore_errors=True)
+        except Exception as exc:
+            warnings.append(f"workload_cleanup:{exc}")
+    return warnings
+
+
 async def handle_deployments(_: web.Request) -> web.Response:
     deployments = [asdict(d) for d in list_deployments()]
     return web.json_response({"deployments": deployments})
@@ -1424,6 +1500,33 @@ async def handle_status(request: web.Request) -> web.Response:
 
 async def handle_admin_page(_: web.Request) -> web.Response:
     return web.FileResponse(WEBADMIN_PATH)
+
+
+async def handle_admin_undeploy(request: web.Request) -> web.Response:
+    unauthorized = ensure_admin(request)
+    if unauthorized:
+        return unauthorized
+    warnings = cleanup_all_deployments()
+    attestation = None
+    try:
+        attestation = build_attestation()
+    except Exception as exc:
+        warnings.append(f"attestation_failed:{exc}")
+    return web.json_response({"status": "ok", "warnings": warnings, "attestation": attestation})
+
+
+async def handle_admin_update(request: web.Request) -> web.Response:
+    unauthorized = ensure_admin(request)
+    if unauthorized:
+        return unauthorized
+    warnings = cleanup_all_deployments()
+    # Placeholder for future on-box update logic (e.g., pull new agent bits)
+    attestation = None
+    try:
+        attestation = build_attestation()
+    except Exception as exc:
+        warnings.append(f"attestation_failed:{exc}")
+    return web.json_response({"status": "ok", "warnings": warnings, "attestation": attestation})
 
 
 async def handle_deploy(request: web.Request) -> web.Response:
@@ -1590,6 +1693,8 @@ def build_app() -> web.Application:
             web.get("/deployments", handle_deployments),
             web.get("/status/{deployment_id}", handle_status),
             web.post("/deploy", handle_deploy),
+            web.post("/admin/undeploy", handle_admin_undeploy),
+            web.post("/admin/update", handle_admin_update),
             web.get("/admin", handle_admin_page),
         ]
     )

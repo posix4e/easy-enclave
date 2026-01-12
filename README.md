@@ -153,16 +153,15 @@ Details and inputs live in `action/README.md`.
 ```
 
 Releases:
-- `pipeline-dev` updates the `dev` allowlist release and deploys the control plane + examples.
-- `pipeline-release` runs on `v*` tags and produces release allowlists.
+- `pipeline-dev` resets agents via the admin API and redeploys the control plane + examples (no SSH).
+- `pipeline-release` runs on `v*` tags, uses the tag as `agent-release-tag`, and deploys sealed by default.
 - Each deployment publishes a `deploy-YYYYMMDD-HHMMSS` release with `attestation.json`
   (quote, endpoint, timestamp, sealed state).
 
 CI/CD lifecycle:
 - Release the agent VM image and publish the allowlist asset (`agent-attestation-allowlist.json`).
-- For development, `.github/workflows/pipeline-dev.yml` keeps the `dev` allowlist tag up to date and deploys the stack.
-- The dev pipeline (`.github/workflows/pipeline-dev.yml`) bakes the agent allowlist, deploys the control plane, and deploys the contacts example.
-- The release pipeline (`.github/workflows/pipeline-release.yml`) does the same for `v*` tags.
+- For development, `.github/workflows/pipeline-dev.yml` calls `/admin/undeploy`, then redeploys control + contacts using the composite action.
+- The release pipeline (`.github/workflows/pipeline-release.yml`) mirrors the dev flow for tags and enforces RA-TLS client certs.
 - Clients verify via the SDK using the latest deployment release attestation.
 
 Notes:
@@ -170,6 +169,7 @@ Notes:
   control plane, deploy it on a dedicated agent VM and point other workloads at a
   different agent URL.
 - App deploy workflows should pin `agent-release-tag` to a specific agent allowlist release.
+- See `docs/workflows.md` for the three workflows (installer/reset, dev, release) and `action/` usage.
 
 ## License
 

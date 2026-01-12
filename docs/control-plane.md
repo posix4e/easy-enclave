@@ -169,7 +169,7 @@ optional: update cloudflare dns via api (a/aaaa for `control`, `control-direct`,
 ```bash
 export CLOUDFLARE_API_TOKEN=...
 export CLOUDFLARE_ZONE=easyenclave.com
-python control_plane/scripts/cloudflare_dns.py --ip 1.2.3.4 --proxied --dry-run
+python action/cloudflare_dns.py --ip 1.2.3.4 --proxied --dry-run
 ```
 
 or enable auto-update on startup:

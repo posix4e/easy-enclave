@@ -1,14 +1,9 @@
 name: Pipeline Dev
 
 on:
-  workflow_dispatch:
-    inputs:
-      skip_agent_release:
-        description: "Skip dev-agent-release bake (use existing dev allowlist)"
-        required: false
-        default: "true"
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -32,145 +27,67 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install ruff pytest pytest-cov "requests>=2.28.0" "cryptography>=41.0.0" "urllib3<2"
       - name: Lint
-        run: |
-          ruff check .
+        run: ruff check .
       - name: SDK tests
-        run: |
-          PYTHONPATH=$PWD/sdk pytest sdk/tests -v
+        run: PYTHONPATH=$PWD/sdk pytest sdk/tests -v
 
-  dev-agent-release:
+  deploy-dev:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_agent_release != 'true' }}
-    timeout-minutes: 45
+    timeout-minutes: 15
     needs: lint-test
-    outputs:
-      agent_release_tag: ${{ steps.tag.outputs.tag }}
-    steps:
-      - name: Set dev tag
-        id: tag
-        run: echo "tag=dev" >> "$GITHUB_OUTPUT"
-
-      - name: Build dev allowlist on host
-        shell: bash
-        run: |
-          set -euo pipefail
-          KEY_FILE=$(mktemp)
-          SSH_ERR=$(mktemp)
-          trap 'rm -f "$KEY_FILE" "$SSH_ERR"' EXIT
-          chmod 600 "$KEY_FILE"
-          printf '%s\n' "${{ secrets.AGENT_SSH_KEY }}" > "$KEY_FILE"
-
-          RELEASE_TAG="${{ steps.tag.outputs.tag }}"
-          VM_NAME="ee-attestor"
-          VM_PORT="8000"
-          AGENT_IMAGE="/var/lib/easy-enclave/agent-pristine-dev-$(date +%Y%m%d%H%M%S).qcow2"
-
-          ALLOWLIST_B64=$(ssh -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o TCPKeepAlive=yes \
-            -p "${{ secrets.AGENT_SSH_PORT }}" -i "$KEY_FILE" \
-            "${{ secrets.AGENT_SSH_USER }}@${{ secrets.AGENT_SSH_HOST }}" \
-            "set -euo pipefail
-             sudo mkdir -p /opt/easy-enclave
-             if [ ! -d /opt/easy-enclave/.git ]; then
-               sudo git clone https://github.com/${{ github.repository }}.git /opt/easy-enclave 1>&2
-             fi
-             cd /opt/easy-enclave
-             sudo git fetch origin 1>&2
-             sudo git checkout main 1>&2
-             sudo git pull 1>&2
-
-             sudo python3 installer/host.py --build-pristine-agent-image \
-               --vm-image-tag \"$RELEASE_TAG\" \
-               --output-image \"$AGENT_IMAGE\" 1>&2
-
-             sudo python3 installer/host.py --agent \
-               --name \"$VM_NAME\" \
-               --port \"$VM_PORT\" \
-               --agent-image \"$AGENT_IMAGE\" >/tmp/ee-agent-create.json 1>&2
-
-             IP=\$(sudo virsh domifaddr \"$VM_NAME\" --source lease | awk '/ipv4/ {print \$4}' | head -n1 | cut -d/ -f1 || true)
-             if [ -z \"\$IP\" ]; then
-               echo \"Failed to determine agent VM IP\" >&2
-               exit 1
-             fi
-             ATT_URL="https://\$IP:${VM_PORT}/attestation"
-             for i in {1..30}; do
-               if curl -fsSk --max-time 2 \"\$ATT_URL\" >/tmp/attestation.json; then
-                 break
-               fi
-               sleep 2
-             done
-             if [ ! -s /tmp/attestation.json ]; then
-               echo \"Attestation endpoint not ready: \$ATT_URL\" >&2
-               exit 1
-             fi
-             export PYTHONPATH="/opt/easy-enclave/sdk"
-             python3 installer/scripts/generate_allowlist.py \
-               --attestation-url \"\$ATT_URL\" \
-               --insecure \
-               --release-tag \"$RELEASE_TAG\" \
-               --output /tmp/agent-attestation-allowlist.json 1>&2
-             base64 -w0 /tmp/agent-attestation-allowlist.json" 2> "$SSH_ERR") || {
-            echo "Allowlist build failed; SSH stderr:" >&2
-            cat "$SSH_ERR" >&2 || true
-            exit 1
-          }
-
-          echo "$ALLOWLIST_B64" | base64 -d > /tmp/agent-attestation-allowlist.json
-
-      - name: Publish dev allowlist
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          TAG="${{ steps.tag.outputs.tag }}"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" /tmp/agent-attestation-allowlist.json#agent-attestation-allowlist.json --clobber
-          else
-            gh release create "$TAG" /tmp/agent-attestation-allowlist.json#agent-attestation-allowlist.json \
-              -t "$TAG" -n "Dev agent allowlist"
-          fi
-
-  deploy-control-plane:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    needs: [lint-test, dev-agent-release]
-    if: ${{ always() && needs.lint-test.result == 'success' && (needs.dev-agent-release.result == 'success' || inputs.skip_agent_release == 'true') }}
+    env:
+      CONTROL_URL: ${{ secrets.AGENT_URL_CONTROL || secrets.AGENT_URL }}
+      CONTACTS_URL: ${{ secrets.AGENT_URL_CONTACTS || secrets.AGENT_URL }}
+      ADMIN_TOKEN: ${{ secrets.AGENT_ADMIN_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - name: Download control plane wheels
+
+      - name: Ensure agent URLs are configured
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p control_plane/wheels
-          python -m pip download --only-binary=:all: --dest control_plane/wheels -r control_plane/requirements.runtime.txt
-      - name: Generate control plane debug SSH key
-        id: control-ssh
+          if [ -z "${CONTROL_URL:-}" ]; then
+            echo "CONTROL_URL is required (set AGENT_URL_CONTROL or AGENT_URL secret)"
+            exit 1
+          fi
+          if [ -z "${CONTACTS_URL:-}" ]; then
+            echo "CONTACTS_URL is required (set AGENT_URL_CONTACTS or AGENT_URL secret)"
+            exit 1
+          fi
+          if [ -z "${ADMIN_TOKEN:-}" ]; then
+            echo "ADMIN_TOKEN missing; admin endpoints will be unauthenticated"
+          fi
+
+      - name: Undeploy control-plane agent
         shell: bash
         run: |
           set -euo pipefail
-          ssh-keygen -t ed25519 -f /tmp/control_plane_debug -N ""
-          cp /tmp/control_plane_debug.pub authorized_keys
+          AUTH=()
+          if [ -n "${ADMIN_TOKEN:-}" ]; then
+            AUTH+=( -H "Authorization: Bearer ${ADMIN_TOKEN}" )
+          fi
+          curl -sS -X POST "${AUTH[@]}" "${CONTROL_URL}/admin/undeploy" || true
+
+      - name: Undeploy contacts agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          AUTH=()
+          if [ -n "${ADMIN_TOKEN:-}" ]; then
+            AUTH+=( -H "Authorization: Bearer ${ADMIN_TOKEN}" )
+          fi
+          curl -sS -X POST "${AUTH[@]}" "${CONTACTS_URL}/admin/undeploy" || true
+
       - name: Deploy control plane
-        id: deploy-control
         uses: ./action
         with:
-          agent-url: ${{ secrets.AGENT_URL_CONTROL || secrets.AGENT_URL }}
+          agent-url: ${{ env.CONTROL_URL }}
           agent-ratls: 'true'
           bundle-inline: 'true'
-          agent-release-tag: ${{ needs.dev-agent-release.outputs.agent_release_tag || 'dev' }}
-          agent-attestation-via-ssh: 'true'
-          agent-ssh-host: ${{ secrets.AGENT_SSH_HOST }}
-          agent-ssh-user: ${{ secrets.AGENT_SSH_USER }}
-          agent-ssh-port: ${{ secrets.AGENT_SSH_PORT }}
-          agent-ssh-key: ${{ secrets.AGENT_SSH_KEY }}
           docker-compose: control_plane/docker-compose.yml
-          public-files: control_plane,sdk,authorized_keys
-          enable-ssh: 'true'
+          public-files: control_plane,sdk
           private-env: |
-            EE_GITHUB_TOKEN=${{ secrets.CONTROL_GITHUB_TOKEN }}
+            EE_GITHUB_TOKEN=${{ secrets.CONTROL_GITHUB_TOKEN || github.token }}
             EE_ADMIN_TOKEN=${{ secrets.CONTROL_ADMIN_TOKEN }}
             EE_RATLS_REQUIRE_CLIENT_CERT=false
             EE_DNS_UPDATE_ON_START=true
@@ -181,110 +98,14 @@ jobs:
             CLOUDFLARE_ZONE=${{ secrets.CLOUDFLARE_ZONE }}
             CLOUDFLARE_ZONE_ID=${{ secrets.CLOUDFLARE_ZONE_ID }}
           endpoint-port: 9090
-      - name: Forward control plane ports
-        if: ${{ always() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          KEY_FILE=$(mktemp)
-          chmod 600 "$KEY_FILE"
-          printf '%s\n' "${{ secrets.AGENT_SSH_KEY }}" > "$KEY_FILE"
-          ssh -o StrictHostKeyChecking=no -p "${{ secrets.AGENT_SSH_PORT }}" -i "$KEY_FILE" \
-            "${{ secrets.AGENT_SSH_USER }}@${{ secrets.AGENT_SSH_HOST }}" \
-            "set -euo pipefail
-             VM_NAME=ee-attestor
-             VM_IP=\$(sudo virsh domifaddr \"\$VM_NAME\" --source lease | awk '/ipv4/ {print \$4}' | head -n1 | cut -d/ -f1)
-             if [ -z \"\$VM_IP\" ]; then
-               echo \"No VM IP for \$VM_NAME\" >&2
-               exit 1
-             fi
-             ensure_rule() {
-               local table=\$1
-               shift
-               if [ \"\$table\" = \"filter\" ]; then
-                 if ! sudo iptables -C \"\$@\" 2>/dev/null; then
-                   sudo iptables -A \"\$@\"
-                 fi
-               else
-                 if ! sudo iptables -t \"\$table\" -C \"\$@\" 2>/dev/null; then
-                   sudo iptables -t \"\$table\" -A \"\$@\"
-                 fi
-               fi
-             }
-             for port in 80 443 8088 9090; do
-               ensure_rule nat PREROUTING -p tcp --dport \"\$port\" -j DNAT --to-destination \"\$VM_IP:\$port\"
-               ensure_rule nat OUTPUT -p tcp -d 127.0.0.1 --dport \"\$port\" -j DNAT --to-destination \"\$VM_IP:\$port\"
-               ensure_rule filter LIBVIRT_FWI -p tcp -d \"\$VM_IP\" --dport \"\$port\" -j ACCEPT
-               ensure_rule filter FORWARD -p tcp -d \"\$VM_IP\" --dport \"\$port\" -j ACCEPT
-               echo \"forwarded \$port -> \$VM_IP:\$port\"
-             done
-             for port in 80 443 8088 9090; do
-               echo \"vm \$VM_IP port \$port\"
-               curl -sS --max-time 2 \"http://\$VM_IP:\$port/health\" || echo \"vm port \$port failed\"
-             done"
-          rm -f "$KEY_FILE"
-      - name: Inspect control plane VM
-        if: ${{ always() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          VM_IP="${{ steps.deploy-control.outputs.vm_ip }}"
-          if [ -z "$VM_IP" ] || [ "$VM_IP" = "null" ]; then
-            echo "vm_ip missing; skipping ssh inspection"
-            exit 0
-          fi
-          if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i /tmp/control_plane_debug "ubuntu@${VM_IP}" \
-            "sudo ss -lntp | egrep ':80|:443|:8088|:9090' || true; \
-             command -v docker || true; \
-             docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' || true; \
-             docker ps -a --format '{{.ID}} {{.Names}} {{.Status}}' | egrep 'caddy|control' || true; \
-             docker ps --filter 'name=caddy' -q | head -n1 | xargs -r docker logs --tail 200 || true"; then
-            echo "ssh inspection failed"
-          fi
-      - name: Inspect control plane ports
-        if: ${{ always() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          KEY_FILE=$(mktemp)
-          chmod 600 "$KEY_FILE"
-          printf '%s\n' "${{ secrets.AGENT_SSH_KEY }}" > "$KEY_FILE"
-          ssh -o StrictHostKeyChecking=no -p "${{ secrets.AGENT_SSH_PORT }}" -i "$KEY_FILE" \
-            "${{ secrets.AGENT_SSH_USER }}@${{ secrets.AGENT_SSH_HOST }}" \
-            "sudo ss -lntp | egrep ':80|:443|:8000|:8088|:9090' || true; \
-             command -v docker || true; \
-             docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' || true; \
-             sudo env PATH=\"$PATH\" docker ps --format '{{.ID}} {{.Names}} {{.Ports}}' || true; \
-             sudo env PATH=\"$PATH\" docker ps -a --format '{{.ID}} {{.Names}} {{.Status}}' | egrep 'caddy|control' || true; \
-             echo '=== virsh list ==='; sudo virsh list --all || true; \
-             echo '=== domifaddr ee-attestor ==='; sudo virsh domifaddr ee-attestor --source lease || true; \
-             echo '=== domifaddr ee-workload ==='; sudo virsh domifaddr ee-workload --source lease || true; \
-             echo '=== iptables nat prerouting ==='; sudo iptables -t nat -L PREROUTING -n --line-numbers | egrep ':(80|443|8000|8088|9090)' || true; \
-             sudo tail -n 200 /var/log/libvirt/qemu/ee-attestor-serial.log || true; \
-             sudo tail -n 200 /var/log/libvirt/qemu/ee-workload-serial.log || true"
-          rm -f "$KEY_FILE"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
-  deploy-contacts:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    needs: [dev-agent-release, deploy-control-plane]
-    if: ${{ always() && needs.deploy-control-plane.result == 'success' && (needs.dev-agent-release.result == 'success' || inputs.skip_agent_release == 'true') }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Deploy contacts example
+      - name: Deploy contacts app
         uses: ./action
         with:
-          agent-url: ${{ secrets.AGENT_URL_CONTACTS || secrets.AGENT_URL }}
+          agent-url: ${{ env.CONTACTS_URL }}
           agent-ratls: 'true'
           bundle-inline: 'true'
-          agent-release-tag: ${{ needs.dev-agent-release.outputs.agent_release_tag || 'dev' }}
-          agent-attestation-via-ssh: 'true'
-          agent-ssh-host: ${{ secrets.AGENT_SSH_HOST }}
-          agent-ssh-user: ${{ secrets.AGENT_SSH_USER }}
-          agent-ssh-port: ${{ secrets.AGENT_SSH_PORT }}
-          agent-ssh-key: ${{ secrets.AGENT_SSH_KEY }}
-          agent-vm-name: ${{ secrets.AGENT_VM_NAME }}
-          agent-vm-port: ${{ secrets.AGENT_VM_PORT }}
           docker-compose: ./example/contact-compose.yml
           public-env: |
             PUBLIC_GREETING=Hello from Easy Enclave
@@ -295,24 +116,4 @@ jobs:
           unseal-password: ${{ secrets.DEMO_UNSEAL_PASSWORD }}
           github-developer: posix4e
           seal-vm: 'false'
-          github-token: ${{ github.token }}
-      - name: Check contact service health
-        if: ${{ always() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          KEY_FILE=$(mktemp)
-          chmod 600 "$KEY_FILE"
-          printf '%s\n' "${{ secrets.AGENT_SSH_KEY }}" > "$KEY_FILE"
-          ssh -o StrictHostKeyChecking=no -p "${{ secrets.AGENT_SSH_PORT }}" -i "$KEY_FILE" \
-            "${{ secrets.AGENT_SSH_USER }}@${{ secrets.AGENT_SSH_HOST }}" \
-            "set -euo pipefail
-             VM_NAME=\"${{ secrets.AGENT_VM_NAME }}\"
-             VM_IP=\$(sudo virsh domifaddr \"\$VM_NAME\" --source lease | awk '/ipv4/ {print \$4}' | head -n1 | cut -d/ -f1)
-             if [ -z \"\$VM_IP\" ]; then
-               echo \"No VM IP for \$VM_NAME\" >&2
-               exit 1
-             fi
-             curl -fsS --max-time 5 \"http://\$VM_IP:8080/health\" >/dev/null
-             echo \"contact health ok\""
-          rm -f "$KEY_FILE"
+          github-token: ${{ secrets.GITHUB_TOKEN }}

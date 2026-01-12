@@ -740,7 +740,7 @@ def run_dns_update() -> None:
     if not DNS_AUTO_IP and not DNS_IP and not DNS_IPV6:
         raise RuntimeError("dns_update_missing_ip")
 
-    script_path = Path(__file__).resolve().parent / "scripts" / "cloudflare_dns.py"
+    script_path = Path(__file__).resolve().parent.parent / "action" / "cloudflare_dns.py"
     cmd = [sys.executable, str(script_path)]
     if DNS_IP:
         cmd.extend(["--ip", DNS_IP])
