@@ -36,15 +36,20 @@ jobs:
     timeout-minutes: 15
     needs: lint-test
     env:
+      CONTROL_URL: ${{ secrets.AGENT_URL_CONTROL || secrets.AGENT_URL }}
       CONTACTS_URL: ${{ secrets.AGENT_URL_CONTACTS || secrets.AGENT_URL }}
       ADMIN_TOKEN: ${{ secrets.AGENT_ADMIN_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Ensure agent URL is configured
+      - name: Ensure agent URLs are configured
         shell: bash
         run: |
           set -euo pipefail
+          if [ -z "${CONTROL_URL:-}" ]; then
+            echo "CONTROL_URL is required (set AGENT_URL_CONTROL or AGENT_URL secret)"
+            exit 1
+          fi
           if [ -z "${CONTACTS_URL:-}" ]; then
             echo "CONTACTS_URL is required (set AGENT_URL_CONTACTS or AGENT_URL secret)"
             exit 1
@@ -52,6 +57,16 @@ jobs:
           if [ -z "${ADMIN_TOKEN:-}" ]; then
             echo "ADMIN_TOKEN missing; admin endpoints will be unauthenticated"
           fi
+
+      - name: Undeploy control-plane agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          AUTH=()
+          if [ -n "${ADMIN_TOKEN:-}" ]; then
+            AUTH+=( -H "Authorization: Bearer ${ADMIN_TOKEN}" )
+          fi
+          curl -sS -X POST "${AUTH[@]}" "${CONTROL_URL}/admin/undeploy" || true
 
       - name: Undeploy contacts agent
         shell: bash
@@ -62,6 +77,28 @@ jobs:
             AUTH+=( -H "Authorization: Bearer ${ADMIN_TOKEN}" )
           fi
           curl -sS -X POST "${AUTH[@]}" "${CONTACTS_URL}/admin/undeploy" || true
+
+      - name: Deploy control plane
+        uses: ./action
+        with:
+          agent-url: ${{ env.CONTROL_URL }}
+          agent-ratls: 'true'
+          bundle-inline: 'true'
+          docker-compose: control_plane/docker-compose.yml
+          public-files: control_plane,sdk
+          private-env: |
+            EE_GITHUB_TOKEN=${{ secrets.CONTROL_GITHUB_TOKEN || github.token }}
+            EE_ADMIN_TOKEN=${{ secrets.CONTROL_ADMIN_TOKEN }}
+            EE_RATLS_REQUIRE_CLIENT_CERT=false
+            EE_DNS_UPDATE_ON_START=true
+            EE_DNS_AUTO_IP=true
+            EE_DNS_FAIL_ON_ERROR=false
+            EE_DNS_PROXIED=false
+            CLOUDFLARE_API_TOKEN=${{ secrets.CLOUDFLARE_API_TOKEN }}
+            CLOUDFLARE_ZONE=${{ secrets.CLOUDFLARE_ZONE }}
+            CLOUDFLARE_ZONE_ID=${{ secrets.CLOUDFLARE_ZONE_ID }}
+          endpoint-port: 9090
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Deploy contacts app
         uses: ./action
