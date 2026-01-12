@@ -96,7 +96,7 @@ runs:
         cd /opt/easy-enclave
         sudo git fetch --tags origin
         sudo git checkout '${GITHUB_SHA}'
-        sudo chmod +x install-agent.sh installer/install.sh
+        sudo chmod +x installer/install.sh
         ARGS=(--non-interactive --vm-name '${VM_NAME}' --vm-port '${VM_PORT}')
         if [ -n '${HOST_PORT}' ]; then
           ARGS+=(--host-port '${HOST_PORT}')
@@ -107,7 +107,7 @@ runs:
         if [ -n '${VM_IMAGE_TAG}' ]; then
           ARGS+=(--vm-image-tag '${VM_IMAGE_TAG}')
         fi
-        sudo ./install-agent.sh "\${ARGS[@]}"
+        sudo ./installer/install.sh "\${ARGS[@]}"
         if [ -n '${CF_TOKEN}' ] && [ -n '${DNS_NAME}' ]; then
           PROXY_FLAG="--dns-only"
           if [ '${CF_PROXIED}' = 'true' ]; then

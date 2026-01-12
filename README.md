@@ -17,6 +17,8 @@ EasyEnclave is a hardware-attested confidential computing platform. Your code ru
 
 **Model**: 1 TDX host = 1 GitHub repo = 1 attested service
 
+This repository is the single source for the agent runtime, control plane, installer, and Python SDK. The installer clones this repo on the host, so a given commit ties the deployed agent, control-plane bundle, and SDK verification logic together.
+
 Single-VM design (current):
 - The agent runs inside the TD VM and launches `docker compose` in that same VM.
 - The TD VM generates the TDX quote used for attestation.
@@ -87,7 +89,7 @@ Prerequisites (host):
 See `installer/README.md` for host setup details. From the repo root:
 
 ```bash
-sudo ./install-agent.sh
+sudo ./installer/install.sh --non-interactive
 ```
 
 Multiple agents per host are supported by running multiple agent VMs with unique

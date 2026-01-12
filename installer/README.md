@@ -48,7 +48,7 @@ sudo chmod 666 /dev/vhost-vsock /dev/vsock
 From the repo root, run the turnkey installer:
 
 ```bash
-sudo ./install-agent.sh
+sudo ./installer/install.sh --non-interactive
 sudo systemctl status ee-agent
 ```
 
