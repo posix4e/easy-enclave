@@ -121,6 +121,27 @@ jobs:
             echo "ADMIN_TOKEN missing; admin endpoints will be unauthenticated"
           fi
 
+      - name: Normalize agent URLs (prefer 443/HTTPS)
+        shell: bash
+        run: |
+          set -euo pipefail
+          normalize() {
+            local url="$1"
+            local fallback="$2"
+            if [ -z "$url" ]; then
+              url="$fallback"
+            fi
+            if [[ "$url" =~ ^https?://[^/]+:8000(/.*)?$ ]]; then
+              local rest="${url#*:8000}"
+              url="${url%:8000*}:443${rest}"
+            fi
+            echo "$url"
+          }
+          CONTROL_URL=$(normalize "${CONTROL_URL:-}" "https://control.easyenclave.com")
+          CONTACTS_URL=$(normalize "${CONTACTS_URL:-}" "https://contacts.easyenclave.com")
+          echo "CONTROL_URL=$CONTROL_URL" >> "$GITHUB_ENV"
+          echo "CONTACTS_URL=$CONTACTS_URL" >> "$GITHUB_ENV"
+
       - name: Reset control-plane agent
         shell: bash
         run: |
