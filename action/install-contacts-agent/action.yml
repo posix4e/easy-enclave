@@ -119,6 +119,6 @@ runs:
             --zone-id '${CF_ZONE_ID}' \
             --hosts '${DNS_NAME}' \
             --ip '${PUBLIC_IP}' \
-            ${PROXY_FLAG}
+            \${PROXY_FLAG}
         fi
         EOF
