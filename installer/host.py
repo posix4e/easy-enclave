@@ -1144,13 +1144,11 @@ def setup_port_forward(
             parts = line.split()
             if not parts or not parts[0].isdigit():
                 continue
-            if (
-                f"dpt:{host_port}" in line
-                and "DNAT" in line
-                and f"to:{vm_ip}:{vm_port}" in line
-                and (not public_ip or public_ip in line)
-            ):
-                rule_numbers.append(int(parts[0]))
+            if f"dpt:{host_port}" not in line or "DNAT" not in line:
+                continue
+            if public_ip and public_ip not in line:
+                continue
+            rule_numbers.append(int(parts[0]))
         for number in reversed(rule_numbers):
             subprocess.run(
                 ['sudo', 'iptables', '-t', 'nat', '-D', chain, str(number)],
@@ -1196,8 +1194,16 @@ def setup_port_forward(
     remove_nat_rules('OUTPUT')
     remove_forward_rules()
 
-    # Add PREROUTING rule for incoming traffic
-    add_nat_rule('PREROUTING', public_ip)
+    # Add PREROUTING rule for incoming traffic (insert at top to avoid stale rules)
+    result = subprocess.run(
+        ['sudo', 'iptables', '-t', 'nat', '-I', 'PREROUTING', '1', '-p', 'tcp']
+        + (['-d', public_ip] if public_ip else [])
+        + ['--dport', str(host_port), '-j', 'DNAT', '--to-destination', f'{vm_ip}:{vm_port}'],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to insert PREROUTING rule: {result.stderr}")
 
     # Add OUTPUT rule so local traffic can reach the VM (used by SSH attestation)
     output_destination = public_ip if public_ip else '127.0.0.1'
