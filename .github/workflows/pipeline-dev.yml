@@ -14,6 +14,69 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  reset-agents:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: lint-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Uninstall contacts agent
+        uses: ./action/uninstall-agent
+        with:
+          ssh-host: ${{ secrets.CONTACT_SSH_HOST || secrets.AGENT_SSH_HOST }}
+          ssh-port: ${{ secrets.CONTACT_SSH_PORT || secrets.AGENT_SSH_PORT || '22' }}
+          ssh-user: ${{ secrets.CONTACT_SSH_USER || secrets.AGENT_SSH_USER || 'ubuntu' }}
+          ssh-key: ${{ secrets.CONTACT_SSH_KEY || secrets.AGENT_SSH_KEY }}
+          vm-name: ee-contacts
+          vm-port: 8000
+          host-port: 443
+          public-ip: 57.130.34.193
+
+      - name: Uninstall control-plane agent
+        uses: ./action/uninstall-agent
+        with:
+          ssh-host: ${{ secrets.AGENT_SSH_HOST }}
+          ssh-port: ${{ secrets.AGENT_SSH_PORT || '22' }}
+          ssh-user: ${{ secrets.AGENT_SSH_USER || 'ubuntu' }}
+          ssh-key: ${{ secrets.AGENT_SSH_KEY }}
+          vm-name: ee-control
+          vm-port: 8000
+          host-port: 443
+          public-ip: 57.130.10.246
+
+      - name: Install control-plane agent
+        uses: ./action/install-control-agent
+        with:
+          ssh-host: ${{ secrets.AGENT_SSH_HOST }}
+          ssh-port: ${{ secrets.AGENT_SSH_PORT || '22' }}
+          ssh-user: ${{ secrets.AGENT_SSH_USER || 'ubuntu' }}
+          ssh-key: ${{ secrets.AGENT_SSH_KEY }}
+          vm-name: ee-control
+          vm-port: 8000
+          host-port: 443
+          public-ip: 57.130.10.246
+          dns-name: control.easyenclave.com
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          cloudflare-zone: ${{ secrets.CLOUDFLARE_ZONE || 'easyenclave.com' }}
+          cloudflare-zone-id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+
+      - name: Install contacts agent
+        uses: ./action/install-contacts-agent
+        with:
+          ssh-host: ${{ secrets.CONTACT_SSH_HOST || secrets.AGENT_SSH_HOST }}
+          ssh-port: ${{ secrets.CONTACT_SSH_PORT || secrets.AGENT_SSH_PORT || '22' }}
+          ssh-user: ${{ secrets.CONTACT_SSH_USER || secrets.AGENT_SSH_USER || 'ubuntu' }}
+          ssh-key: ${{ secrets.CONTACT_SSH_KEY || secrets.AGENT_SSH_KEY }}
+          vm-name: ee-contacts
+          vm-port: 8000
+          host-port: 443
+          public-ip: 57.130.34.193
+          dns-name: contacts.easyenclave.com
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          cloudflare-zone: ${{ secrets.CLOUDFLARE_ZONE || 'easyenclave.com' }}
+          cloudflare-zone-id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+
   lint-test:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -34,7 +97,7 @@ jobs:
   deploy-dev:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: lint-test
+    needs: [lint-test, reset-agents]
     env:
       CONTROL_URL: ${{ secrets.AGENT_URL_CONTROL || secrets.AGENT_URL }}
       CONTACTS_URL: ${{ secrets.AGENT_URL_CONTACTS || secrets.AGENT_URL }}
