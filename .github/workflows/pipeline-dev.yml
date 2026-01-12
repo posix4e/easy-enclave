@@ -58,6 +58,26 @@ jobs:
             echo "ADMIN_TOKEN missing; admin endpoints will be unauthenticated"
           fi
 
+      - name: Reset control-plane agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          AUTH=()
+          if [ -n "${ADMIN_TOKEN:-}" ]; then
+            AUTH+=( -H "Authorization: Bearer ${ADMIN_TOKEN}" )
+          fi
+          curl --max-time 30 -sS -X POST "${AUTH[@]}" "${CONTROL_URL}/admin/undeploy" || { echo "control-plane reset timed out/failed, continuing"; }
+
+      - name: Reset contacts agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          AUTH=()
+          if [ -n "${ADMIN_TOKEN:-}" ]; then
+            AUTH+=( -H "Authorization: Bearer ${ADMIN_TOKEN}" )
+          fi
+          curl --max-time 30 -sS -X POST "${AUTH[@]}" "${CONTACTS_URL}/admin/undeploy" || { echo "contacts reset timed out/failed, continuing"; }
+
       - name: Deploy control plane
         uses: ./action
         with:
