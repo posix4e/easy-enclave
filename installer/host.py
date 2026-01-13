@@ -926,7 +926,7 @@ def build_pristine_agent_image(
     tdx_guest_version: str = DEFAULT_TDX_GUEST_VERSION,
     agent_port: int = 8000,
     output_path: str | None = None,
-    timeout: int = 1200,
+    timeout: int = 3600,
 ) -> dict:
     """Build a pristine agent image by baking cloud-init into a base TD image."""
     log("Checking requirements...")
@@ -1690,7 +1690,7 @@ if __name__ == '__main__':
     parser.add_argument('--tdx-repo-ref', default='main', help='canonical/tdx repo ref (default: main)')
     parser.add_argument('--tdx-guest-version', default=DEFAULT_TDX_GUEST_VERSION, help='TD guest Ubuntu version')
     parser.add_argument('--output-image', default='', help='Output path for pristine agent image')
-    parser.add_argument('--bake-timeout', type=int, default=1200, help='Bake timeout seconds (default: 1200)')
+    parser.add_argument('--bake-timeout', type=int, default=3600, help='Bake timeout seconds (default: 3600)')
     args = parser.parse_args()
 
     is_agent_mode = args.agent or args.build_pristine_agent_image

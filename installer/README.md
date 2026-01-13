@@ -105,6 +105,7 @@ sudo python3 installer/host.py \
 
 The repo clone is stored in `/var/lib/easy-enclave/tdx` by default.
 If `--vm-image-sha256` is omitted, the base image sha256 is computed automatically.
+If the bake takes longer than expected, extend the wait with `--bake-timeout` (seconds).
 
 ## Allowlist Generation
 
