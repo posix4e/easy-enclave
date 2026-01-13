@@ -821,7 +821,12 @@ def start_agent_vm_from_image(
     log("Waiting for agent to be ready...")
     if port != 8000:
         log("Warning: agent images are often built for port 8000; ensure the image matches --port")
-    wait_for_ready(ip, port=port, timeout=300)
+    try:
+        wait_for_ready(ip, port=port, timeout=600)
+    except TimeoutError as exc:
+        log(str(exc))
+        log_serial_tail(name)
+        raise
 
     log("Setting up port forwarding...")
     host_port = setup_port_forward(ip, public_port, host_port or public_port, public_ip)
