@@ -24,6 +24,7 @@ TDX_REPO_REF="main"
 TDX_REPO_DIR=""
 OUTPUT_IMAGE=""
 SKIP_BUILD=0
+FORCE_REBUILD=0
 BASE_IMAGE=""
 CONTROL_PLANE=0
 
@@ -53,6 +54,7 @@ Options:
   --tdx-repo-dir DIR       canonical/tdx repo dir (optional)
   --output-image PATH      Output path for pristine agent image
   --skip-build             Do not build pristine image
+  --force-rebuild          Rebuild pristine image even if it already exists
   --base-image PATH        Base TD image path override
   -h, --help               Show this help
 USAGE
@@ -78,6 +80,7 @@ while [ "$#" -gt 0 ]; do
     --tdx-repo-dir) TDX_REPO_DIR="$2"; shift 2;;
     --output-image) OUTPUT_IMAGE="$2"; shift 2;;
     --skip-build) SKIP_BUILD=1; shift;;
+    --force-rebuild) FORCE_REBUILD=1; shift;;
     --base-image) BASE_IMAGE="$2"; shift 2;;
     -h|--help) usage; exit 0;;
     *) echo "Unknown option: $1"; usage; exit 1;;
@@ -220,6 +223,15 @@ fi
 
 if [ -z "$OUTPUT_IMAGE" ]; then
   OUTPUT_IMAGE="/var/lib/easy-enclave/agent-pristine-${VM_IMAGE_TAG}.qcow2"
+fi
+
+if [ "$FORCE_REBUILD" -eq 1 ] && [ "$SKIP_BUILD" -eq 1 ] && [ -z "$AGENT_IMAGE" ]; then
+  echo "Error: --force-rebuild requires a build; remove --skip-build or supply --agent-image."
+  exit 1
+fi
+
+if [ "$FORCE_REBUILD" -eq 1 ] && [ -z "$AGENT_IMAGE" ]; then
+  rm -f "$OUTPUT_IMAGE"
 fi
 
 if [ -z "$AGENT_IMAGE" ]; then

@@ -71,6 +71,10 @@ on:
         description: "Tag for the new pristine agent images"
         required: false
         default: ""
+      force_rebuild:
+        description: "Force rebuild pristine images even if they exist (true/false)"
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -124,6 +128,7 @@ jobs:
           cloudflare-zone: ${{ secrets.CLOUDFLARE_ZONE || 'easyenclave.com' }}
           cloudflare-zone-id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
           vm-image-tag: ${{ inputs.vm_image_tag || '' }}
+          force-rebuild: ${{ inputs.force_rebuild || 'false' }}
 
       - name: Resolve control websocket for contacts
         id: control-ws
@@ -157,3 +162,4 @@ jobs:
           cloudflare-zone-id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
           vm-image-tag: ${{ inputs.vm_image_tag || '' }}
           control-ws: ${{ steps.control-ws.outputs.control_ws }}
+          force-rebuild: ${{ inputs.force_rebuild || 'false' }}

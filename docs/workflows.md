@@ -5,7 +5,7 @@ This repo ships three GitHub workflows and a reusable composite action under `ac
 ## Installer / Reset (SSH)
 - File: `.github/workflows/reset-agent.yml`
 - Purpose: full reset on a host via SSH (uninstall everything, reinstall control-plane, then install contacts).
-- Inputs: `AGENT_SSH_HOST`, `AGENT_SSH_USER`, `AGENT_SSH_PORT`, `AGENT_SSH_KEY`, and optional `CONTROL_PUBLIC_IP` for port forwarding.
+- Inputs: `AGENT_SSH_HOST`, `AGENT_SSH_USER`, `AGENT_SSH_PORT`, `AGENT_SSH_KEY`, optional `CONTROL_PUBLIC_IP` for port forwarding, and `vm_image_tag`/`force_rebuild` when you want a fresh pristine image.
 - DNS/ports: uses the installer to set up iptables forwarding; if `CLOUDFLARE_*` secrets are present, it also upserts `control.easyenclave.com`, `admin-control.easyenclave.com`, `contacts.easyenclave.com`, and `admin-contacts.easyenclave.com` to the provided public IPs.
 - When to use: new hosts, or when the agent API is unreachable.
 - Defaults: agent main listens on 8000 inside the VM; nginx listens on 443 and routes by SNI. Host port 443 is forwarded to VM port 443. Admin traffic uses the `admin-<host>` vhost and is terminated by nginx (non RA-TLS).

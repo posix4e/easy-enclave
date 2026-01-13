@@ -68,6 +68,10 @@ inputs:
     description: "Tag for pristine image build"
     required: false
     default: ""
+  force-rebuild:
+    description: "Force rebuild the pristine image even if it exists"
+    required: false
+    default: "false"
   app-name:
     description: "App name for control-plane registration"
     required: false
@@ -121,6 +125,7 @@ runs:
         PROXY_PORT: ${{ inputs.proxy-port }}
         PUBLIC_IP: ${{ inputs.public-ip }}
         VM_IMAGE_TAG: ${{ inputs.vm-image-tag }}
+        FORCE_REBUILD: ${{ inputs.force-rebuild }}
         APP_NAME: ${{ inputs.app-name }}
         APP_REPO: ${{ inputs.app-repo || github.repository }}
         APP_RELEASE_TAG: ${{ inputs.app-release-tag || inputs.vm-image-tag || 'dev-latest' }}
@@ -157,6 +162,9 @@ runs:
         fi
         if [ -n '${VM_IMAGE_TAG}' ]; then
           ARGS+=(--vm-image-tag '${VM_IMAGE_TAG}')
+        fi
+        if [ '${FORCE_REBUILD}' = 'true' ]; then
+          ARGS+=(--force-rebuild)
         fi
         sudo --preserve-env=EE_APP_NAME,EE_REPO,EE_RELEASE_TAG,EE_CONTROL_WS,EE_CONTROL_ALLOWLIST_REPO,EE_CONTROL_ALLOWLIST_TAG ./installer/install.sh "\${ARGS[@]}"
         if [ -n '${CF_TOKEN}' ] && [ -n '${DNS_NAME}' ]; then

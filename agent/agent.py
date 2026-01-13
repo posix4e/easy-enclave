@@ -1040,7 +1040,9 @@ def ensure_ratls_material(common_name: str = "easyenclave-agent") -> RatlsMateri
 
 
 def build_ratls_server_context(material: RatlsMaterial) -> ssl.SSLContext:
-    context = ssl.create_default_context(purpose=ssl.Purpose.CLIENT_AUTH)
+    # Use a bare server context so self-signed RA-TLS client certs are not
+    # rejected by the default CA store before we verify them ourselves.
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.check_hostname = False
     context.verify_mode = ssl.CERT_OPTIONAL if EE_RATLS_REQUIRE_CLIENT_CERT else ssl.CERT_NONE
     context.load_cert_chain(certfile=str(material.cert_path), keyfile=str(material.key_path))

@@ -58,7 +58,9 @@ def ensure_ratls_material(common_name: str, ttl_seconds: int) -> RatlsMaterial:
 
 
 def build_server_ssl_context(material: RatlsMaterial, require_client_cert: bool) -> ssl.SSLContext:
-    context = ssl.create_default_context(purpose=ssl.Purpose.CLIENT_AUTH)
+    # Use a bare server context so self-signed RA-TLS client certs are not
+    # rejected by the default CA store before we verify them ourselves.
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.check_hostname = False
     context.verify_mode = ssl.CERT_OPTIONAL if require_client_cert else ssl.CERT_NONE
     context.load_cert_chain(certfile=str(material.cert_path), keyfile=str(material.key_path))
