@@ -68,6 +68,30 @@ inputs:
     description: "Tag for pristine image build"
     required: false
     default: ""
+  app-name:
+    description: "App name for control-plane registration"
+    required: false
+    default: "contacts"
+  app-repo:
+    description: "Repo for control-plane registration (owner/repo)"
+    required: false
+    default: ""
+  app-release-tag:
+    description: "Release tag for control-plane registration"
+    required: false
+    default: ""
+  control-ws:
+    description: "Control-plane websocket URL"
+    required: false
+    default: ""
+  allowlist-repo:
+    description: "Allowlist repo for control-plane verification"
+    required: false
+    default: ""
+  allowlist-tag:
+    description: "Allowlist release tag for control-plane verification"
+    required: false
+    default: ""
 
 runs:
   using: "composite"
@@ -97,6 +121,12 @@ runs:
         PROXY_PORT: ${{ inputs.proxy-port }}
         PUBLIC_IP: ${{ inputs.public-ip }}
         VM_IMAGE_TAG: ${{ inputs.vm-image-tag }}
+        APP_NAME: ${{ inputs.app-name }}
+        APP_REPO: ${{ inputs.app-repo || github.repository }}
+        APP_RELEASE_TAG: ${{ inputs.app-release-tag || inputs.vm-image-tag || 'dev-latest' }}
+        CONTROL_WS: ${{ inputs.control-ws || 'wss://control.easyenclave.com/v1/tunnel' }}
+        ALLOWLIST_REPO: ${{ inputs.allowlist-repo || inputs.app-repo || github.repository }}
+        ALLOWLIST_TAG: ${{ inputs.allowlist-tag || inputs.app-release-tag || inputs.vm-image-tag || 'dev-latest' }}
         CF_TOKEN: ${{ inputs.cloudflare-api-token }}
         CF_ZONE: ${{ inputs.cloudflare-zone }}
         CF_ZONE_ID: ${{ inputs.cloudflare-zone-id }}
@@ -112,6 +142,12 @@ runs:
         sudo git fetch --tags origin
         sudo git checkout '${GITHUB_SHA}'
         sudo chmod +x installer/install.sh
+        export EE_APP_NAME='${APP_NAME}'
+        export EE_REPO='${APP_REPO}'
+        export EE_RELEASE_TAG='${APP_RELEASE_TAG}'
+        export EE_CONTROL_WS='${CONTROL_WS}'
+        export EE_CONTROL_ALLOWLIST_REPO='${ALLOWLIST_REPO}'
+        export EE_CONTROL_ALLOWLIST_TAG='${ALLOWLIST_TAG}'
         ARGS=(--non-interactive --vm-name '${VM_NAME}' --vm-port '${VM_PORT}' --public-port '${PUBLIC_PORT}' --admin-port '${ADMIN_PORT}' --proxy-port '${PROXY_PORT}')
         if [ -n '${HOST_PORT}' ]; then
           ARGS+=(--host-port '${HOST_PORT}')
