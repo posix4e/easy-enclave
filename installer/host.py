@@ -746,7 +746,11 @@ def create_agent_vm(
     }
 
 
-def create_minimal_cidata(workdir: str, hostname: str = "ee-agent") -> str:
+def create_minimal_cidata(
+    workdir: str,
+    hostname: str = "ee-agent",
+    agent_env: str | None = None,
+) -> str:
     """Create a minimal cloud-init ISO for networking/metadata."""
     os.makedirs(workdir, exist_ok=True)
     os.chmod(workdir, 0o755)
@@ -754,8 +758,21 @@ def create_minimal_cidata(workdir: str, hostname: str = "ee-agent") -> str:
     meta_data_path = os.path.join(workdir, "meta-data")
     network_config_path = os.path.join(workdir, "network-config")
 
+    user_data = "#cloud-config\n"
+    if agent_env:
+        env_body = agent_env.rstrip("\n")
+        user_data += (
+            "write_files:\n"
+            "  - path: /etc/easy-enclave/agent.env\n"
+            "    permissions: '0640'\n"
+            "    content: |\n"
+            f"{indent_yaml(env_body, 6)}\n"
+            "runcmd:\n"
+            "  - systemctl restart ee-agent || true\n"
+            "  - systemctl restart nginx || true\n"
+        )
     with open(user_data_path, "w") as f:
-        f.write("#cloud-config\n")
+        f.write(user_data)
     with open(meta_data_path, "w") as f:
         f.write(f"instance-id: {hostname}\nlocal-hostname: {hostname}\n")
     with open(network_config_path, "w") as f:
@@ -780,14 +797,35 @@ def start_agent_vm_from_image(
     port: int = 8000,
     host_port: int | None = None,
     public_port: int = 443,
+    admin_port: int = 8080,
+    proxy_port: int = 9090,
     public_ip: str | None = None,
+    control_plane_enabled: bool = False,
 ) -> dict:
     """Start an agent VM from a pre-baked image."""
     log("Checking requirements...")
     check_requirements()
 
     workdir = tempfile.mkdtemp(prefix="ee-agent-boot-")
-    cidata_iso = create_minimal_cidata(workdir, hostname=name)
+    base_env = {
+        "EE_MAIN_BIND": "0.0.0.0",
+        "EE_MAIN_PORT": str(port),
+        "EE_ADMIN_BIND": "127.0.0.1",
+        "EE_ADMIN_PORT": str(admin_port),
+        "EE_PROXY_BIND": "127.0.0.1",
+        "EE_PROXY_PORT": str(proxy_port),
+        "EE_CONTROL_PLANE_ENABLED": "true" if control_plane_enabled else "false",
+        "SEAL_VM": "true",
+    }
+    extra_env = {
+        key: value
+        for key, value in os.environ.items()
+        if key.startswith("EE_") or key.startswith("CLOUDFLARE_")
+    }
+    for key in list(base_env.keys()):
+        extra_env.pop(key, None)
+    agent_env = build_agent_env(base_env, extra_env)
+    cidata_iso = create_minimal_cidata(workdir, hostname=name, agent_env=agent_env)
 
     # Create a VM-specific overlay so multiple VMs are not competing for write
     # access to the same pristine image.
@@ -1688,7 +1726,10 @@ if __name__ == '__main__':
                 port=port,
                 host_port=args.host_port,
                 public_port=public_port,
+                admin_port=args.admin_port,
+                proxy_port=args.proxy_port,
                 public_ip=args.public_ip or None,
+                control_plane_enabled=args.control_plane,
             )
         else:
             result = create_agent_vm(
