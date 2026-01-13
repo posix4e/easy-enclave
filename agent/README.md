@@ -7,8 +7,8 @@ Host setup, VM tooling, and allowlist generation live in `installer/README.md`.
 
 ## Modes
 
-- **Sealed (default)**: agent connects outbound to the production control plane (`wss://control.easyenclave.com:8088/v1/tunnel`) with RA-TLS.
-- **Unsealed** (`EE_MODE=unsealed`): agent disables the outbound tunnel and runs an embedded control-plane on ports 8088/9090; RA-TLS is off by default in this mode.
+- **Sealed (default)**: agent connects outbound to the production control plane (`wss://control.easyenclave.com/v1/tunnel`) with RA-TLS.
+- **Unsealed** (`EE_MODE=unsealed`): agent disables the outbound tunnel and enables the local control-plane endpoints; RA-TLS is off by default in this mode.
 
 ## API
 
@@ -57,7 +57,7 @@ The agent combines `.env.public` and `private_env` into `/opt/workload/.env`.
 The agent can return a TDX quote and measurements:
 
 ```bash
-curl https://agent:8000/attestation
+curl -k https://agent:443/attestation
 ```
 
 The response includes:
@@ -78,7 +78,7 @@ The agent runs the tunnel client inside the same process. Set the environment
 variables below to enable the WebSocket tunnel and proxy forwarding.
 
 Required:
-- `EE_CONTROL_WS` (e.g. `wss://control-direct.easyenclave.com:8088/v1/tunnel`)
+- `EE_CONTROL_WS` (e.g. `wss://control.easyenclave.com/v1/tunnel`)
 - `EE_REPO`
 - `EE_RELEASE_TAG`
 - `EE_APP_NAME`

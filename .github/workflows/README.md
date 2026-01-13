@@ -8,16 +8,16 @@ below.
 Integrated dev pipeline (runs on `main` + manual):
 - lint + SDK tests
 - bake agent image + allowlist (tagged `dev`)
-- deploy control plane
+- reset agents via admin vhost
 - deploy contacts example
 
 Control plane DNS auto-update (Cloudflare):
 - requires secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE` (or `CLOUDFLARE_ZONE_ID`)
-- uses `EE_DNS_*` flags passed in `private-env` on deploy
+- uses `EE_DNS_*` flags in the agent VM environment
 
 ## pipeline-release.yml
 
 Integrated release pipeline (runs on `v*` tags):
 - bake agent image + allowlist (tagged with the release)
-- deploy control plane
+- reset agents via admin vhost
 - deploy contacts example

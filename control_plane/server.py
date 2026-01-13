@@ -29,6 +29,7 @@ from control_plane.config import (
     DNS_CONTROL_DIRECT_HOST,
     DNS_CONTROL_HOST,
     DNS_FAIL_ON_ERROR,
+    DNS_HOSTS,
     DNS_IP,
     DNS_IPV6,
     DNS_PROXIED,
@@ -429,9 +430,15 @@ async def require_uptime(request: web.Request) -> None:
         raise web.HTTPUnauthorized()
 
 
-def create_app(control: ControlPlane) -> web.Application:
-    app = web.Application()
-
+def register_control_routes(
+    app: web.Application,
+    control: ControlPlane,
+    *,
+    include_public: bool = True,
+    include_admin: bool = True,
+    include_ws: bool = True,
+    include_health: bool = True,
+) -> None:
     async def health(_: web.Request) -> web.Response:
         return web.json_response({"status": "ok"})
 
@@ -675,27 +682,43 @@ def create_app(control: ControlPlane) -> web.Application:
             raise web.HTTPNotFound()
         return web.json_response(node)
 
-    app.add_routes(
-        [
-            web.get("/health", health),
-            web.get("/v1/apps", list_apps),
-            web.get("/v1/apps/{app_name}", get_app),
-            web.get("/v1/resolve/{app_name}", resolve_app),
-            web.post("/v1/proxy/{app_name}", proxy_app),
-            web.get("/v1/tunnel", control.handle_ws),
-            web.get("/dashboard", dashboard),
-            web.post("/v1/credits/purchase", purchase_credits),
-            web.post("/v1/credits/transfer", transfer_credits),
-            web.get("/v1/balances/{account_id}", get_balance),
-            web.post("/v1/usage/report", report_usage),
-            web.post("/v1/settlements/{period}/finalize", finalize_settlement),
-            web.post("/v1/abuse/reports", file_abuse_report),
-            web.post("/v1/abuse/reports/{report_id}/authorize", authorize_abuse),
-            web.post("/v1/nodes/register", register_node),
-            web.get("/v1/nodes/{node_id}", get_node),
-            web.get("/admin", admin_page),
-        ]
-    )
+    if include_public:
+        routes: list[web.RouteDef] = []
+        if include_health:
+            routes.append(web.get("/health", health))
+        routes.extend(
+            [
+                web.get("/v1/resolve/{app_name}", resolve_app),
+                web.post("/v1/proxy/{app_name}", proxy_app),
+                web.post("/v1/usage/report", report_usage),
+                web.post("/v1/abuse/reports", file_abuse_report),
+                web.post("/v1/nodes/register", register_node),
+            ]
+        )
+        if include_ws:
+            routes.append(web.get("/v1/tunnel", control.handle_ws))
+        app.add_routes(routes)
+
+    if include_admin:
+        app.add_routes(
+            [
+                web.get("/v1/apps", list_apps),
+                web.get("/v1/apps/{app_name}", get_app),
+                web.get("/dashboard", dashboard),
+                web.post("/v1/credits/purchase", purchase_credits),
+                web.post("/v1/credits/transfer", transfer_credits),
+                web.get("/v1/balances/{account_id}", get_balance),
+                web.post("/v1/settlements/{period}/finalize", finalize_settlement),
+                web.post("/v1/abuse/reports/{report_id}/authorize", authorize_abuse),
+                web.get("/v1/nodes/{node_id}", get_node),
+                web.get("/admin", admin_page),
+            ]
+        )
+
+
+def create_app(control: ControlPlane) -> web.Application:
+    app = web.Application()
+    register_control_routes(app, control, include_public=True, include_admin=True, include_ws=True, include_health=True)
     return app
 
 
@@ -753,9 +776,12 @@ def run_dns_update() -> None:
     else:
         cmd.append("--dns-only")
     cmd.extend(["--ttl", str(DNS_TTL)])
-    cmd.extend(["--control-host", DNS_CONTROL_HOST])
-    cmd.extend(["--control-direct-host", DNS_CONTROL_DIRECT_HOST])
-    cmd.extend(["--app-wildcard", DNS_APP_WILDCARD])
+    if DNS_HOSTS:
+        cmd.extend(["--hosts", DNS_HOSTS])
+    else:
+        cmd.extend(["--control-host", DNS_CONTROL_HOST])
+        cmd.extend(["--control-direct-host", DNS_CONTROL_DIRECT_HOST])
+        cmd.extend(["--app-wildcard", DNS_APP_WILDCARD])
 
     print("Updating Cloudflare DNS...")
     subprocess.run(cmd, check=True)

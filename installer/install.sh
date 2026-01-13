@@ -12,6 +12,9 @@ NON_INTERACTIVE=0
 VM_NAME="ee-attestor"
 VM_PORT="8000"
 HOST_PORT=""
+PUBLIC_PORT=""
+ADMIN_PORT="8080"
+PROXY_PORT="9090"
 VM_IMAGE_TAG=""
 VM_IMAGE_SHA256=""
 AGENT_IMAGE=""
@@ -22,6 +25,7 @@ TDX_REPO_DIR=""
 OUTPUT_IMAGE=""
 SKIP_BUILD=0
 BASE_IMAGE=""
+CONTROL_PLANE=0
 
 usage() {
   cat <<'USAGE'
@@ -36,7 +40,11 @@ Options:
   --vm-name NAME           Agent VM name (default: ee-attestor)
   --vm-port PORT           Agent VM port inside the VM (default: 8000)
   --host-port PORT         Host port to forward to the agent (default: same as --vm-port)
+  --public-port PORT       VM port exposed publicly (default: 443)
+  --admin-port PORT        Admin HTTP port inside the VM (default: 8080)
+  --proxy-port PORT        Control-plane proxy port inside the VM (default: 9090)
   --public-ip IP           Public IP to bind DNAT rules (optional; defaults to all)
+  --control-plane          Enable control-plane endpoints in agent VM
   --agent-image PATH       Use an existing pristine agent image
   --vm-image-tag TAG       Tag for pristine image/attestation
   --vm-image-sha256 SHA    Base image sha256 for vm_image_id (optional)
@@ -57,7 +65,11 @@ while [ "$#" -gt 0 ]; do
     --vm-name) VM_NAME="$2"; shift 2;;
     --vm-port) VM_PORT="$2"; shift 2;;
     --host-port) HOST_PORT="$2"; shift 2;;
+    --public-port) PUBLIC_PORT="$2"; shift 2;;
+    --admin-port) ADMIN_PORT="$2"; shift 2;;
+    --proxy-port) PROXY_PORT="$2"; shift 2;;
     --public-ip) PUBLIC_IP="$2"; shift 2;;
+    --control-plane) CONTROL_PLANE=1; shift;;
     --agent-image) AGENT_IMAGE="$2"; shift 2;;
     --vm-image-tag) VM_IMAGE_TAG="$2"; shift 2;;
     --vm-image-sha256) VM_IMAGE_SHA256="$2"; shift 2;;
@@ -141,15 +153,58 @@ if [ "$MODE" = "host" ]; then
   cp "$AGENT_SRC/agent.py" "$INSTALL_DIR/"
   cp "$AGENT_SRC/verify.py" "$INSTALL_DIR/"
   cp "$AGENT_SRC/ratls.py" "$INSTALL_DIR/"
+  cp -r "$REPO_ROOT/control_plane" "$INSTALL_DIR/control_plane"
+  cp -r "$REPO_ROOT/sdk/easyenclave" "$INSTALL_DIR/easyenclave"
   cp -r "$INSTALLER_SRC/templates" "$INSTALL_DIR/"
 
   apt-get update
-  apt-get install -y python3-venv
+  apt-get install -y python3-venv nginx openssl
+  mkdir -p /etc/easy-enclave
+  if [ -z "$PUBLIC_PORT" ]; then
+    PUBLIC_PORT=443
+  fi
+  cat > /etc/easy-enclave/agent.env <<EOF
+EE_MAIN_BIND=0.0.0.0
+EE_MAIN_PORT=$VM_PORT
+EE_ADMIN_BIND=127.0.0.1
+EE_ADMIN_PORT=$ADMIN_PORT
+EE_PROXY_BIND=127.0.0.1
+EE_PROXY_PORT=$PROXY_PORT
+EE_CONTROL_PLANE_ENABLED=$( [ "$CONTROL_PLANE" -eq 1 ] && echo true || echo false )
+SEAL_VM=true
+EOF
+  for key in $(env | awk -F= '/^(EE_|CLOUDFLARE_)/ {print $1}'); do
+    case "$key" in
+      EE_MAIN_BIND|EE_MAIN_PORT|EE_ADMIN_BIND|EE_ADMIN_PORT|EE_PROXY_BIND|EE_PROXY_PORT|EE_CONTROL_PLANE_ENABLED|SEAL_VM)
+        continue
+        ;;
+    esac
+    echo "$key=${!key}" >> /etc/easy-enclave/agent.env
+  done
+  python3 - <<PY
+from pathlib import Path
+conf = Path("$INSTALLER_SRC/templates/nginx.conf").read_text().format(
+    main_port="$VM_PORT",
+    admin_port="$ADMIN_PORT",
+    admin_tls_port="9443",
+    admin_cert_path="/etc/nginx/ssl/admin.crt",
+    admin_key_path="/etc/nginx/ssl/admin.key",
+)
+Path("/etc/nginx/nginx.conf").write_text(conf)
+PY
+  mkdir -p /etc/nginx/ssl
+  if [ ! -f /etc/nginx/ssl/admin.key ]; then
+    openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
+      -subj "/CN=admin.easyenclave.local" \
+      -keyout /etc/nginx/ssl/admin.key \
+      -out /etc/nginx/ssl/admin.crt
+  fi
   python3 -m venv "$INSTALL_DIR/venv"
   "$INSTALL_DIR/venv/bin/pip" install --no-cache-dir aiohttp cryptography requests
 
   cp "$INSTALLER_SRC/systemd/ee-agent.service" /etc/systemd/system/
   systemctl daemon-reload
+  systemctl enable --now nginx
   systemctl enable ee-agent
 
   echo "Installation complete."
@@ -204,8 +259,19 @@ HOST_PORT_ARGS=()
 if [ -n "$HOST_PORT" ]; then
   HOST_PORT_ARGS+=(--host-port "$HOST_PORT")
 fi
+PUBLIC_PORT_ARGS=()
+if [ -z "$PUBLIC_PORT" ]; then
+  PUBLIC_PORT=443
+fi
+PUBLIC_PORT_ARGS+=(--public-port "$PUBLIC_PORT")
+ADMIN_PORT_ARGS=(--admin-port "$ADMIN_PORT")
+PROXY_PORT_ARGS=(--proxy-port "$PROXY_PORT")
+CONTROL_PLANE_ARGS=()
+if [ "$CONTROL_PLANE" -eq 1 ]; then
+  CONTROL_PLANE_ARGS+=(--control-plane)
+fi
 PUBLIC_IP_ARGS=()
 if [ -n "$PUBLIC_IP" ]; then
   PUBLIC_IP_ARGS+=(--public-ip "$PUBLIC_IP")
 fi
-python3 "$INSTALLER_SRC/host.py" --agent --agent-image "$AGENT_IMAGE" --name "$VM_NAME" --port "$VM_PORT" "${HOST_PORT_ARGS[@]}" "${PUBLIC_IP_ARGS[@]}"
+python3 "$INSTALLER_SRC/host.py" --agent --agent-image "$AGENT_IMAGE" --name "$VM_NAME" --port "$VM_PORT" "${HOST_PORT_ARGS[@]}" "${PUBLIC_PORT_ARGS[@]}" "${ADMIN_PORT_ARGS[@]}" "${PROXY_PORT_ARGS[@]}" "${CONTROL_PLANE_ARGS[@]}" "${PUBLIC_IP_ARGS[@]}"

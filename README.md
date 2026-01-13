@@ -17,10 +17,11 @@ EasyEnclave is a hardware-attested confidential computing platform. Your code ru
 
 **Model**: 1 TDX host = 1 GitHub repo = 1 attested service
 
-This repository is the single source for the agent runtime, control plane, installer, and Python SDK. The installer clones this repo on the host, so a given commit ties the deployed agent, control-plane bundle, and SDK verification logic together.
+This repository is the single source for the unified agent/control-plane daemon, installer, and Python SDK. The installer clones this repo on the host, so a given commit ties the deployed daemon and SDK verification logic together.
 
 Single-VM design (current):
-- The agent runs inside the TD VM and launches `docker compose` in that same VM.
+- The unified daemon runs inside the TD VM and can enable control-plane endpoints (`EE_CONTROL_PLANE_ENABLED=true`).
+- The agent API deploys workloads via `docker compose` in that same VM.
 - The TD VM generates the TDX quote used for attestation.
 
 ## Architecture
@@ -77,7 +78,7 @@ Single-VM design (current):
 - **Python SDK** (`sdk/README.md`) - Client verification and usage
 - **Examples** (`example/README.md`) - Sample workloads and workflow wiring
 
-Agents now run in two modes: **sealed** (default, RA-TLS on, auto-connects to the production control plane at `wss://control.easyenclave.com:8088/v1/tunnel`) and **unsealed** (`EE_MODE=unsealed`, starts an embedded control plane locally with RA-TLS off by default).
+Agents run in two modes: **sealed** (default, RA-TLS on, auto-connects to the production control plane at `wss://control.easyenclave.com/v1/tunnel`) and **unsealed** (`EE_MODE=unsealed`, enables the local control plane by default with RA-TLS off).
 
 ## Quick Start
 
@@ -102,7 +103,8 @@ names and host ports. See `installer/README.md` for examples.
 Add the agent URL as a repository secret:
 
 1. Go to **Settings → Secrets and variables → Actions**
-2. Add secret: `AGENT_URL` = `http://your-tdx-host:8000`
+2. Add secret: `AGENT_URL` = `https://your-tdx-host` (nginx on 443 routes to the RA-TLS listener)
+3. (Optional) Admin endpoints are on `https://admin-<host>` and honor `AGENT_ADMIN_TOKEN`.
 
 ### 3. Deploy
 
@@ -141,37 +143,37 @@ Details and inputs live in `action/README.md`.
 +--------------+--------------+                     |
                |                                    |
                v                                    |
-     +---------------------+             create release
-     | Agent VM (control)  |-------------------------+
-     | http://host:8000    |
-     | runs control plane  |
-     +----------+----------+
-                |
-                | EE_CONTROL_WS (tunnel)
-                v
-     +---------------------+
-     | Agent VM (apps)     |
-     | http://host:8001    |
-     | runs workloads      |
-     +---------------------+
+     +-------------------------+         create release
+     | Agent VM (control)      |----------------------+
+     | nginx 443 -> RA-TLS     |
+     | control-plane enabled   |
+     +-----------+-------------+
+                 |
+                 | EE_CONTROL_WS (tunnel)
+                 v
+     +-------------------------+
+     | Agent VM (apps)         |
+     | nginx 443 -> RA-TLS     |
+     | runs workloads          |
+     +-------------------------+
 ```
 
 Releases:
-- `pipeline-dev` resets agents via the admin API and redeploys the control plane + examples (no SSH).
+- `pipeline-dev` resets agents via the admin API and redeploys the contacts app (no SSH).
 - `pipeline-release` runs on `v*` tags, uses the tag as `agent-release-tag`, and deploys sealed by default.
 - Each deployment publishes a `deploy-YYYYMMDD-HHMMSS` release with `attestation.json`
   (quote, endpoint, timestamp, sealed state).
 
 CI/CD lifecycle:
 - Release the agent VM image and publish the allowlist asset (`agent-attestation-allowlist.json`).
-- For development, `.github/workflows/pipeline-dev.yml` calls `/admin/undeploy`, then redeploys control + contacts using the composite action.
+- For development, `.github/workflows/pipeline-dev.yml` calls `/admin/undeploy`, then deploys contacts using the composite action.
 - The release pipeline (`.github/workflows/pipeline-release.yml`) mirrors the dev flow for tags and enforces RA-TLS client certs.
 - Clients verify via the SDK using the latest deployment release attestation.
 
 Notes:
 - A single agent VM can only run one workload bundle at a time. For a persistent
-  control plane, deploy it on a dedicated agent VM and point other workloads at a
-  different agent URL.
+  control plane, enable the control-plane endpoints on a dedicated agent VM and
+  point other workloads at a different agent URL.
 - App deploy workflows should pin `agent-release-tag` to a specific agent allowlist release.
 - See `docs/workflows.md` for the three workflows (installer/reset, dev, release) and `action/` usage.
 

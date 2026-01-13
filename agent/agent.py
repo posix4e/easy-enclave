@@ -31,10 +31,18 @@ from typing import Optional, Sequence
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+_repo_root = Path(__file__).resolve().parent.parent
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+_sdk_path = _repo_root / "sdk"
+if _sdk_path.exists():
+    sys.path.insert(0, str(_sdk_path))
+
 from aiohttp import ClientSession, WSMsgType, web
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-from ratls import build_ratls_cert, report_data_for_pubkey, verify_ratls_cert
+from control_plane.server import ControlPlane, create_proxy_app, register_control_routes, run_dns_update
+from easyenclave.ratls import build_ratls_cert, report_data_for_pubkey, verify_ratls_cert
 
 # Force unbuffered output
 sys.stdout.reconfigure(line_buffering=True)
@@ -77,26 +85,6 @@ def env_bool(name: str, default: bool = False) -> bool:
     if value is None or value == "":
         return default
     return value.lower() in {"1", "true", "yes", "on"}
-
-
-def start_embedded_control_plane() -> None:
-    """Start control-plane in-process for unsealed/self-contained mode."""
-    os.environ.setdefault("EE_RATLS_ENABLED", "false")
-    os.environ.setdefault("EE_RATLS_REQUIRE_CLIENT_CERT", "false")
-    os.environ.setdefault("EE_DNS_UPDATE_ON_START", "false")
-    try:
-        from control_plane import server as control_server
-    except Exception as exc:  # pragma: no cover - best-effort for optional mode
-        log(f"embedded_control_plane_import_failed: {exc}")
-        return
-
-    def _run() -> None:
-        try:
-            control_server.main()
-        except Exception as exc:
-            log(f"embedded_control_plane_failed: {exc}")
-
-    threading.Thread(target=_run, name="ee-control-plane", daemon=True).start()
 
 
 def check_requirements() -> None:
@@ -793,7 +781,7 @@ client = connect("{repo}")
     return release_data.get("html_url") or f"https://github.com/{repo}/releases/tag/{tag}"
 
 EE_MODE = os.getenv("EE_MODE", "sealed").lower()
-DEFAULT_CONTROL_WS = "wss://control.easyenclave.com:8088/v1/tunnel"
+DEFAULT_CONTROL_WS = "wss://control.easyenclave.com/v1/tunnel"
 if EE_MODE == "unsealed":
     DEFAULT_CONTROL_WS = ""
 EE_CONTROL_WS = os.getenv("EE_CONTROL_WS", DEFAULT_CONTROL_WS)
@@ -808,6 +796,7 @@ EE_RECONNECT_DELAY_SEC = int(os.getenv("EE_RECONNECT_DELAY_SEC", "5"))
 EE_RATLS_ENABLED = env_bool("EE_RATLS_ENABLED", EE_MODE != "unsealed")
 EE_RATLS_CERT_TTL_SEC = int(os.getenv("EE_RATLS_CERT_TTL_SEC", "3600"))
 EE_RATLS_SKIP_PCCS = env_bool("EE_RATLS_SKIP_PCCS", False)
+EE_RATLS_REQUIRE_CLIENT_CERT = env_bool("EE_RATLS_REQUIRE_CLIENT_CERT", True)
 EE_CONTROL_ALLOWLIST_PATH = os.getenv("EE_CONTROL_ALLOWLIST_PATH", "")
 EE_CONTROL_ALLOWLIST_REPO = os.getenv("EE_CONTROL_ALLOWLIST_REPO", "")
 EE_CONTROL_ALLOWLIST_TAG = os.getenv("EE_CONTROL_ALLOWLIST_TAG", "")
@@ -815,6 +804,13 @@ EE_CONTROL_ALLOWLIST_ASSET = os.getenv("EE_CONTROL_ALLOWLIST_ASSET", "agent-atte
 EE_CONTROL_ALLOWLIST_REQUIRED = env_bool("EE_CONTROL_ALLOWLIST_REQUIRED", True)
 EE_CONTROL_ALLOWLIST_TOKEN = os.getenv("EE_CONTROL_ALLOWLIST_TOKEN", "")
 EE_ADMIN_TOKEN = os.getenv("EE_ADMIN_TOKEN", "")
+EE_CONTROL_PLANE_ENABLED = env_bool("EE_CONTROL_PLANE_ENABLED", EE_MODE == "unsealed")
+EE_MAIN_BIND = os.getenv("EE_MAIN_BIND", "0.0.0.0")
+EE_MAIN_PORT = int(os.getenv("EE_MAIN_PORT", os.getenv("EE_AGENT_PORT", "8000")))
+EE_ADMIN_BIND = os.getenv("EE_ADMIN_BIND", "127.0.0.1")
+EE_ADMIN_PORT = int(os.getenv("EE_ADMIN_PORT", "8080"))
+EE_PROXY_BIND = os.getenv("EE_PROXY_BIND", "127.0.0.1")
+EE_PROXY_PORT = int(os.getenv("EE_PROXY_PORT", "9090"))
 
 
 @dataclass
@@ -1046,7 +1042,7 @@ def ensure_ratls_material(common_name: str = "easyenclave-agent") -> RatlsMateri
 def build_ratls_server_context(material: RatlsMaterial) -> ssl.SSLContext:
     context = ssl.create_default_context(purpose=ssl.Purpose.CLIENT_AUTH)
     context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
+    context.verify_mode = ssl.CERT_OPTIONAL if EE_RATLS_REQUIRE_CLIENT_CERT else ssl.CERT_NONE
     context.load_cert_chain(certfile=str(material.cert_path), keyfile=str(material.key_path))
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     return context
@@ -1495,7 +1491,13 @@ async def handle_deployments(_: web.Request) -> web.Response:
 
 
 async def handle_health(_: web.Request) -> web.Response:
-    return web.json_response({"status": "ok"})
+    return web.json_response(
+        {
+            "status": "ok",
+            "mode": EE_MODE,
+            "control_plane": "enabled" if EE_CONTROL_PLANE_ENABLED else "disabled",
+        }
+    )
 
 
 async def handle_attestation(_: web.Request) -> web.Response:
@@ -1708,7 +1710,7 @@ async def tunnel_client_loop(app: web.Application) -> None:
         await asyncio.sleep(EE_RECONNECT_DELAY_SEC)
 
 
-def build_app() -> web.Application:
+def build_main_app(control: Optional[ControlPlane]) -> web.Application:
     app = web.Application(client_max_size=200 * 1024**2)
     app.add_routes(
         [
@@ -1717,11 +1719,17 @@ def build_app() -> web.Application:
             web.get("/deployments", handle_deployments),
             web.get("/status/{deployment_id}", handle_status),
             web.post("/deploy", handle_deploy),
-            web.post("/admin/undeploy", handle_admin_undeploy),
-            web.post("/admin/update", handle_admin_update),
-            web.get("/admin", handle_admin_page),
         ]
     )
+    if control:
+        register_control_routes(
+            app,
+            control,
+            include_public=True,
+            include_admin=False,
+            include_ws=True,
+            include_health=False,
+        )
 
     async def start_tunnel(_: web.Application) -> None:
         asyncio.create_task(tunnel_client_loop(app))
@@ -1730,12 +1738,80 @@ def build_app() -> web.Application:
     return app
 
 
+def build_admin_app(control: Optional[ControlPlane]) -> web.Application:
+    app = web.Application()
+    app.add_routes(
+        [
+            web.get("/health", handle_health),
+            web.post("/admin/undeploy", handle_admin_undeploy),
+            web.post("/admin/update", handle_admin_update),
+        ]
+    )
+    if control:
+        register_control_routes(
+            app,
+            control,
+            include_public=False,
+            include_admin=True,
+            include_ws=False,
+            include_health=False,
+        )
+    return app
+
+
+async def run_servers(
+    main_host: str,
+    main_port: int,
+    admin_host: str,
+    admin_port: int,
+    proxy_host: str,
+    proxy_port: int,
+) -> None:
+    control = None
+    if EE_CONTROL_PLANE_ENABLED:
+        control = ControlPlane()
+        asyncio.create_task(control.health_watchdog())
+
+    main_app = build_main_app(control)
+    main_runner = web.AppRunner(main_app)
+    await main_runner.setup()
+    ssl_context = None
+    if EE_RATLS_ENABLED:
+        ssl_context = build_ratls_server_context(ensure_ratls_material())
+    main_site = web.TCPSite(main_runner, main_host, main_port, ssl_context=ssl_context)
+    await main_site.start()
+
+    admin_app = build_admin_app(control)
+    admin_runner = web.AppRunner(admin_app)
+    await admin_runner.setup()
+    admin_site = web.TCPSite(admin_runner, admin_host, admin_port)
+    await admin_site.start()
+
+    if control:
+        proxy_app = create_proxy_app(control)
+        proxy_runner = web.AppRunner(proxy_app)
+        await proxy_runner.setup()
+        proxy_site = web.TCPSite(proxy_runner, proxy_host, proxy_port)
+        await proxy_site.start()
+
+    while True:
+        await asyncio.sleep(3600)
+
+
 def main() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Easy Enclave Deployment Agent")
-    parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
-    parser.add_argument("--port", type=int, default=8000, help="Port to listen on")
+    parser = argparse.ArgumentParser(description="Easy Enclave Unified Agent")
+    parser.add_argument("--host", default=None, help="(deprecated) main bind host")
+    parser.add_argument("--port", type=int, default=None, help="(deprecated) main bind port")
+    parser.add_argument("--main-host", default=EE_MAIN_BIND, help="Main bind host (RA-TLS)")
+    parser.add_argument("--main-port", type=int, default=EE_MAIN_PORT, help="Main bind port (RA-TLS)")
+    parser.add_argument("--admin-host", default=EE_ADMIN_BIND, help="Admin bind host (plain HTTP)")
+    parser.add_argument("--admin-port", type=int, default=EE_ADMIN_PORT, help="Admin bind port (plain HTTP)")
+    parser.add_argument("--proxy-host", default=EE_PROXY_BIND, help="Proxy bind host (control-plane)")
+    parser.add_argument("--proxy-port", type=int, default=EE_PROXY_PORT, help="Proxy bind port (control-plane)")
+    parser.add_argument("--control-plane", action="store_true", help="Enable control-plane endpoints")
+    parser.add_argument("--no-control-plane", action="store_true", help="Disable control-plane endpoints")
     parser.add_argument("--check", action="store_true", help="Check TDX requirements and exit")
     args = parser.parse_args()
 
@@ -1748,19 +1824,39 @@ def main() -> None:
             print(f"Requirements check failed: {e}")
             sys.exit(1)
 
-    if EE_MODE == "unsealed":
-        log("EE_MODE=unsealed: starting embedded control-plane (no RA-TLS required)")
-        start_embedded_control_plane()
+    global EE_CONTROL_PLANE_ENABLED
+    if args.control_plane:
+        EE_CONTROL_PLANE_ENABLED = True
+    if args.no_control_plane:
+        EE_CONTROL_PLANE_ENABLED = False
+
+    main_host = args.main_host
+    main_port = args.main_port
+    if args.host:
+        main_host = args.host
+    if args.port:
+        main_port = args.port
+    admin_host = args.admin_host
+    admin_port = args.admin_port
+    proxy_host = args.proxy_host
+    proxy_port = args.proxy_port
+
+    if EE_CONTROL_PLANE_ENABLED:
+        log("control_plane=enabled")
+        try:
+            run_dns_update()
+        except Exception as exc:
+            log(f"dns_update_failed:{exc}")
+            if env_bool("EE_DNS_FAIL_ON_ERROR", False):
+                raise SystemExit(1)
 
     ensure_deployments_dir()
-    log(f"Starting agent on {args.host}:{args.port}")
+    log(f"Starting main on {main_host}:{main_port} (ratls={'on' if EE_RATLS_ENABLED else 'off'})")
+    log(f"Starting admin on {admin_host}:{admin_port}")
+    if EE_CONTROL_PLANE_ENABLED:
+        log(f"Starting proxy on {proxy_host}:{proxy_port}")
     log(f"Deployments directory: {DEPLOYMENTS_DIR}")
-
-    app = build_app()
-    ssl_context = None
-    if EE_RATLS_ENABLED:
-        ssl_context = build_ratls_server_context(ensure_ratls_material())
-    web.run_app(app, host=args.host, port=args.port, ssl_context=ssl_context)
+    asyncio.run(run_servers(main_host, main_port, admin_host, admin_port, proxy_host, proxy_port))
 
 
 if __name__ == "__main__":

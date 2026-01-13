@@ -164,18 +164,19 @@ with docker:
 docker compose -f control_plane/docker-compose.yml up --build
 ```
 
-optional: update cloudflare dns via api (a/aaaa for `control`, `control-direct`, `*.app`):
+optional: update cloudflare dns via api (a/aaaa for `control` + `admin-control`):
 
 ```bash
 export CLOUDFLARE_API_TOKEN=...
 export CLOUDFLARE_ZONE=easyenclave.com
-python action/cloudflare_dns.py --ip 1.2.3.4 --proxied --dry-run
+python action/cloudflare_dns.py --hosts control.easyenclave.com,admin-control.easyenclave.com --ip 1.2.3.4 --proxied --dry-run
 ```
 
 or enable auto-update on startup:
 
 ```bash
 EE_DNS_UPDATE_ON_START=true
+EE_DNS_HOSTS=control.easyenclave.com,admin-control.easyenclave.com
 EE_DNS_AUTO_IP=true
 EE_DNS_PROXIED=true
 CLOUDFLARE_API_TOKEN=...
@@ -205,15 +206,16 @@ use nginx or another proxy to route based on this response.
 if you proxy through cloudflare, use ssl/tls "full (strict)" so it connects to
 your origin over https. websockets are supported.
 
-for wildcard tls on `*.app`, caddy uses cloudflare dns challenge and requires
-`CLOUDFLARE_API_TOKEN` (dns edit) in the control plane env.
+for wildcard tls on `*.app`, configure nginx with your own cert (see
+`control_plane/examples/nginx.conf`). if you use cloudflare, provision an
+origin cert that covers the wildcard and install it on the host.
 
 ## agent connection
 
 agents connect outbound (no inbound ports needed):
 
 ```bash
-EE_CONTROL_WS=wss://control-direct.easyenclave.com:8088/v1/tunnel \
+EE_CONTROL_WS=wss://control.easyenclave.com/v1/tunnel \
 EE_REPO=owner/repo \
 EE_RELEASE_TAG=v0.1.3 \
 EE_APP_NAME=myapp \

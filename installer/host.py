@@ -532,6 +532,18 @@ def build_vm_image_id_yaml(tag: str, sha256: str) -> str:
     )
 
 
+def build_agent_env(base_env: dict[str, str], extra_env: dict[str, str] | None = None) -> str:
+    lines: list[str] = []
+    if extra_env:
+        for key, value in sorted(extra_env.items()):
+            if value is None or value == "":
+                continue
+            lines.append(f"{key}={value}")
+    for key, value in base_env.items():
+        lines.append(f"{key}={value}")
+    return "\n".join(lines) + "\n"
+
+
 def create_agent_image(
     base_image: str,
     agent_py: str,
@@ -540,6 +552,10 @@ def create_agent_image(
     vm_image_tag: str,
     vm_image_sha256: str,
     agent_port: int = 8000,
+    agent_env: str = "",
+    nginx_conf: str = "",
+    control_plane_files: dict[str, str] | None = None,
+    sdk_files: dict[str, str] | None = None,
     user_data_template: str = "agent-user-data.yml",
 ) -> str:
     """Create an agent VM image with agent service installed."""
@@ -556,11 +572,30 @@ def create_agent_image(
     agent_service = load_template("agent-service.service").format(agent_port=agent_port)
     network_config = load_template("network-config.yml")
     vm_image_id = build_vm_image_id_yaml(vm_image_tag, vm_image_sha256)
+    control_plane_files = control_plane_files or {}
+    sdk_files = sdk_files or {}
 
     user_data = load_template(user_data_template).format(
         agent_py=indent_yaml(agent_py, 6),
         agent_verify_py=indent_yaml(agent_verify_py, 6),
         agent_ratls_py=indent_yaml(agent_ratls_py, 6),
+        control_plane_init_py=indent_yaml(control_plane_files.get("init", ""), 6),
+        control_plane_server_py=indent_yaml(control_plane_files.get("server", ""), 6),
+        control_plane_config_py=indent_yaml(control_plane_files.get("config", ""), 6),
+        control_plane_allowlist_py=indent_yaml(control_plane_files.get("allowlist", ""), 6),
+        control_plane_ledger_py=indent_yaml(control_plane_files.get("ledger", ""), 6),
+        control_plane_policy_py=indent_yaml(control_plane_files.get("policy", ""), 6),
+        control_plane_registry_py=indent_yaml(control_plane_files.get("registry", ""), 6),
+        control_plane_ratls_py=indent_yaml(control_plane_files.get("ratls", ""), 6),
+        control_plane_admin_html=indent_yaml(control_plane_files.get("admin_html", ""), 6),
+        sdk_init_py=indent_yaml(sdk_files.get("init", ""), 6),
+        sdk_connect_py=indent_yaml(sdk_files.get("connect", ""), 6),
+        sdk_exceptions_py=indent_yaml(sdk_files.get("exceptions", ""), 6),
+        sdk_github_py=indent_yaml(sdk_files.get("github", ""), 6),
+        sdk_ratls_py=indent_yaml(sdk_files.get("ratls", ""), 6),
+        sdk_verify_py=indent_yaml(sdk_files.get("verify", ""), 6),
+        agent_env=indent_yaml(agent_env, 6),
+        nginx_conf=indent_yaml(nginx_conf, 6),
         agent_service=indent_yaml(agent_service, 6),
         vm_image_id=vm_image_id,
     )
@@ -597,10 +632,14 @@ def create_agent_vm(
     name: str = "ee-attestor",
     port: int = 8000,
     host_port: int | None = None,
+    public_port: int = 443,
+    admin_port: int = 8080,
+    proxy_port: int = 9090,
     vm_image_tag: str = "",
     vm_image_sha256: str = "",
     base_image: str | None = None,
     public_ip: str | None = None,
+    control_plane_enabled: bool = False,
 ) -> dict:
     """Create an agent VM with no workload compose."""
     log("Checking requirements...")
@@ -615,9 +654,57 @@ def create_agent_vm(
         base_image = find_td_image()
     log(f"Using base image: {base_image}")
 
-    agent_py = (Path(__file__).resolve().parent.parent / "agent" / "agent.py").read_text()
-    agent_verify_py = (Path(__file__).resolve().parent.parent / "agent" / "verify.py").read_text()
-    agent_ratls_py = (Path(__file__).resolve().parent.parent / "agent" / "ratls.py").read_text()
+    repo_root = Path(__file__).resolve().parent.parent
+    agent_py = (repo_root / "agent" / "agent.py").read_text(encoding="utf-8")
+    agent_verify_py = (repo_root / "agent" / "verify.py").read_text(encoding="utf-8")
+    agent_ratls_py = (repo_root / "agent" / "ratls.py").read_text(encoding="utf-8")
+    control_plane_root = repo_root / "control_plane"
+    control_plane_files = {
+        "init": "",
+        "server": (control_plane_root / "server.py").read_text(encoding="utf-8"),
+        "config": (control_plane_root / "config.py").read_text(encoding="utf-8"),
+        "allowlist": (control_plane_root / "allowlist.py").read_text(encoding="utf-8"),
+        "ledger": (control_plane_root / "ledger.py").read_text(encoding="utf-8"),
+        "policy": (control_plane_root / "policy.py").read_text(encoding="utf-8"),
+        "registry": (control_plane_root / "registry.py").read_text(encoding="utf-8"),
+        "ratls": (control_plane_root / "ratls.py").read_text(encoding="utf-8"),
+        "admin_html": (control_plane_root / "static" / "admin.html").read_text(encoding="utf-8"),
+    }
+    sdk_root = repo_root / "sdk" / "easyenclave"
+    sdk_files = {
+        "init": (sdk_root / "__init__.py").read_text(encoding="utf-8"),
+        "connect": (sdk_root / "connect.py").read_text(encoding="utf-8"),
+        "exceptions": (sdk_root / "exceptions.py").read_text(encoding="utf-8"),
+        "github": (sdk_root / "github.py").read_text(encoding="utf-8"),
+        "ratls": (sdk_root / "ratls.py").read_text(encoding="utf-8"),
+        "verify": (sdk_root / "verify.py").read_text(encoding="utf-8"),
+    }
+    base_env = {
+        "EE_MAIN_BIND": "0.0.0.0",
+        "EE_MAIN_PORT": str(port),
+        "EE_ADMIN_BIND": "127.0.0.1",
+        "EE_ADMIN_PORT": str(admin_port),
+        "EE_PROXY_BIND": "127.0.0.1",
+        "EE_PROXY_PORT": str(proxy_port),
+        "EE_CONTROL_PLANE_ENABLED": "true" if control_plane_enabled else "false",
+        "SEAL_VM": "true",
+    }
+    extra_env = {
+        key: value
+        for key, value in os.environ.items()
+        if key.startswith("EE_") or key.startswith("CLOUDFLARE_")
+    }
+    for key in list(base_env.keys()):
+        extra_env.pop(key, None)
+    agent_env = build_agent_env(base_env, extra_env)
+    admin_tls_port = 9443
+    nginx_conf = load_template("nginx.conf").format(
+        main_port=port,
+        admin_port=admin_port,
+        admin_tls_port=admin_tls_port,
+        admin_cert_path="/etc/nginx/ssl/admin.crt",
+        admin_key_path="/etc/nginx/ssl/admin.key",
+    )
     log("Creating agent image...")
     agent_image, cidata_iso, workdir = create_agent_image(
         base_image,
@@ -627,6 +714,10 @@ def create_agent_vm(
         vm_image_tag,
         vm_image_sha256,
         agent_port=port,
+        agent_env=agent_env,
+        nginx_conf=nginx_conf,
+        control_plane_files=control_plane_files,
+        sdk_files=sdk_files,
     )
 
     log("Starting agent VM...")
@@ -637,12 +728,13 @@ def create_agent_vm(
     wait_for_ready(ip, port=port, timeout=300)
 
     log("Setting up port forwarding...")
-    host_port = setup_port_forward(ip, port, host_port, public_ip)
+    host_port = setup_port_forward(ip, public_port, host_port or public_port, public_ip)
 
     return {
         "name": name,
         "ip": ip,
         "port": port,
+        "public_port": public_port,
         "host_port": host_port,
         "workdir": workdir,
         "image": agent_image,
@@ -682,6 +774,7 @@ def start_agent_vm_from_image(
     name: str = "ee-attestor",
     port: int = 8000,
     host_port: int | None = None,
+    public_port: int = 443,
     public_ip: str | None = None,
 ) -> dict:
     """Start an agent VM from a pre-baked image."""
@@ -726,12 +819,13 @@ def start_agent_vm_from_image(
     wait_for_ready(ip, port=port, timeout=300)
 
     log("Setting up port forwarding...")
-    host_port = setup_port_forward(ip, port, host_port, public_ip)
+    host_port = setup_port_forward(ip, public_port, host_port or public_port, public_ip)
 
     return {
         "name": name,
         "ip": ip,
         "port": port,
+        "public_port": public_port,
         "host_port": host_port,
         "workdir": workdir,
         "image": vm_image,
@@ -802,9 +896,50 @@ def build_pristine_agent_image(
         vm_image_sha256 = sha256_file(base_image)
         log(f"Computed base image sha256: {vm_image_sha256}")
 
-    agent_py = (Path(__file__).resolve().parent.parent / "agent" / "agent.py").read_text()
-    agent_verify_py = (Path(__file__).resolve().parent.parent / "agent" / "verify.py").read_text()
-    agent_ratls_py = (Path(__file__).resolve().parent.parent / "agent" / "ratls.py").read_text()
+    repo_root = Path(__file__).resolve().parent.parent
+    agent_py = (repo_root / "agent" / "agent.py").read_text(encoding="utf-8")
+    agent_verify_py = (repo_root / "agent" / "verify.py").read_text(encoding="utf-8")
+    agent_ratls_py = (repo_root / "agent" / "ratls.py").read_text(encoding="utf-8")
+    control_plane_root = repo_root / "control_plane"
+    control_plane_files = {
+        "init": "",
+        "server": (control_plane_root / "server.py").read_text(encoding="utf-8"),
+        "config": (control_plane_root / "config.py").read_text(encoding="utf-8"),
+        "allowlist": (control_plane_root / "allowlist.py").read_text(encoding="utf-8"),
+        "ledger": (control_plane_root / "ledger.py").read_text(encoding="utf-8"),
+        "policy": (control_plane_root / "policy.py").read_text(encoding="utf-8"),
+        "registry": (control_plane_root / "registry.py").read_text(encoding="utf-8"),
+        "ratls": (control_plane_root / "ratls.py").read_text(encoding="utf-8"),
+        "admin_html": (control_plane_root / "static" / "admin.html").read_text(encoding="utf-8"),
+    }
+    sdk_root = repo_root / "sdk" / "easyenclave"
+    sdk_files = {
+        "init": (sdk_root / "__init__.py").read_text(encoding="utf-8"),
+        "connect": (sdk_root / "connect.py").read_text(encoding="utf-8"),
+        "exceptions": (sdk_root / "exceptions.py").read_text(encoding="utf-8"),
+        "github": (sdk_root / "github.py").read_text(encoding="utf-8"),
+        "ratls": (sdk_root / "ratls.py").read_text(encoding="utf-8"),
+        "verify": (sdk_root / "verify.py").read_text(encoding="utf-8"),
+    }
+    base_env = {
+        "EE_MAIN_BIND": "0.0.0.0",
+        "EE_MAIN_PORT": str(agent_port),
+        "EE_ADMIN_BIND": "127.0.0.1",
+        "EE_ADMIN_PORT": "8080",
+        "EE_PROXY_BIND": "127.0.0.1",
+        "EE_PROXY_PORT": "9090",
+        "EE_CONTROL_PLANE_ENABLED": "false",
+        "SEAL_VM": "true",
+    }
+    agent_env = build_agent_env(base_env)
+    admin_tls_port = 9443
+    nginx_conf = load_template("nginx.conf").format(
+        main_port=agent_port,
+        admin_port=8080,
+        admin_tls_port=admin_tls_port,
+        admin_cert_path="/etc/nginx/ssl/admin.crt",
+        admin_key_path="/etc/nginx/ssl/admin.key",
+    )
     log("Creating agent bake image...")
     agent_image, cidata_iso, workdir = create_agent_image(
         base_image,
@@ -814,6 +949,10 @@ def build_pristine_agent_image(
         vm_image_tag,
         vm_image_sha256,
         agent_port=agent_port,
+        agent_env=agent_env,
+        nginx_conf=nginx_conf,
+        control_plane_files=control_plane_files,
+        sdk_files=sdk_files,
         user_data_template="agent-bake-user-data.yml",
     )
 
@@ -1484,12 +1623,16 @@ if __name__ == '__main__':
     parser.add_argument('--name', default='ee-workload', help='VM name (default: ee-workload)')
     parser.add_argument('--port', type=int, default=None, help='HTTP port for workload or agent')
     parser.add_argument('--host-port', type=int, default=None, help='Host port to forward to agent (default: same as --port)')
+    parser.add_argument('--public-port', type=int, default=None, help='VM port to expose publicly (default: 443 for agent)')
+    parser.add_argument('--admin-port', type=int, default=8080, help='Agent admin HTTP port inside the VM')
+    parser.add_argument('--proxy-port', type=int, default=9090, help='Control-plane proxy port inside the VM')
     parser.add_argument('--public-ip', default='', help='Public IP to bind DNAT rules to (optional)')
     parser.add_argument('--enable-ssh', action='store_true', help='Enable SSH access (default: off)')
     parser.add_argument('--create-release', action='store_true', help='Create GitHub release with attestation')
     parser.add_argument('--endpoint', help='Endpoint URL for release (default: http://{vm_ip}:{port})')
     parser.add_argument('--agent', action='store_true', help='Create agent VM (no workload)')
     parser.add_argument('--agent-image', default='', help='Start agent VM from a pre-baked image')
+    parser.add_argument('--control-plane', action='store_true', help='Enable control-plane endpoints in agent VM')
     parser.add_argument('--vm-image-tag', default='', help='Agent VM image tag')
     parser.add_argument('--vm-image-sha256', default='', help='Agent VM image sha256')
     parser.add_argument('--base-image', default='', help='Base TD image path override')
@@ -1505,6 +1648,9 @@ if __name__ == '__main__':
     port = args.port
     if port is None:
         port = 8000 if is_agent_mode else 8080
+    public_port = args.public_port
+    if public_port is None:
+        public_port = 443 if is_agent_mode else port
 
     if args.build_pristine_agent_image:
         result = build_pristine_agent_image(
@@ -1530,6 +1676,7 @@ if __name__ == '__main__':
                 name=args.name,
                 port=port,
                 host_port=args.host_port,
+                public_port=public_port,
                 public_ip=args.public_ip or None,
             )
         else:
@@ -1537,10 +1684,14 @@ if __name__ == '__main__':
                 name=args.name,
                 port=port,
                 host_port=args.host_port,
+                public_port=public_port,
+                admin_port=args.admin_port,
+                proxy_port=args.proxy_port,
                 vm_image_tag=args.vm_image_tag,
                 vm_image_sha256=args.vm_image_sha256,
                 base_image=args.base_image or None,
                 public_ip=args.public_ip or None,
+                control_plane_enabled=args.control_plane,
             )
         print(json.dumps(result, indent=2))
         sys.exit(0)

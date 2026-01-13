@@ -144,6 +144,19 @@ jobs:
             fi
             echo "$url"
           }
+          admin_url() {
+            local url="$1"
+            local host="${url#*://}"
+            host="${host%%/*}"
+            host="${host%%:*}"
+            local base="${host%%.*}"
+            local rest="${host#*.}"
+            if [ "$rest" = "$host" ]; then
+              echo "https://admin-${host}"
+              return
+            fi
+            echo "https://admin-${base}.${rest}"
+          }
           CONTROL_URL=$(normalize "${CONTROL_URL:-}" "$DEFAULT_CONTROL")
           CONTACTS_URL=$(normalize "${CONTACTS_URL:-}" "$DEFAULT_CONTACTS")
 
@@ -155,6 +168,8 @@ jobs:
           fi
           echo "CONTROL_URL=$CONTROL_URL" >> "$GITHUB_ENV"
           echo "CONTACTS_URL=$CONTACTS_URL" >> "$GITHUB_ENV"
+          echo "CONTROL_ADMIN_URL=$(admin_url "$CONTROL_URL")" >> "$GITHUB_ENV"
+          echo "CONTACTS_ADMIN_URL=$(admin_url "$CONTACTS_URL")" >> "$GITHUB_ENV"
 
       - name: Wait for control agent health
         shell: bash
@@ -184,7 +199,11 @@ jobs:
           if [ -n "${ADMIN_TOKEN:-}" ]; then
             AUTH+=( -H "Authorization: Bearer ${ADMIN_TOKEN}" )
           fi
-          curl --max-time 30 -sS -X POST "${AUTH[@]}" "${CONTROL_URL}/admin/undeploy" || { echo "control-plane reset timed out/failed, continuing"; }
+          CURL_OPTS=(--max-time 30 -sS -X POST)
+          if [[ "${CONTROL_ADMIN_URL:-}" == https://* ]]; then
+            CURL_OPTS+=(--insecure)
+          fi
+          curl "${CURL_OPTS[@]}" "${AUTH[@]}" "${CONTROL_ADMIN_URL}/admin/undeploy" || { echo "control-plane reset timed out/failed, continuing"; }
 
       - name: Reset contacts agent
         shell: bash
@@ -194,30 +213,11 @@ jobs:
           if [ -n "${ADMIN_TOKEN:-}" ]; then
             AUTH+=( -H "Authorization: Bearer ${ADMIN_TOKEN}" )
           fi
-          curl --max-time 30 -sS -X POST "${AUTH[@]}" "${CONTACTS_URL}/admin/undeploy" || { echo "contacts reset timed out/failed, continuing"; }
-
-      - name: Deploy control plane
-        uses: ./action
-        with:
-          agent-url: ${{ env.CONTROL_URL }}
-          agent-ratls: 'true'
-          agent-release-tag: dev-latest
-          bundle-inline: 'true'
-          docker-compose: control_plane/docker-compose.yml
-          public-files: control_plane,sdk
-          private-env: |
-            EE_GITHUB_TOKEN=${{ secrets.CONTROL_GITHUB_TOKEN || github.token }}
-            EE_ADMIN_TOKEN=${{ secrets.CONTROL_ADMIN_TOKEN }}
-            EE_RATLS_REQUIRE_CLIENT_CERT=false
-            EE_DNS_UPDATE_ON_START=true
-            EE_DNS_AUTO_IP=true
-            EE_DNS_FAIL_ON_ERROR=false
-            EE_DNS_PROXIED=false
-            CLOUDFLARE_API_TOKEN=${{ secrets.CLOUDFLARE_API_TOKEN }}
-            CLOUDFLARE_ZONE=${{ secrets.CLOUDFLARE_ZONE }}
-            CLOUDFLARE_ZONE_ID=${{ secrets.CLOUDFLARE_ZONE_ID }}
-          endpoint-port: 9090
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          CURL_OPTS=(--max-time 30 -sS -X POST)
+          if [[ "${CONTACTS_ADMIN_URL:-}" == https://* ]]; then
+            CURL_OPTS+=(--insecure)
+          fi
+          curl "${CURL_OPTS[@]}" "${AUTH[@]}" "${CONTACTS_ADMIN_URL}/admin/undeploy" || { echo "contacts reset timed out/failed, continuing"; }
 
       - name: Deploy contacts app
         uses: ./action

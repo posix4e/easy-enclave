@@ -18,7 +18,7 @@ def fetch_attestation(url: str, insecure: bool) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate agent attestation allowlist")
-    parser.add_argument("--attestation-url", default="http://localhost:8000/attestation")
+    parser.add_argument("--attestation-url", default="https://localhost:443/attestation")
     parser.add_argument("--insecure", action="store_true", help="Skip TLS verification for attestation URL")
     parser.add_argument("--release-tag", required=True)
     parser.add_argument("--output", default="agent-attestation-allowlist.json")

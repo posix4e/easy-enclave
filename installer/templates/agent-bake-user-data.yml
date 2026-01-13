@@ -15,6 +15,91 @@ write_files:
     content: |
 {agent_ratls_py}
 
+  - path: /opt/ee-agent/control_plane/__init__.py
+    permissions: '0644'
+    content: |
+{control_plane_init_py}
+
+  - path: /opt/ee-agent/control_plane/server.py
+    permissions: '0644'
+    content: |
+{control_plane_server_py}
+
+  - path: /opt/ee-agent/control_plane/config.py
+    permissions: '0644'
+    content: |
+{control_plane_config_py}
+
+  - path: /opt/ee-agent/control_plane/allowlist.py
+    permissions: '0644'
+    content: |
+{control_plane_allowlist_py}
+
+  - path: /opt/ee-agent/control_plane/ledger.py
+    permissions: '0644'
+    content: |
+{control_plane_ledger_py}
+
+  - path: /opt/ee-agent/control_plane/policy.py
+    permissions: '0644'
+    content: |
+{control_plane_policy_py}
+
+  - path: /opt/ee-agent/control_plane/registry.py
+    permissions: '0644'
+    content: |
+{control_plane_registry_py}
+
+  - path: /opt/ee-agent/control_plane/ratls.py
+    permissions: '0644'
+    content: |
+{control_plane_ratls_py}
+
+  - path: /opt/ee-agent/control_plane/static/admin.html
+    permissions: '0644'
+    content: |
+{control_plane_admin_html}
+
+  - path: /opt/ee-agent/easyenclave/__init__.py
+    permissions: '0644'
+    content: |
+{sdk_init_py}
+
+  - path: /opt/ee-agent/easyenclave/connect.py
+    permissions: '0644'
+    content: |
+{sdk_connect_py}
+
+  - path: /opt/ee-agent/easyenclave/exceptions.py
+    permissions: '0644'
+    content: |
+{sdk_exceptions_py}
+
+  - path: /opt/ee-agent/easyenclave/github.py
+    permissions: '0644'
+    content: |
+{sdk_github_py}
+
+  - path: /opt/ee-agent/easyenclave/ratls.py
+    permissions: '0644'
+    content: |
+{sdk_ratls_py}
+
+  - path: /opt/ee-agent/easyenclave/verify.py
+    permissions: '0644'
+    content: |
+{sdk_verify_py}
+
+  - path: /etc/easy-enclave/agent.env
+    permissions: '0640'
+    content: |
+{agent_env}
+
+  - path: /etc/nginx/nginx.conf
+    permissions: '0644'
+    content: |
+{nginx_conf}
+
   - path: /etc/systemd/system/ee-agent.service
     content: |
 {agent_service}
@@ -55,7 +140,7 @@ runcmd:
       APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
       mkdir -p /etc/easy-enclave
       retry apt-get update $APT_OPTS
-      retry apt-get install -y $APT_OPTS python3-venv
+      retry apt-get install -y $APT_OPTS python3-venv nginx openssl
       python3 -m venv /opt/ee-agent/venv
       retry /opt/ee-agent/venv/bin/pip install --no-cache-dir aiohttp cryptography requests
       if ! retry apt-get install -y $APT_OPTS docker.io docker-compose-plugin; then
@@ -63,8 +148,16 @@ runcmd:
           retry apt-get install -y $APT_OPTS docker.io docker-compose
         fi
       fi
+      mkdir -p /etc/nginx/ssl
+      if [ ! -f /etc/nginx/ssl/admin.key ]; then
+        openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
+          -subj "/CN=admin.easyenclave.local" \
+          -keyout /etc/nginx/ssl/admin.key \
+          -out /etc/nginx/ssl/admin.crt
+      fi
       systemctl daemon-reload
       systemctl enable --now docker
+      systemctl enable nginx
       systemctl enable ee-agent
       touch /etc/easy-enclave/agent-baked
     '

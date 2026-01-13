@@ -79,14 +79,14 @@ sudo python3 installer/host.py --agent --agent-image /var/lib/easy-enclave/agent
 ### Multiple Agents Per Host
 
 Run multiple agent VMs on the same host by giving each VM a unique name and
-forwarding a unique host port to the VM's agent port (default 8000):
+forwarding a unique host port to the VM's public nginx port (default 443):
 
 ```bash
-sudo python3 installer/host.py --agent --name ee-attestor-control --port 8000 --host-port 8000
-sudo python3 installer/host.py --agent --name ee-attestor-apps --port 8000 --host-port 8001
+sudo python3 installer/host.py --agent --name ee-attestor-control --port 8000 --public-port 443 --host-port 8443
+sudo python3 installer/host.py --agent --name ee-attestor-apps --port 8000 --public-port 443 --host-port 9443
 ```
 
-Use the host port in `AGENT_URL` (for example, `http://<host-ip>:8001`).
+Use the host port in `AGENT_URL` (for example, `https://<host-ip>:9443`).
 
 ## Pristine Agent Image
 
@@ -117,7 +117,7 @@ If the agent is serving RA-TLS, use the HTTPS URL with `--insecure`:
 
 ```bash
 python3 installer/scripts/generate_allowlist.py \
-  --attestation-url https://agent:8000/attestation \
+  --attestation-url https://agent:443/attestation \
   --insecure \
   --release-tag v0.1.0
 ```

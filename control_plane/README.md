@@ -91,6 +91,7 @@ Set via environment variables:
 - `EE_DNS_IPV6` (optional)
 - `EE_DNS_PROXIED` (default `true`)
 - `EE_DNS_TTL` (default `1`, auto)
+- `EE_DNS_HOSTS` (optional, comma-separated hostnames to upsert)
 - `EE_DNS_CONTROL_HOST` (default `control`)
 - `EE_DNS_CONTROL_DIRECT_HOST` (default `control-direct`)
 - `EE_DNS_APP_WILDCARD` (default `*.app`)
@@ -113,7 +114,7 @@ pip install -r control_plane/requirements.txt
 python control_plane/server.py
 ```
 
-Compose (runs control plane + Caddy):
+Compose (control plane only; TLS is handled by nginx in the VM when running via the installer):
 
 ```bash
 cp control_plane/.env.example control_plane/.env
@@ -126,7 +127,7 @@ When deploying via the agent, include `sdk` in `public-files`.
 Agent tunnel (built into the agent process):
 
 ```bash
-EE_CONTROL_WS=wss://control-direct.easyenclave.com:8088/v1/tunnel \
+EE_CONTROL_WS=wss://control.easyenclave.com/v1/tunnel \
 EE_REPO=owner/repo \
 EE_RELEASE_TAG=v0.1.3 \
 EE_APP_NAME=myapp \
@@ -148,34 +149,28 @@ tunnel handled by the agent process.
 
 ## Agent Deployment
 
-The control plane is deployed as an agent-managed workload using
-`control_plane/docker-compose.yml`. It runs a sealed-only control plane and
-uses Caddy for TLS termination.
+The control plane runs inside the unified agent process. Enable it by setting
+`EE_CONTROL_PLANE_ENABLED=true` in the agent VM environment (the installer
+writes `/etc/easy-enclave/agent.env`). The same process serves the agent deploy
+API plus the control-plane public API on the RA-TLS listener.
 
-RA-TLS uses configfs-tsm inside the control plane container. The compose file
-mounts `/sys/kernel/config` and runs privileged to allow quote generation.
-
-The default GitHub workflow is `.github/workflows/pipeline-dev.yml`.
+RA-TLS uses configfs-tsm inside the VM; no separate container is required. The
+default GitHub workflow is `.github/workflows/pipeline-dev.yml`.
 
 ## DNS + TLS
 
-Caddy terminates TLS and expects:
+Nginx runs inside the VM and routes TLS by SNI:
 
-- `control.easyenclave.com` -> control plane (`:8088`)
-- `*.app.easyenclave.com` -> app proxy (`:9090`)
-- `control-direct.easyenclave.com` -> control plane (`:8088`, DNS-only, RA-TLS)
+- `control.easyenclave.com` -> RA-TLS main listener (agent + control-plane API)
+- `admin-control.easyenclave.com` -> nginx-terminated TLS -> admin HTTP port
 
-The Caddyfile is `control_plane/Caddyfile`.
-Point your DNS A/AAAA records at the control plane's public IP for
-`control.easyenclave.com`, `control-direct.easyenclave.com`, and `*.app.easyenclave.com`.
+The admin vhost uses a normal TLS certificate. The installer generates a
+self-signed cert at `/etc/nginx/ssl/admin.crt` by default; replace it with a
+trusted cert for production.
 
-Caddy uses its internal CA (`tls internal`) for HTTPS certificates. If you
-proxy through Cloudflare, set SSL/TLS mode to "Full" so Cloudflare accepts the
-origin cert. WebSockets are supported. For "Full (strict)", install a trusted
-origin cert and update the Caddyfile.
-
-`control-direct` must stay DNS-only so RA-TLS handshakes reach the control
-plane without TLS termination.
+If you want `*.app.easyenclave.com` routing, use
+`control_plane/examples/nginx.conf` as a starting point (requires your own TLS
+cert for that wildcard).
 
 Optional: update Cloudflare DNS automatically on startup (fails hard if it
 cannot update):
@@ -188,12 +183,12 @@ CLOUDFLARE_API_TOKEN=...
 CLOUDFLARE_ZONE=easyenclave.com
 ```
 
-Manual update via API (A/AAAA for `control` and `*.app`):
+Manual update via API (A/AAAA for `control` + `admin-control`):
 
 ```bash
 export CLOUDFLARE_API_TOKEN=...
 export CLOUDFLARE_ZONE=easyenclave.com
-python action/cloudflare_dns.py --ip 1.2.3.4 --proxied --dry-run
+python action/cloudflare_dns.py --hosts control.easyenclave.com,admin-control.easyenclave.com --ip 1.2.3.4 --proxied --dry-run
 ```
 
 Use `--dns-only` for gray-cloud records, and `CLOUDFLARE_ZONE_ID` to skip the

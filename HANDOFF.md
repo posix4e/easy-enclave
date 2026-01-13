@@ -3,7 +3,7 @@
 ## What changed recently
 - Added integrated CI/CD workflows: `.github/workflows/pipeline-dev.yml` and `.github/workflows/pipeline-release.yml`.
 - Removed legacy workflows: deploy-agent, deploy-contacts, deploy-control-plane, release-agent, release-agent-dev, and CI.
-- Control plane runs as an **agent-managed workload** via `control_plane/docker-compose.yml` with Caddy in the same VM.
+- Control plane is embedded in the unified agent process (`EE_CONTROL_PLANE_ENABLED=true`); nginx in the VM handles TLS routing.
 - Staging removed; control plane only allows sealed agents (`forge-1`).
 - SDK `get_latest_attestation` now tolerates single-release payloads (tests pass).
 
@@ -11,19 +11,18 @@
 Dev pipeline (on `main` push and manual):
 1) Lint + SDK tests
 2) Bake dev agent image + allowlist (tag `dev`)
-3) Deploy control plane
+3) Undeploy agents via admin vhost
 4) Deploy contacts example
 
 Release pipeline (on `v*` tag):
 1) Bake release agent image + allowlist (tag = release)
-2) Deploy control plane
+2) Undeploy agents via admin vhost
 3) Deploy contacts example
 
 ## Key files
 - `agent/agent.py`: single-VM agent (runs docker-compose in same VM) + attestation + tunnel client.
 - `installer/host.py`: builds/bakes agent images and boots agent VM.
-- `control_plane/docker-compose.yml`: control plane + Caddy stack.
-- `control_plane/Caddyfile`: routes `*.app.easyenclave.com` to proxy.
+- `installer/templates/nginx.conf`: nginx SNI routing for RA-TLS vs admin vhost.
 - `sdk/easyenclave/github.py`: attestation fetching fix.
 
 ## Workflows to watch
@@ -34,7 +33,7 @@ Release pipeline (on `v*` tag):
 - `AGENT_URL` (agent VM endpoint)
 - `AGENT_SSH_HOST`, `AGENT_SSH_USER`, `AGENT_SSH_PORT`, `AGENT_SSH_KEY`
 - `AGENT_VM_NAME`, `AGENT_VM_PORT`
-- `CONTROL_GITHUB_TOKEN` (optional), `CONTROL_ADMIN_TOKEN` (optional)
+- `AGENT_ADMIN_TOKEN` (optional)
 - `DEMO_CONTACT_TOKEN`, `DEMO_UNSEAL_PASSWORD`
 
 ## TDX host notes

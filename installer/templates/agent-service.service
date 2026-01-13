@@ -7,9 +7,9 @@ Wants=network-online.target
 Type=simple
 Environment=EE_AGENT_MODE=vm
 Environment=EE_AGENT_DIR=/opt/ee-agent
-Environment=SEAL_VM=true
+EnvironmentFile=/etc/easy-enclave/agent.env
 WorkingDirectory=/opt/ee-agent
-ExecStart=/opt/ee-agent/venv/bin/python /opt/ee-agent/agent.py --host 0.0.0.0 --port {agent_port}
+ExecStart=/opt/ee-agent/venv/bin/python /opt/ee-agent/agent.py
 Restart=always
 
 [Install]

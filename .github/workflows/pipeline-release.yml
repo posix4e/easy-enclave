@@ -59,6 +59,21 @@ jobs:
           if [ -z "${ADMIN_TOKEN:-}" ]; then
             echo "ADMIN_TOKEN missing; admin endpoints will be unauthenticated"
           fi
+          admin_url() {
+            local url="$1"
+            local host="${url#*://}"
+            host="${host%%/*}"
+            host="${host%%:*}"
+            local base="${host%%.*}"
+            local rest="${host#*.}"
+            if [ "$rest" = "$host" ]; then
+              echo "https://admin-${host}"
+              return
+            fi
+            echo "https://admin-${base}.${rest}"
+          }
+          echo "CONTROL_ADMIN_URL=$(admin_url "$CONTROL_URL")" >> "$GITHUB_ENV"
+          echo "CONTACTS_ADMIN_URL=$(admin_url "$CONTACTS_URL")" >> "$GITHUB_ENV"
 
       - name: Undeploy control-plane agent
         shell: bash
@@ -68,7 +83,11 @@ jobs:
           if [ -n "${ADMIN_TOKEN:-}" ]; then
             AUTH+=( -H "Authorization: Bearer ${ADMIN_TOKEN}" )
           fi
-          curl -sS -X POST "${AUTH[@]}" "${CONTROL_URL}/admin/undeploy" || true
+          CURL_OPTS=(-sS -X POST)
+          if [[ "${CONTROL_ADMIN_URL:-}" == https://* ]]; then
+            CURL_OPTS+=(--insecure)
+          fi
+          curl "${CURL_OPTS[@]}" "${AUTH[@]}" "${CONTROL_ADMIN_URL}/admin/undeploy" || true
 
       - name: Undeploy contacts agent
         shell: bash
@@ -78,31 +97,11 @@ jobs:
           if [ -n "${ADMIN_TOKEN:-}" ]; then
             AUTH+=( -H "Authorization: Bearer ${ADMIN_TOKEN}" )
           fi
-          curl -sS -X POST "${AUTH[@]}" "${CONTACTS_URL}/admin/undeploy" || true
-
-      - name: Deploy control plane (sealed)
-        uses: ./action
-        with:
-          agent-url: ${{ env.CONTROL_URL }}
-          agent-ratls: 'true'
-          bundle-inline: 'true'
-          agent-release-tag: ${{ env.RELEASE_TAG }}
-          docker-compose: control_plane/docker-compose.yml
-          public-files: control_plane,sdk
-          private-env: |
-            EE_GITHUB_TOKEN=${{ secrets.CONTROL_GITHUB_TOKEN || github.token }}
-            EE_ADMIN_TOKEN=${{ secrets.CONTROL_ADMIN_TOKEN }}
-            EE_RATLS_REQUIRE_CLIENT_CERT=true
-            EE_DNS_UPDATE_ON_START=true
-            EE_DNS_AUTO_IP=true
-            EE_DNS_FAIL_ON_ERROR=false
-            EE_DNS_PROXIED=false
-            CLOUDFLARE_API_TOKEN=${{ secrets.CLOUDFLARE_API_TOKEN }}
-            CLOUDFLARE_ZONE=${{ secrets.CLOUDFLARE_ZONE }}
-            CLOUDFLARE_ZONE_ID=${{ secrets.CLOUDFLARE_ZONE_ID }}
-          endpoint-port: 9090
-          seal-vm: 'true'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          CURL_OPTS=(-sS -X POST)
+          if [[ "${CONTACTS_ADMIN_URL:-}" == https://* ]]; then
+            CURL_OPTS+=(--insecure)
+          fi
+          curl "${CURL_OPTS[@]}" "${AUTH[@]}" "${CONTACTS_ADMIN_URL}/admin/undeploy" || true
 
       - name: Deploy contacts app (sealed)
         uses: ./action

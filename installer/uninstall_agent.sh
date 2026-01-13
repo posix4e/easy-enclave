@@ -4,6 +4,7 @@ set -euo pipefail
 VM_NAME="ee-agent"
 VM_PORT="8000"
 HOST_PORT=""
+PUBLIC_PORT=""
 PUBLIC_IP=""
 
 usage() {
@@ -16,6 +17,7 @@ Options:
   --vm-name NAME      VM name to destroy/undefine (default: ee-agent)
   --vm-port PORT      VM port inside the VM (default: 8000)
   --host-port PORT    Host port forwarded to the VM (optional, used for cleanup)
+  --public-port PORT  VM port exposed publicly (default: 443)
   --public-ip IP      Public IP mapped to this VM (optional, used for cleanup)
   -h, --help          Show this help
 USAGE
@@ -26,6 +28,7 @@ while [ "$#" -gt 0 ]; do
     --vm-name) VM_NAME="$2"; shift 2;;
     --vm-port) VM_PORT="$2"; shift 2;;
     --host-port) HOST_PORT="$2"; shift 2;;
+    --public-port) PUBLIC_PORT="$2"; shift 2;;
     --public-ip) PUBLIC_IP="$2"; shift 2;;
     -h|--help) usage; exit 0;;
     *) echo "Unknown option: $1" >&2; usage; exit 1;;
@@ -75,5 +78,8 @@ delete_forward_rules() {
 log "Uninstalling VM ${VM_NAME}"
 cleanup_vm "$VM_NAME"
 delete_nat_rules "$HOST_PORT" "$PUBLIC_IP"
-delete_forward_rules "$VM_PORT"
+if [ -z "$PUBLIC_PORT" ]; then
+  PUBLIC_PORT="443"
+fi
+delete_forward_rules "$PUBLIC_PORT"
 log "Uninstall complete for ${VM_NAME}"

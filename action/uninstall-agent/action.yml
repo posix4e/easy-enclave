@@ -26,6 +26,10 @@ inputs:
     description: "Host port forwarded to this VM"
     required: false
     default: ""
+  public-port:
+    description: "VM public port (nginx listener)"
+    required: false
+    default: "443"
   public-ip:
     description: "Public IP mapped to this VM (optional)"
     required: false
@@ -54,6 +58,7 @@ runs:
         VM_NAME: ${{ inputs.vm-name }}
         VM_PORT: ${{ inputs.vm-port }}
         HOST_PORT: ${{ inputs.host-port }}
+        PUBLIC_PORT: ${{ inputs.public-port }}
         PUBLIC_IP: ${{ inputs.public-ip }}
       run: |
         set -euo pipefail
@@ -65,7 +70,7 @@ runs:
         sudo git fetch --tags origin
         sudo git checkout '${GITHUB_SHA}'
         sudo chmod +x installer/uninstall_agent.sh
-        ARGS=(--vm-name '${VM_NAME}' --vm-port '${VM_PORT}')
+        ARGS=(--vm-name '${VM_NAME}' --vm-port '${VM_PORT}' --public-port '${PUBLIC_PORT}')
         if [ -n '${HOST_PORT}' ]; then
           ARGS+=(--host-port '${HOST_PORT}')
         fi
