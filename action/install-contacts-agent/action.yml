@@ -158,7 +158,7 @@ runs:
         if [ -n '${VM_IMAGE_TAG}' ]; then
           ARGS+=(--vm-image-tag '${VM_IMAGE_TAG}')
         fi
-        sudo ./installer/install.sh "\${ARGS[@]}"
+        sudo --preserve-env=EE_APP_NAME,EE_REPO,EE_RELEASE_TAG,EE_CONTROL_WS,EE_CONTROL_ALLOWLIST_REPO,EE_CONTROL_ALLOWLIST_TAG ./installer/install.sh "\${ARGS[@]}"
         if [ -n '${CF_TOKEN}' ] && [ -n '${DNS_NAME}' ]; then
           ADMIN_NAME="admin-${DNS_NAME}"
           PROXY_FLAG="--dns-only"
