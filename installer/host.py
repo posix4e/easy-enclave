@@ -725,7 +725,12 @@ def create_agent_vm(
     log(f"Agent VM IP: {ip}")
 
     log("Waiting for agent to be ready...")
-    wait_for_ready(ip, port=port, timeout=300)
+    try:
+        wait_for_ready(ip, port=port, timeout=600)
+    except TimeoutError as exc:
+        log(str(exc))
+        log_serial_tail(name)
+        raise
 
     log("Setting up port forwarding...")
     host_port = setup_port_forward(ip, public_port, host_port or public_port, public_ip)
