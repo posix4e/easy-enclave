@@ -139,7 +139,7 @@ runcmd:
       APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
       mkdir -p /etc/easy-enclave
       retry apt-get update $APT_OPTS
-      retry apt-get install -y $APT_OPTS python3-venv nginx openssl
+      retry apt-get install -y $APT_OPTS python3-venv nginx libnginx-mod-stream openssl
       install -m 0644 /opt/ee-agent/nginx.conf /etc/nginx/nginx.conf
       python3 -m venv /opt/ee-agent/venv
       retry /opt/ee-agent/venv/bin/pip install --no-cache-dir aiohttp cryptography requests
