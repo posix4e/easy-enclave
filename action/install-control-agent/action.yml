@@ -156,10 +156,10 @@ runs:
       run: |
         set -euo pipefail
         IP=$(ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" -i "$SSH_KEY_FILE" "$SSH_USER@$SSH_HOST" \
-          "sudo virsh domifaddr '$VM_NAME' --source lease | awk '/ipv4/ {print \\$4}' | cut -d/ -f1 | head -n1" || true)
+          "sudo virsh domifaddr '$VM_NAME' --source lease | awk '/ipv4/ {print \$4}' | cut -d/ -f1 | head -n1" || true)
         if [ -z "$IP" ]; then
           IP=$(ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" -i "$SSH_KEY_FILE" "$SSH_USER@$SSH_HOST" \
-            "sudo virsh net-dhcp-leases default | awk '/\\y'\"$VM_NAME\"'\\y/ && /ipv4/ {print \\$5}' | head -n1 | cut -d/ -f1" || true)
+            "sudo virsh net-dhcp-leases default | awk '/\\y'\"$VM_NAME\"'\\y/ && /ipv4/ {print \$5}' | head -n1 | cut -d/ -f1" || true)
         fi
         echo "vm_ip=$IP" >> "$GITHUB_OUTPUT"
         if [ -n "$IP" ]; then
