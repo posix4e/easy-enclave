@@ -133,7 +133,7 @@ runs:
             --api-token '${CF_TOKEN}' \
             --zone '${CF_ZONE}' \
             --zone-id '${CF_ZONE_ID}' \
-            --hosts "${DNS_NAME},${ADMIN_NAME}" \
+            --hosts "${DNS_NAME},\${ADMIN_NAME}" \
             --ip '${PUBLIC_IP}' \
             \${PROXY_FLAG}
         fi
