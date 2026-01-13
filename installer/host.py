@@ -978,6 +978,7 @@ def build_pristine_agent_image(
         log_serial_tail(name)
         cleanup_vm_definition(name)
         raise
+    log_serial_tail(name)
     cleanup_vm_definition(name)
 
     os.makedirs(IMAGE_DIR, exist_ok=True)
