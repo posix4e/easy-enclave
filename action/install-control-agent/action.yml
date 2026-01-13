@@ -1,6 +1,11 @@
 name: "Install Control Agent"
 description: "Install control-plane agent VM and set up port forwarding"
 
+outputs:
+  vm-ip:
+    description: "Control VM IP address"
+    value: ${{ steps.vm-ip.outputs.vm_ip }}
+
 inputs:
   ssh-host:
     description: "SSH host"
@@ -138,3 +143,27 @@ runs:
             \${PROXY_FLAG}
         fi
         EOF
+
+    - name: Fetch control VM IP
+      id: vm-ip
+      shell: bash
+      env:
+        SSH_KEY_FILE: ${{ steps.ssh.outputs.file }}
+        SSH_HOST: ${{ inputs.ssh-host }}
+        SSH_PORT: ${{ inputs.ssh-port }}
+        SSH_USER: ${{ inputs.ssh-user }}
+        VM_NAME: ${{ inputs.vm-name }}
+      run: |
+        set -euo pipefail
+        IP=$(ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" -i "$SSH_KEY_FILE" "$SSH_USER@$SSH_HOST" \
+          "sudo virsh domifaddr '$VM_NAME' --source lease | awk '/ipv4/ {print \\$4}' | cut -d/ -f1 | head -n1" || true)
+        if [ -z "$IP" ]; then
+          IP=$(ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" -i "$SSH_KEY_FILE" "$SSH_USER@$SSH_HOST" \
+            "sudo virsh net-dhcp-leases default | awk '/\\y'\"$VM_NAME\"'\\y/ && /ipv4/ {print \\$5}' | head -n1 | cut -d/ -f1" || true)
+        fi
+        echo "vm_ip=$IP" >> "$GITHUB_OUTPUT"
+        if [ -n "$IP" ]; then
+          echo "control vm ip: $IP"
+        else
+          echo "control vm ip not found"
+        fi

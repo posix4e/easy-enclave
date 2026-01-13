@@ -108,6 +108,7 @@ jobs:
           public-ip: ${{ inputs.control_public_ip || '57.130.10.246' }}
 
       - name: Install control-plane agent
+        id: install-control
         uses: ./action/install-control-agent
         with:
           ssh-host: ${{ inputs.control_ssh_host || secrets.AGENT_SSH_HOST }}
@@ -123,6 +124,21 @@ jobs:
           cloudflare-zone: ${{ secrets.CLOUDFLARE_ZONE || 'easyenclave.com' }}
           cloudflare-zone-id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
           vm-image-tag: ${{ inputs.vm_image_tag || '' }}
+
+      - name: Resolve control websocket for contacts
+        id: control-ws
+        shell: bash
+        env:
+          CONTROL_HOST: ${{ inputs.control_ssh_host || secrets.AGENT_SSH_HOST }}
+          CONTACT_HOST: ${{ inputs.contact_ssh_host || secrets.CONTACT_SSH_HOST || secrets.AGENT_SSH_HOST }}
+          CONTROL_VM_IP: ${{ steps.install-control.outputs.vm-ip }}
+        run: |
+          set -euo pipefail
+          CONTROL_WS="wss://control.easyenclave.com/v1/tunnel"
+          if [ -n "${CONTROL_VM_IP:-}" ] && [ "${CONTROL_HOST:-}" = "${CONTACT_HOST:-}" ]; then
+            CONTROL_WS="wss://${CONTROL_VM_IP}/v1/tunnel"
+          fi
+          echo "control_ws=$CONTROL_WS" >> "$GITHUB_OUTPUT"
 
       - name: Install contacts agent
         uses: ./action/install-contacts-agent
@@ -140,3 +156,4 @@ jobs:
           cloudflare-zone: ${{ secrets.CLOUDFLARE_ZONE || 'easyenclave.com' }}
           cloudflare-zone-id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
           vm-image-tag: ${{ inputs.vm_image_tag || '' }}
+          control-ws: ${{ steps.control-ws.outputs.control_ws }}
