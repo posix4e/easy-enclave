@@ -7,10 +7,15 @@ Wants=network-online.target
 Type=simple
 Environment=EE_AGENT_MODE=vm
 Environment=EE_AGENT_DIR=/opt/ee-agent
+Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=/etc/easy-enclave/agent.env
 WorkingDirectory=/opt/ee-agent
 ExecStart=/opt/ee-agent/venv/bin/python /opt/ee-agent/agent.py
 Restart=always
+RestartSec=2
+StandardOutput=journal+console
+StandardError=journal+console
+SyslogIdentifier=ee-agent
 
 [Install]
 WantedBy=multi-user.target
