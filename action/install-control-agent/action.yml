@@ -73,6 +73,10 @@ inputs:
     description: "Tag for pristine image build"
     required: false
     default: ""
+  ratls-require-client-cert:
+    description: "Require RA-TLS client cert on control-plane tunnel (true/false)"
+    required: false
+    default: "false"
   force-rebuild:
     description: "Force rebuild the pristine image even if it exists"
     required: false
@@ -106,6 +110,7 @@ runs:
         PROXY_PORT: ${{ inputs.proxy-port }}
         PUBLIC_IP: ${{ inputs.public-ip }}
         VM_IMAGE_TAG: ${{ inputs.vm-image-tag }}
+        RATLS_REQUIRE_CLIENT_CERT: ${{ inputs.ratls-require-client-cert }}
         FORCE_REBUILD: ${{ inputs.force-rebuild }}
         CF_TOKEN: ${{ inputs.cloudflare-api-token }}
         CF_ZONE: ${{ inputs.cloudflare-zone }}
@@ -135,7 +140,8 @@ runs:
         if [ '${FORCE_REBUILD}' = 'true' ]; then
           ARGS+=(--force-rebuild)
         fi
-        sudo ./installer/install.sh "\${ARGS[@]}"
+        export EE_RATLS_REQUIRE_CLIENT_CERT='${RATLS_REQUIRE_CLIENT_CERT}'
+        sudo --preserve-env=EE_RATLS_REQUIRE_CLIENT_CERT ./installer/install.sh "\${ARGS[@]}"
         if [ -n '${CF_TOKEN}' ] && [ -n '${DNS_NAME}' ]; then
           ADMIN_NAME="admin-${DNS_NAME}"
           PROXY_FLAG="--dns-only"
