@@ -1341,6 +1341,70 @@ def setup_port_forward(
                     bridge_ip = parts[src_index]
             return
 
+    def ensure_bridge_egress() -> None:
+        result = subprocess.run(
+            ['ip', '-4', 'route', 'show', 'default'],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            log("Warning: failed to read default route; skipping egress rules")
+            return
+        ext_iface = ""
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if "dev" in parts:
+                dev_index = parts.index("dev") + 1
+                if dev_index < len(parts):
+                    ext_iface = parts[dev_index]
+                    break
+        if not ext_iface or ext_iface == "virbr0":
+            log("Warning: could not determine external interface for NAT")
+            return
+
+        def ensure_rule(
+            *,
+            table: str | None,
+            chain: str,
+            rule: list[str],
+            insert: bool = False,
+        ) -> None:
+            base = ['sudo', 'iptables']
+            if table:
+                base += ['-t', table]
+            check_cmd = base + ['-C', chain] + rule
+            if subprocess.run(check_cmd, capture_output=True).returncode == 0:
+                return
+            if insert:
+                add_cmd = base + ['-I', chain, '1'] + rule
+            else:
+                add_cmd = base + ['-A', chain] + rule
+            add_result = subprocess.run(add_cmd, capture_output=True, text=True)
+            if add_result.returncode != 0:
+                log(f"Warning: Failed to add {chain} egress rule: {add_result.stderr}")
+
+        ensure_rule(
+            table=None,
+            chain="FORWARD",
+            rule=['-i', 'virbr0', '-o', ext_iface, '-s', bridge_subnet, '-j', 'ACCEPT'],
+            insert=True,
+        )
+        ensure_rule(
+            table=None,
+            chain="FORWARD",
+            rule=[
+                '-i', ext_iface, '-o', 'virbr0', '-d', bridge_subnet,
+                '-m', 'conntrack', '--ctstate', 'RELATED,ESTABLISHED', '-j', 'ACCEPT',
+            ],
+            insert=True,
+        )
+        ensure_rule(
+            table="nat",
+            chain="POSTROUTING",
+            rule=['-s', bridge_subnet, '!', '-d', bridge_subnet, '-o', ext_iface, '-j', 'MASQUERADE'],
+            insert=False,
+        )
+
     def remove_nat_rules(chain: str) -> None:
         result = subprocess.run(
             ['sudo', 'iptables', '-t', 'nat', '-L', chain, '--line-numbers', '-n'],
@@ -1458,6 +1522,7 @@ def setup_port_forward(
     remove_nat_rules('OUTPUT')
     remove_forward_rules()
     resolve_bridge_info()
+    ensure_bridge_egress()
     remove_hairpin_rules()
     remove_snat_rules()
 
