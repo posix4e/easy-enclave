@@ -86,7 +86,7 @@ delete_nat_rules() {
   [ -z "$host_port" ] && return 0
   for chain in PREROUTING OUTPUT; do
     local lines
-    lines=$(iptables -t nat -L "$chain" --line-numbers | awk -v port="dpt:${host_port}" -v ip="$ip" '
+    lines=$(iptables -t nat -L "$chain" --line-numbers -n | awk -v port="dpt:${host_port}" -v ip="$ip" '
       $1 ~ /^[0-9]+$/ && $0 ~ port && (ip == "" || $0 ~ ip) {print $1}' | sort -rn)
     for num in $lines; do
       iptables -t nat -D "$chain" "$num" || true
@@ -99,7 +99,7 @@ delete_forward_rules() {
   [ -z "$vm_port" ] && return 0
   for chain in FORWARD LIBVIRT_FWI; do
     local lines
-    lines=$(iptables -L "$chain" --line-numbers | awk -v port="dpt:${vm_port}" '$1 ~ /^[0-9]+$/ && $0 ~ port {print $1}' | sort -rn)
+  lines=$(iptables -L "$chain" --line-numbers -n | awk -v port="dpt:${vm_port}" '$1 ~ /^[0-9]+$/ && $0 ~ port {print $1}' | sort -rn)
     for num in $lines; do
       iptables -D "$chain" "$num" || true
     done
@@ -112,7 +112,7 @@ delete_snat_rules() {
   [ -z "$vm_ip" ] && return 0
   [ -z "$public_ip" ] && return 0
   local lines
-  lines=$(iptables -t nat -L POSTROUTING --line-numbers | awk -v ip="$vm_ip" -v pub="$public_ip" '
+  lines=$(iptables -t nat -L POSTROUTING --line-numbers -n | awk -v ip="$vm_ip" -v pub="$public_ip" '
     $1 ~ /^[0-9]+$/ && $0 ~ "SNAT" && $0 ~ ip && $0 ~ pub {print $1}' | sort -rn)
   for num in $lines; do
     iptables -t nat -D POSTROUTING "$num" || true
@@ -127,7 +127,7 @@ delete_hairpin_rules() {
   [ -z "$vm_port" ] && return 0
   [ -z "$bridge_ip" ] && return 0
   local lines
-  lines=$(iptables -t nat -L POSTROUTING --line-numbers | awk -v ip="$vm_ip" -v port="dpt:${vm_port}" -v bridge="$bridge_ip" '
+  lines=$(iptables -t nat -L POSTROUTING --line-numbers -n | awk -v ip="$vm_ip" -v port="dpt:${vm_port}" -v bridge="$bridge_ip" '
     $1 ~ /^[0-9]+$/ && $0 ~ "SNAT" && $0 ~ ip && $0 ~ port && $0 ~ bridge {print $1}' | sort -rn)
   for num in $lines; do
     iptables -t nat -D POSTROUTING "$num" || true

@@ -1343,7 +1343,7 @@ def setup_port_forward(
 
     def remove_nat_rules(chain: str) -> None:
         result = subprocess.run(
-            ['sudo', 'iptables', '-t', 'nat', '-L', chain, '--line-numbers'],
+            ['sudo', 'iptables', '-t', 'nat', '-L', chain, '--line-numbers', '-n'],
             capture_output=True,
             text=True,
         )
@@ -1368,7 +1368,7 @@ def setup_port_forward(
     def remove_forward_rules() -> None:
         for chain in ("FORWARD", "LIBVIRT_FWI"):
             result = subprocess.run(
-                ['sudo', 'iptables', '-L', chain, '--line-numbers'],
+                ['sudo', 'iptables', '-L', chain, '--line-numbers', '-n'],
                 capture_output=True,
                 text=True,
             )
@@ -1391,7 +1391,7 @@ def setup_port_forward(
         if not public_ip:
             return
         result = subprocess.run(
-            ['sudo', 'iptables', '-t', 'nat', '-L', 'POSTROUTING', '--line-numbers'],
+            ['sudo', 'iptables', '-t', 'nat', '-L', 'POSTROUTING', '--line-numbers', '-n'],
             capture_output=True,
             text=True,
         )
@@ -1417,7 +1417,7 @@ def setup_port_forward(
 
     def remove_hairpin_rules() -> None:
         result = subprocess.run(
-            ['sudo', 'iptables', '-t', 'nat', '-L', 'POSTROUTING', '--line-numbers'],
+            ['sudo', 'iptables', '-t', 'nat', '-L', 'POSTROUTING', '--line-numbers', '-n'],
             capture_output=True,
             text=True,
         )
