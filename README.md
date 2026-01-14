@@ -78,7 +78,7 @@ Single-VM design (current):
 - **Python SDK** (`sdk/README.md`) - Client verification and usage
 - **Examples** (`example/README.md`) - Sample workloads and workflow wiring
 
-Agents run in two modes: **sealed** (default, RA-TLS on, auto-connects to the production control plane at `wss://control.easyenclave.com/v1/tunnel`) and **unsealed** (`EE_MODE=unsealed`, enables the local control plane by default with RA-TLS off).
+Agents run in two modes: **sealed** (default, RA-TLS on, auto-connects to the production control plane at `wss://control.easyenclave.com/v1/tunnel`) and **unsealed** (`EE_MODE=unsealed`, enables the local control plane by default with RA-TLS off). Sealed mode expects a public control-plane host unless `EE_CONTROL_WS_ALLOW_PRIVATE=true`.
 
 ## Quick Start
 

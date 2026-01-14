@@ -88,6 +88,7 @@ Optional:
 - `EE_BACKEND_URL` (default `http://127.0.0.1:8080`)
 - `EE_HEALTH_INTERVAL_SEC` (default `60`)
 - `EE_RECONNECT_DELAY_SEC` (default `5`)
+- `EE_CONTROL_WS_ALLOW_PRIVATE` (default `false`, allow private control WS hosts for local/unsealed testing)
 
 RA-TLS:
 - `EE_RATLS_ENABLED` (default `true`)

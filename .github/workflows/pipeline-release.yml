@@ -59,6 +59,23 @@ jobs:
           if [ -z "${ADMIN_TOKEN:-}" ]; then
             echo "ADMIN_TOKEN missing; admin endpoints will be unauthenticated"
           fi
+          DEFAULT_CONTROL="https://control.easyenclave.com"
+          DEFAULT_CONTACTS="https://contacts.easyenclave.com"
+          normalize() {
+            local url="$1"
+            local fallback="$2"
+            if [ -z "$url" ]; then
+              url="$fallback"
+            fi
+            if [[ "$url" =~ ^https?://[^/]+:8000(/.*)?$ ]]; then
+              local rest="${url#*:8000}"
+              url="${url%:8000*}:443${rest}"
+            fi
+            if [[ "$url" == http://*:443* ]]; then
+              url="https://${url#http://}"
+            fi
+            echo "$url"
+          }
           admin_url() {
             local url="$1"
             local host="${url#*://}"
@@ -72,6 +89,36 @@ jobs:
             fi
             echo "https://admin-${base}.${rest}"
           }
+          is_private_host() {
+            local host="$1"
+            if [ "$host" = "localhost" ]; then
+              return 0
+            fi
+            if [[ ! "$host" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
+              return 1
+            fi
+            if [[ "$host" == 10.* || "$host" == 192.168.* || "$host" == 127.* || "$host" == 169.254.* ]]; then
+              return 0
+            fi
+            if [[ "$host" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]]; then
+              return 0
+            fi
+            return 1
+          }
+          CONTROL_URL=$(normalize "${CONTROL_URL:-}" "$DEFAULT_CONTROL")
+          CONTACTS_URL=$(normalize "${CONTACTS_URL:-}" "$DEFAULT_CONTACTS")
+          control_host=${CONTROL_URL#*://}; control_host=${control_host%%/*}; control_base=${control_host%%:*}
+          contacts_host=${CONTACTS_URL#*://}; contacts_host=${contacts_host%%/*}; contacts_base=${contacts_host%%:*}
+          if is_private_host "$control_base"; then
+            echo "::error::CONTROL_URL must use a public host (got ${control_base})"
+            exit 1
+          fi
+          if is_private_host "$contacts_base"; then
+            echo "::error::CONTACTS_URL must use a public host (got ${contacts_base})"
+            exit 1
+          fi
+          echo "CONTROL_URL=$CONTROL_URL" >> "$GITHUB_ENV"
+          echo "CONTACTS_URL=$CONTACTS_URL" >> "$GITHUB_ENV"
           echo "CONTROL_ADMIN_URL=$(admin_url "$CONTROL_URL")" >> "$GITHUB_ENV"
           echo "CONTACTS_ADMIN_URL=$(admin_url "$CONTACTS_URL")" >> "$GITHUB_ENV"
 

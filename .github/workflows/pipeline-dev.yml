@@ -157,11 +157,35 @@ jobs:
             fi
             echo "https://admin-${base}.${rest}"
           }
+          is_private_host() {
+            local host="$1"
+            if [ "$host" = "localhost" ]; then
+              return 0
+            fi
+            if [[ ! "$host" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
+              return 1
+            fi
+            if [[ "$host" == 10.* || "$host" == 192.168.* || "$host" == 127.* || "$host" == 169.254.* ]]; then
+              return 0
+            fi
+            if [[ "$host" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]]; then
+              return 0
+            fi
+            return 1
+          }
           CONTROL_URL=$(normalize "${CONTROL_URL:-}" "$DEFAULT_CONTROL")
           CONTACTS_URL=$(normalize "${CONTACTS_URL:-}" "$DEFAULT_CONTACTS")
 
           control_host=${CONTROL_URL#*://}; control_host=${control_host%%/*}; control_base=${control_host%%:*}
           contacts_host=${CONTACTS_URL#*://}; contacts_host=${contacts_host%%/*}; contacts_base=${contacts_host%%:*}
+          if is_private_host "$control_base"; then
+            echo "::error::CONTROL_URL must use a public host (got ${control_base})"
+            exit 1
+          fi
+          if is_private_host "$contacts_base"; then
+            echo "::error::CONTACTS_URL must use a public host (got ${contacts_base})"
+            exit 1
+          fi
           if [ "$control_base" = "$contacts_base" ]; then
             echo "CONTACTS_URL matches control host; using $DEFAULT_CONTACTS instead"
             CONTACTS_URL="$DEFAULT_CONTACTS"

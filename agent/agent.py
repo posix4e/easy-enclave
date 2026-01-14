@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import ipaddress
 import json
 import os
 import shutil
@@ -31,6 +32,10 @@ from typing import Optional, Sequence
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from aiohttp import ClientSession, WSMsgType, web
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+
 _repo_root = Path(__file__).resolve().parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
@@ -38,11 +43,8 @@ _sdk_path = _repo_root / "sdk"
 if _sdk_path.exists():
     sys.path.insert(0, str(_sdk_path))
 
-from aiohttp import ClientSession, WSMsgType, web
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ec
-from control_plane.server import ControlPlane, create_proxy_app, register_control_routes, run_dns_update
-from easyenclave.ratls import build_ratls_cert, report_data_for_pubkey, verify_ratls_cert
+from control_plane.server import ControlPlane, create_proxy_app, register_control_routes, run_dns_update  # noqa: E402
+from easyenclave.ratls import build_ratls_cert, report_data_for_pubkey, verify_ratls_cert  # noqa: E402
 
 # Force unbuffered output
 sys.stdout.reconfigure(line_buffering=True)
@@ -785,6 +787,7 @@ DEFAULT_CONTROL_WS = "wss://control.easyenclave.com/v1/tunnel"
 if EE_MODE == "unsealed":
     DEFAULT_CONTROL_WS = ""
 EE_CONTROL_WS = os.getenv("EE_CONTROL_WS", DEFAULT_CONTROL_WS)
+EE_CONTROL_WS_ALLOW_PRIVATE = env_bool("EE_CONTROL_WS_ALLOW_PRIVATE", EE_MODE == "unsealed")
 EE_REPO = os.getenv("EE_REPO", "")
 EE_RELEASE_TAG = os.getenv("EE_RELEASE_TAG", "")
 EE_APP_NAME = os.getenv("EE_APP_NAME", "")
@@ -811,6 +814,28 @@ EE_ADMIN_BIND = os.getenv("EE_ADMIN_BIND", "127.0.0.1")
 EE_ADMIN_PORT = int(os.getenv("EE_ADMIN_PORT", "8080"))
 EE_PROXY_BIND = os.getenv("EE_PROXY_BIND", "127.0.0.1")
 EE_PROXY_PORT = int(os.getenv("EE_PROXY_PORT", "9090"))
+
+
+def is_private_host(host: str) -> bool:
+    if not host:
+        return False
+    if host == "localhost":
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return any((ip.is_private, ip.is_loopback, ip.is_link_local, ip.is_reserved, ip.is_unspecified))
+
+
+def validate_control_ws(control_ws: str) -> bool:
+    if not control_ws:
+        return True
+    host = urlparse(control_ws).hostname or ""
+    if host and is_private_host(host) and not EE_CONTROL_WS_ALLOW_PRIVATE:
+        log(f"EE_CONTROL_WS must use a public host (got {host}); set EE_CONTROL_WS_ALLOW_PRIVATE=true to override")
+        return False
+    return True
 
 
 @dataclass
@@ -1664,6 +1689,8 @@ async def tunnel_client_loop(app: web.Application) -> None:
             log("EE_CONTROL_WS must be wss:// when EE_RATLS_ENABLED=true")
             return
         ssl_context = build_ratls_client_context(ensure_ratls_material())
+    if not validate_control_ws(control_ws):
+        return
 
     while True:
         try:
