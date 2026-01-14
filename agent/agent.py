@@ -43,8 +43,13 @@ _sdk_path = _repo_root / "sdk"
 if _sdk_path.exists():
     sys.path.insert(0, str(_sdk_path))
 
-from control_plane.server import ControlPlane, create_proxy_app, register_control_routes, run_dns_update  # noqa: E402
-from easyenclave.ratls import build_ratls_cert, report_data_for_pubkey, verify_ratls_cert  # noqa: E402
+from control_plane.server import (  # noqa: E402, I001
+    ControlPlane,
+    create_proxy_app,
+    register_control_routes,
+    run_dns_update,
+)
+from easyenclave.ratls import build_ratls_cert, report_data_for_pubkey, verify_ratls_cert  # noqa: E402, I001
 
 # Force unbuffered output
 sys.stdout.reconfigure(line_buffering=True)
