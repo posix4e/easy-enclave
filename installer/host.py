@@ -759,6 +759,24 @@ def create_minimal_cidata(
     network_config_path = os.path.join(workdir, "network-config")
 
     user_data = "#cloud-config\n"
+    route_cmd = (
+        "  - |\n"
+        "      if ! ip route show default >/dev/null 2>&1; then\n"
+        "        lease_gw=\"\"\n"
+        "        for lease in /run/systemd/netif/leases/*; do\n"
+        "          if [ -f \"$lease\" ]; then\n"
+        "            lease_gw=$(awk -F= '/^ROUTER=/ {print $2; exit}' \"$lease\")\n"
+        "            if [ -n \"$lease_gw\" ]; then\n"
+        "              break\n"
+        "            fi\n"
+        "          fi\n"
+        "        done\n"
+        "        if [ -z \"$lease_gw\" ]; then\n"
+        "          lease_gw=\"192.168.122.1\"\n"
+        "        fi\n"
+        "        ip route add default via \"$lease_gw\" || true\n"
+        "      fi\n"
+    )
     if agent_env:
         env_body = agent_env.rstrip("\n")
         user_data += (
@@ -768,9 +786,12 @@ def create_minimal_cidata(
             "    content: |\n"
             f"{indent_yaml(env_body, 6)}\n"
             "runcmd:\n"
+            f"{route_cmd}"
             "  - systemctl restart ee-agent || true\n"
             "  - systemctl restart nginx || true\n"
         )
+    else:
+        user_data += "runcmd:\n" f"{route_cmd}"
     with open(user_data_path, "w") as f:
         f.write(user_data)
     with open(meta_data_path, "w") as f:

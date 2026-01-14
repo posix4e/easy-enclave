@@ -109,6 +109,21 @@ runcmd:
   - |
     bash -euxo pipefail -c '
       export DEBIAN_FRONTEND=noninteractive
+      if ! ip route show default >/dev/null 2>&1; then
+        lease_gw=""
+        for lease in /run/systemd/netif/leases/*; do
+          if [ -f "$lease" ]; then
+            lease_gw=$(awk -F= "/^ROUTER=/ {print $2; exit}" "$lease")
+            if [ -n "$lease_gw" ]; then
+              break
+            fi
+          fi
+        done
+        if [ -z "$lease_gw" ]; then
+          lease_gw="192.168.122.1"
+        fi
+        ip route add default via "$lease_gw" || true
+      fi
       proxy_host=$(ip route show default | cut -d " " -f3 | head -n1)
       if [ -n "$proxy_host" ] && timeout 1 bash -c "</dev/tcp/$proxy_host/3128" 2>/dev/null; then
         export http_proxy="http://$proxy_host:3128"
