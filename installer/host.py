@@ -1365,6 +1365,34 @@ def setup_port_forward(
                     capture_output=True,
                 )
 
+    def remove_snat_rules() -> None:
+        if not public_ip:
+            return
+        result = subprocess.run(
+            ['sudo', 'iptables', '-t', 'nat', '-L', 'POSTROUTING', '--line-numbers'],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return
+        rule_numbers = []
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if not parts or not parts[0].isdigit():
+                continue
+            if "SNAT" not in line:
+                continue
+            if vm_ip not in line:
+                continue
+            if f"to:{public_ip}" not in line:
+                continue
+            rule_numbers.append(int(parts[0]))
+        for number in reversed(rule_numbers):
+            subprocess.run(
+                ['sudo', 'iptables', '-t', 'nat', '-D', 'POSTROUTING', str(number)],
+                capture_output=True,
+            )
+
     def add_nat_rule(chain: str, destination: str | None) -> None:
         cmd = ['sudo', 'iptables', '-t', 'nat', '-A', chain, '-p', 'tcp']
         if destination:
@@ -1381,6 +1409,7 @@ def setup_port_forward(
     remove_nat_rules('PREROUTING')
     remove_nat_rules('OUTPUT')
     remove_forward_rules()
+    remove_snat_rules()
 
     # Add PREROUTING rule for incoming traffic (insert at top to avoid stale rules)
     result = subprocess.run(
@@ -1408,6 +1437,19 @@ def setup_port_forward(
     ], capture_output=True, text=True)
     if result.returncode != 0:
         log(f"Warning: Failed to add LIBVIRT_FWI rule: {result.stderr}")
+
+    if public_ip:
+        result = subprocess.run(
+            [
+                'sudo', 'iptables', '-t', 'nat', '-I', 'POSTROUTING', '1',
+                '-s', vm_ip, '!', '-d', '192.168.122.0/24',
+                '-j', 'SNAT', '--to-source', public_ip,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            log(f"Warning: Failed to add SNAT rule: {result.stderr}")
 
     destination_desc = public_ip if public_ip else '*'
     log(f"Port forwarding configured: {destination_desc}:{host_port} -> {vm_ip}:{vm_port}")

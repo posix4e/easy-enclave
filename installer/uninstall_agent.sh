@@ -42,6 +42,26 @@ fi
 
 log() { printf '%s\n' "$*" >&2; }
 
+get_vm_ip() {
+  local name="$1"
+  local ip=""
+  ip=$(virsh domifaddr "$name" 2>/dev/null | awk '/ipv4/ {print $4}' | cut -d/ -f1 | head -n1)
+  if [ -n "$ip" ]; then
+    printf '%s\n' "$ip"
+    return 0
+  fi
+  local mac=""
+  mac=$(virsh domiflist "$name" 2>/dev/null | awk 'NR>2 && $5 ~ /:/ {print $5; exit}')
+  if [ -n "$mac" ]; then
+    ip=$(virsh net-dhcp-leases default 2>/dev/null | awk -v mac="$mac" '$0 ~ mac {print $5; exit}' | cut -d/ -f1)
+    if [ -n "$ip" ]; then
+      printf '%s\n' "$ip"
+      return 0
+    fi
+  fi
+  return 1
+}
+
 cleanup_vm() {
   local name="$1"
   virsh destroy "$name" >/dev/null 2>&1 || true
@@ -75,11 +95,29 @@ delete_forward_rules() {
   done
 }
 
+delete_snat_rules() {
+  local vm_ip="$1"
+  local public_ip="$2"
+  [ -z "$vm_ip" ] && return 0
+  [ -z "$public_ip" ] && return 0
+  local lines
+  lines=$(iptables -t nat -L POSTROUTING --line-numbers | awk -v ip="$vm_ip" -v pub="$public_ip" '
+    $1 ~ /^[0-9]+$/ && $0 ~ "SNAT" && $0 ~ ip && $0 ~ pub {print $1}' | sort -rn)
+  for num in $lines; do
+    iptables -t nat -D POSTROUTING "$num" || true
+  done
+}
+
 log "Uninstalling VM ${VM_NAME}"
+VM_IP=""
+if VM_IP=$(get_vm_ip "$VM_NAME"); then
+  log "Detected VM IP ${VM_IP} for ${VM_NAME}"
+fi
 cleanup_vm "$VM_NAME"
 delete_nat_rules "$HOST_PORT" "$PUBLIC_IP"
 if [ -z "$PUBLIC_PORT" ]; then
   PUBLIC_PORT="443"
 fi
 delete_forward_rules "$PUBLIC_PORT"
+delete_snat_rules "$VM_IP" "$PUBLIC_IP"
 log "Uninstall complete for ${VM_NAME}"
