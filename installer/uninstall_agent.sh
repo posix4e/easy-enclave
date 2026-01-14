@@ -62,6 +62,17 @@ get_vm_ip() {
   return 1
 }
 
+get_bridge_info() {
+  local route_line=""
+  route_line=$(ip -4 route show dev virbr0 2>/dev/null | head -n 1)
+  if [ -z "$route_line" ]; then
+    return 1
+  fi
+  BRIDGE_SUBNET=$(printf '%s\n' "$route_line" | awk '{print $1}')
+  BRIDGE_IP=$(printf '%s\n' "$route_line" | awk '{for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}')
+  [ -n "$BRIDGE_SUBNET" ] && [ -n "$BRIDGE_IP" ]
+}
+
 cleanup_vm() {
   local name="$1"
   virsh destroy "$name" >/dev/null 2>&1 || true
@@ -108,10 +119,30 @@ delete_snat_rules() {
   done
 }
 
+delete_hairpin_rules() {
+  local vm_ip="$1"
+  local vm_port="$2"
+  local bridge_ip="$3"
+  [ -z "$vm_ip" ] && return 0
+  [ -z "$vm_port" ] && return 0
+  [ -z "$bridge_ip" ] && return 0
+  local lines
+  lines=$(iptables -t nat -L POSTROUTING --line-numbers | awk -v ip="$vm_ip" -v port="dpt:${vm_port}" -v bridge="$bridge_ip" '
+    $1 ~ /^[0-9]+$/ && $0 ~ "SNAT" && $0 ~ ip && $0 ~ port && $0 ~ bridge {print $1}' | sort -rn)
+  for num in $lines; do
+    iptables -t nat -D POSTROUTING "$num" || true
+  done
+}
+
 log "Uninstalling VM ${VM_NAME}"
 VM_IP=""
 if VM_IP=$(get_vm_ip "$VM_NAME"); then
   log "Detected VM IP ${VM_IP} for ${VM_NAME}"
+fi
+BRIDGE_SUBNET=""
+BRIDGE_IP=""
+if get_bridge_info; then
+  :
 fi
 cleanup_vm "$VM_NAME"
 delete_nat_rules "$HOST_PORT" "$PUBLIC_IP"
@@ -120,4 +151,5 @@ if [ -z "$PUBLIC_PORT" ]; then
 fi
 delete_forward_rules "$PUBLIC_PORT"
 delete_snat_rules "$VM_IP" "$PUBLIC_IP"
+delete_hairpin_rules "$VM_IP" "$PUBLIC_PORT" "$BRIDGE_IP"
 log "Uninstall complete for ${VM_NAME}"

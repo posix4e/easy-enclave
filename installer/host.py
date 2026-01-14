@@ -1318,6 +1318,28 @@ def setup_port_forward(
     """
     host_port = host_port or vm_port
     public_ip = public_ip or None
+    bridge_subnet = "192.168.122.0/24"
+    bridge_ip = "192.168.122.1"
+
+    def resolve_bridge_info() -> None:
+        nonlocal bridge_subnet, bridge_ip
+        result = subprocess.run(
+            ['ip', '-4', 'route', 'show', 'dev', 'virbr0'],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if not parts or '/' not in parts[0]:
+                continue
+            bridge_subnet = parts[0]
+            if 'src' in parts:
+                src_index = parts.index('src') + 1
+                if src_index < len(parts):
+                    bridge_ip = parts[src_index]
+            return
 
     def remove_nat_rules(chain: str) -> None:
         result = subprocess.run(
@@ -1393,6 +1415,32 @@ def setup_port_forward(
                 capture_output=True,
             )
 
+    def remove_hairpin_rules() -> None:
+        result = subprocess.run(
+            ['sudo', 'iptables', '-t', 'nat', '-L', 'POSTROUTING', '--line-numbers'],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return
+        rule_numbers = []
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if not parts or not parts[0].isdigit():
+                continue
+            if "SNAT" not in line:
+                continue
+            if vm_ip not in line or f"dpt:{vm_port}" not in line:
+                continue
+            if f"to:{bridge_ip}" not in line:
+                continue
+            rule_numbers.append(int(parts[0]))
+        for number in reversed(rule_numbers):
+            subprocess.run(
+                ['sudo', 'iptables', '-t', 'nat', '-D', 'POSTROUTING', str(number)],
+                capture_output=True,
+            )
+
     def add_nat_rule(chain: str, destination: str | None) -> None:
         cmd = ['sudo', 'iptables', '-t', 'nat', '-A', chain, '-p', 'tcp']
         if destination:
@@ -1409,6 +1457,8 @@ def setup_port_forward(
     remove_nat_rules('PREROUTING')
     remove_nat_rules('OUTPUT')
     remove_forward_rules()
+    resolve_bridge_info()
+    remove_hairpin_rules()
     remove_snat_rules()
 
     # Add PREROUTING rule for incoming traffic (insert at top to avoid stale rules)
@@ -1438,11 +1488,23 @@ def setup_port_forward(
     if result.returncode != 0:
         log(f"Warning: Failed to add LIBVIRT_FWI rule: {result.stderr}")
 
+    result = subprocess.run(
+        [
+            'sudo', 'iptables', '-t', 'nat', '-I', 'POSTROUTING', '1',
+            '-s', bridge_subnet, '-d', vm_ip, '-p', 'tcp', '--dport', str(vm_port),
+            '-j', 'SNAT', '--to-source', bridge_ip,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        log(f"Warning: Failed to add hairpin SNAT rule: {result.stderr}")
+
     if public_ip:
         result = subprocess.run(
             [
                 'sudo', 'iptables', '-t', 'nat', '-I', 'POSTROUTING', '1',
-                '-s', vm_ip, '!', '-d', '192.168.122.0/24',
+                '-s', vm_ip, '!', '-d', bridge_subnet,
                 '-j', 'SNAT', '--to-source', public_ip,
             ],
             capture_output=True,
