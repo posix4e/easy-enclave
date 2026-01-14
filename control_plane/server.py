@@ -57,6 +57,10 @@ from control_plane.registry import Registry, RegistryConfig
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
+def log(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
+
+
 @dataclass
 class Session:
     ws: web.WebSocketResponse
@@ -109,6 +113,7 @@ class ControlPlane:
                     require_allowlist=False,
                 )
                 if not ratls_result.verified:
+                    log(f"ratls_client_rejected reason={ratls_result.reason}")
                     raise web.HTTPUnauthorized(reason=f"ratls_{ratls_result.reason}")
         ws = web.WebSocketResponse(heartbeat=30)
         await ws.prepare(request)
@@ -180,6 +185,7 @@ class ControlPlane:
                     allowlist = fetch_allowlist(repo, release_tag, ALLOWLIST_ASSET, GITHUB_TOKEN)
                     self.allowlist_cache.put(repo, release_tag, allowlist)
                 except Exception as exc:
+                    log(f"allowlist_fetch_failed repo={repo} tag={release_tag} error={exc}")
                     await session.ws.send_json(
                         {"type": "status", "state": "invalid", "reason": f"allowlist_fetch_failed:{exc}"}
                     )
@@ -187,6 +193,7 @@ class ControlPlane:
                     return
             ok, reason = match_quote_measurements(allowlist, session.ratls_result.measurements or {})
             if not ok:
+                log(f"ratls_allowlist_mismatch repo={repo} tag={release_tag} reason={reason}")
                 await session.ws.send_json({"type": "status", "state": "invalid", "reason": f"ratls_{reason}"})
                 await session.ws.close()
                 return
