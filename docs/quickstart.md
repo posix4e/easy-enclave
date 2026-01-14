@@ -53,7 +53,7 @@ services:
   app:
     image: your-image:latest
     ports:
-      - "8080:8080"
+      - "8081:8080"
     environment:
       - DATABASE_URL=${DATABASE_URL}  # from github secrets
 ```

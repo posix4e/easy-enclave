@@ -22,7 +22,7 @@ Required:
 
 Optional:
 - `private_env`: newline-separated env vars (not stored on disk)
-- `port`: service port (default 8080)
+- `port`: service port (default 8081)
 - `seal_vm`: seal access after deploy
 
 Notes:
@@ -85,7 +85,7 @@ Required:
 
 Optional:
 - `EE_NETWORK` (default `forge-1`)
-- `EE_BACKEND_URL` (default `http://127.0.0.1:8080`)
+- `EE_BACKEND_URL` (default `http://127.0.0.1:8081`)
 - `EE_HEALTH_INTERVAL_SEC` (default `60`)
 - `EE_RECONNECT_DELAY_SEC` (default `5`)
 - `EE_CONTROL_WS_ALLOW_PRIVATE` (default `false`, allow private control WS hosts for local/unsealed testing)

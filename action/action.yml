@@ -33,13 +33,13 @@ inputs:
     required: false
     default: 'true'
   endpoint:
-    description: 'Public endpoint URL for the service (use "auto" for http://{vm_ip}:8080)'
+    description: 'Public endpoint URL for the service (use "auto" for http://{vm_ip}:8081)'
     required: false
     default: 'auto'
   endpoint-port:
     description: 'Port for auto-generated endpoint (used when endpoint is "auto")'
     required: false
-    default: '8080'
+    default: '8081'
   github-token:
     description: 'GitHub token for creating releases'
     required: true

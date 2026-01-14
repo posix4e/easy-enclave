@@ -107,11 +107,11 @@ services:
   app:
     image: ghcr.io/your-org/your-app:latest
     ports:
-      - "8080:8080"
+      - "8081:8080"
     environment:
       - DATABASE_URL=${DATABASE_URL}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
       interval: 30s
       timeout: 10s
       retries: 3

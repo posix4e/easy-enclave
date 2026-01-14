@@ -16,7 +16,7 @@ CONTACT_API_TOKEN=local-token docker compose -f example/contact-compose.yml up -
 Register contacts:
 
 ```bash
-curl -X POST http://localhost:8080/register \
+curl -X POST http://localhost:8081/register \
   -H "Authorization: Bearer local-token" \
   -H "Content-Type: application/json" \
   -d '{"contacts": ["+15551234567", "+15559876543"]}'
@@ -25,7 +25,7 @@ curl -X POST http://localhost:8080/register \
 Lookup:
 
 ```bash
-curl -X POST http://localhost:8080/lookup \
+curl -X POST http://localhost:8081/lookup \
   -H "Authorization: Bearer local-token" \
   -H "Content-Type: application/json" \
   -d '{"contacts": ["+15551234567", "+15551112222"]}'

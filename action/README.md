@@ -21,7 +21,7 @@ Deploy workloads to a remote Easy Enclave agent and publish an attested release.
 - `agent-vm-image-tag`: agent VM image tag
 - `agent-vm-image-sha256`: agent VM image sha256
 - `docker-compose`: path to docker-compose.yml (bundled as a public artifact)
-- `endpoint`: public endpoint URL (use `auto` for `http://{vm_ip}:8080`)
+- `endpoint`: public endpoint URL (use `auto` for `http://{vm_ip}:8081`)
 - `endpoint-port`: port for auto endpoint
 - `github-token`: GitHub token used by the agent for release creation
 - `vm-name`: VM name for local-mode runs (ignored when deploying via agent)

@@ -293,7 +293,7 @@ def build_extra_files_yaml(extra_files: list[dict[str, str]] | None) -> str:
 def create_workload_image(
     base_image: str,
     docker_compose_content: str,
-    port: int = 8080,
+    port: int = 8081,
     enable_ssh: bool = False,
     extra_files: list[dict[str, str]] | None = None,
 ) -> tuple[str, str, str]:
@@ -560,7 +560,7 @@ def setup_port_forward(vm_ip: str, vm_port: int, host_port: int | None = None) -
     return host_port
 
 
-def wait_for_ready(ip: str, port: int = 8080, timeout: int = 300) -> None:
+def wait_for_ready(ip: str, port: int = 8081, timeout: int = 300) -> None:
     """Wait for workload to be ready by checking port."""
     start = time.time()
     last_print = 0
@@ -584,7 +584,7 @@ def wait_for_ready(ip: str, port: int = 8080, timeout: int = 300) -> None:
     raise TimeoutError(f"Port {port} not ready within {timeout}s")
 
 
-def get_quote_from_vm(ip: str, port: int = 8080) -> str:
+def get_quote_from_vm(ip: str, port: int = 8081) -> str:
     """Retrieve quote from VM via HTTP. Returns base64-encoded quote."""
     url = f"http://{ip}:{port}/quote.json"
     log(f"Fetching quote from {url}")
@@ -600,7 +600,7 @@ def get_quote_from_vm(ip: str, port: int = 8080) -> str:
 def create_td_vm(
     docker_compose_path: str,
     name: str = "ee-workload",
-    port: int = 8080,
+    port: int = 8081,
     enable_ssh: bool = False,
     extra_files: list[dict[str, str]] | None = None,
     base_image: str | None = None,
@@ -798,7 +798,7 @@ EE_RELEASE_TAG = os.getenv("EE_RELEASE_TAG", "")
 EE_APP_NAME = os.getenv("EE_APP_NAME", "")
 EE_NETWORK = os.getenv("EE_NETWORK", "forge-1")
 EE_AGENT_ID = os.getenv("EE_AGENT_ID", str(uuid.uuid4()))
-EE_BACKEND_URL = os.getenv("EE_BACKEND_URL", "http://127.0.0.1:8080")
+EE_BACKEND_URL = os.getenv("EE_BACKEND_URL", "http://127.0.0.1:8081")
 EE_HEALTH_INTERVAL_SEC = int(os.getenv("EE_HEALTH_INTERVAL_SEC", "60"))
 EE_RECONNECT_DELAY_SEC = int(os.getenv("EE_RECONNECT_DELAY_SEC", "5"))
 EE_RATLS_ENABLED = env_bool("EE_RATLS_ENABLED", EE_MODE != "unsealed")
@@ -1626,7 +1626,7 @@ async def handle_deploy(request: web.Request) -> web.Response:
     deployment = Deployment(
         id=str(uuid.uuid4()),
         repo=repo,
-        port=data.get("port", 8080),
+        port=data.get("port", 8081),
         status="pending",
         vm_name=data.get("vm_name"),
         cleanup_prefixes=cleanup_prefixes,
