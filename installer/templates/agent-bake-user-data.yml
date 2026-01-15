@@ -95,6 +95,11 @@ write_files:
     content: |
 {agent_env}
 
+  - path: /etc/easy-enclave/control-allowlist.json
+    permissions: '0644'
+    content: |
+{control_allowlist_json}
+
   - path: /opt/ee-agent/nginx.conf
     permissions: '0644'
     content: |

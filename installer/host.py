@@ -532,6 +532,18 @@ def build_vm_image_id_yaml(tag: str, sha256: str) -> str:
     )
 
 
+def load_control_allowlist(repo_root: Path) -> str:
+    """Load the bundled control-plane allowlist JSON."""
+    allowlist_path = repo_root / "installer" / "agent-attestation-allowlist.json"
+    if not allowlist_path.exists():
+        log(f"Warning: allowlist not found at {allowlist_path}")
+        return ""
+    content = allowlist_path.read_text(encoding="utf-8")
+    if not content.endswith("\n"):
+        content += "\n"
+    return content
+
+
 def build_agent_env(base_env: dict[str, str], extra_env: dict[str, str] | None = None) -> str:
     lines: list[str] = []
     if extra_env:
@@ -554,6 +566,7 @@ def create_agent_image(
     agent_port: int = 8000,
     agent_env: str = "",
     nginx_conf: str = "",
+    control_allowlist_json: str = "",
     control_plane_files: dict[str, str] | None = None,
     sdk_files: dict[str, str] | None = None,
     user_data_template: str = "agent-user-data.yml",
@@ -579,6 +592,7 @@ def create_agent_image(
         agent_py=indent_yaml(agent_py, 6),
         agent_verify_py=indent_yaml(agent_verify_py, 6),
         agent_ratls_py=indent_yaml(agent_ratls_py, 6),
+        control_allowlist_json=indent_yaml(control_allowlist_json, 6),
         control_plane_init_py=indent_yaml(control_plane_files.get("init", ""), 6),
         control_plane_server_py=indent_yaml(control_plane_files.get("server", ""), 6),
         control_plane_config_py=indent_yaml(control_plane_files.get("config", ""), 6),
@@ -658,6 +672,7 @@ def create_agent_vm(
     agent_py = (repo_root / "agent" / "agent.py").read_text(encoding="utf-8")
     agent_verify_py = (repo_root / "agent" / "verify.py").read_text(encoding="utf-8")
     agent_ratls_py = (repo_root / "agent" / "ratls.py").read_text(encoding="utf-8")
+    control_allowlist_json = load_control_allowlist(repo_root)
     control_plane_root = repo_root / "control_plane"
     control_plane_files = {
         "init": "",
@@ -689,6 +704,8 @@ def create_agent_vm(
         "EE_CONTROL_PLANE_ENABLED": "true" if control_plane_enabled else "false",
         "SEAL_VM": "true",
     }
+    if control_allowlist_json:
+        base_env["EE_CONTROL_ALLOWLIST_PATH"] = "/etc/easy-enclave/control-allowlist.json"
     extra_env = {
         key: value
         for key, value in os.environ.items()
@@ -716,6 +733,7 @@ def create_agent_vm(
         agent_port=port,
         agent_env=agent_env,
         nginx_conf=nginx_conf,
+        control_allowlist_json=control_allowlist_json,
         control_plane_files=control_plane_files,
         sdk_files=sdk_files,
     )
@@ -750,6 +768,7 @@ def create_minimal_cidata(
     workdir: str,
     hostname: str = "ee-agent",
     agent_env: str | None = None,
+    control_allowlist_json: str | None = None,
 ) -> str:
     """Create a minimal cloud-init ISO for networking/metadata."""
     os.makedirs(workdir, exist_ok=True)
@@ -777,19 +796,28 @@ def create_minimal_cidata(
         "        ip route add default via \"$lease_gw\" || true\n"
         "      fi\n"
     )
-    if agent_env:
-        env_body = agent_env.rstrip("\n")
-        user_data += (
-            "write_files:\n"
-            "  - path: /etc/easy-enclave/agent.env\n"
-            "    permissions: '0640'\n"
-            "    content: |\n"
-            f"{indent_yaml(env_body, 6)}\n"
-            "runcmd:\n"
-            f"{route_cmd}"
-            "  - systemctl restart ee-agent || true\n"
-            "  - systemctl restart nginx || true\n"
-        )
+    if control_allowlist_json or agent_env:
+        user_data += "write_files:\n"
+        if control_allowlist_json:
+            allowlist_body = control_allowlist_json.rstrip("\n")
+            user_data += (
+                "  - path: /etc/easy-enclave/control-allowlist.json\n"
+                "    permissions: '0644'\n"
+                "    content: |\n"
+                f"{indent_yaml(allowlist_body, 6)}\n"
+            )
+        if agent_env:
+            env_body = agent_env.rstrip("\n")
+            user_data += (
+                "  - path: /etc/easy-enclave/agent.env\n"
+                "    permissions: '0640'\n"
+                "    content: |\n"
+                f"{indent_yaml(env_body, 6)}\n"
+            )
+        user_data += "runcmd:\n" f"{route_cmd}"
+        if agent_env:
+            user_data += "  - systemctl restart ee-agent || true\n"
+            user_data += "  - systemctl restart nginx || true\n"
     else:
         user_data += "runcmd:\n" f"{route_cmd}"
     with open(user_data_path, "w") as f:
@@ -828,6 +856,8 @@ def start_agent_vm_from_image(
     check_requirements()
 
     workdir = tempfile.mkdtemp(prefix="ee-agent-boot-")
+    repo_root = Path(__file__).resolve().parent.parent
+    control_allowlist_json = load_control_allowlist(repo_root)
     base_env = {
         "EE_MAIN_BIND": "0.0.0.0",
         "EE_MAIN_PORT": str(port),
@@ -838,6 +868,8 @@ def start_agent_vm_from_image(
         "EE_CONTROL_PLANE_ENABLED": "true" if control_plane_enabled else "false",
         "SEAL_VM": "true",
     }
+    if control_allowlist_json:
+        base_env["EE_CONTROL_ALLOWLIST_PATH"] = "/etc/easy-enclave/control-allowlist.json"
     extra_env = {
         key: value
         for key, value in os.environ.items()
@@ -846,7 +878,12 @@ def start_agent_vm_from_image(
     for key in list(base_env.keys()):
         extra_env.pop(key, None)
     agent_env = build_agent_env(base_env, extra_env)
-    cidata_iso = create_minimal_cidata(workdir, hostname=name, agent_env=agent_env)
+    cidata_iso = create_minimal_cidata(
+        workdir,
+        hostname=name,
+        agent_env=agent_env,
+        control_allowlist_json=control_allowlist_json,
+    )
 
     # Create a VM-specific overlay so multiple VMs are not competing for write
     # access to the same pristine image.
@@ -969,6 +1006,7 @@ def build_pristine_agent_image(
     agent_py = (repo_root / "agent" / "agent.py").read_text(encoding="utf-8")
     agent_verify_py = (repo_root / "agent" / "verify.py").read_text(encoding="utf-8")
     agent_ratls_py = (repo_root / "agent" / "ratls.py").read_text(encoding="utf-8")
+    control_allowlist_json = load_control_allowlist(repo_root)
     control_plane_root = repo_root / "control_plane"
     control_plane_files = {
         "init": "",
@@ -1000,6 +1038,8 @@ def build_pristine_agent_image(
         "EE_CONTROL_PLANE_ENABLED": "false",
         "SEAL_VM": "true",
     }
+    if control_allowlist_json:
+        base_env["EE_CONTROL_ALLOWLIST_PATH"] = "/etc/easy-enclave/control-allowlist.json"
     agent_env = build_agent_env(base_env)
     admin_tls_port = 9443
     nginx_conf = load_template("nginx.conf").format(
@@ -1020,6 +1060,7 @@ def build_pristine_agent_image(
         agent_port=agent_port,
         agent_env=agent_env,
         nginx_conf=nginx_conf,
+        control_allowlist_json=control_allowlist_json,
         control_plane_files=control_plane_files,
         sdk_files=sdk_files,
         user_data_template="agent-bake-user-data.yml",
